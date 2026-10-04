@@ -23,6 +23,19 @@ await withPackedConsumer(fixture, async ({ temporary }) => {
       continue;
     await cp(join(fixture, file), join(temporary, file), { recursive: true });
   }
+  // The docs sandbox is not a package: smoke-test the exact bundles the website ships,
+  // built from the workspace packages the same way `pnpm docs:build` builds them.
+  execFileSync('pnpm', ['--dir', 'apps/docs', 'docs:runtime'], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    timeout: 300_000,
+  });
+  execFileSync(
+    process.execPath,
+    [join(root, 'apps/docs/scripts/sandbox-runtime.ts'), '--out', join(temporary, 'sandbox')],
+    { cwd: root, stdio: 'inherit', timeout: 300_000 }
+  );
   const cli = join(temporary, 'node_modules/@playwright/test/cli.js');
   try {
     if (options.install) {

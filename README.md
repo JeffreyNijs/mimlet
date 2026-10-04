@@ -19,6 +19,8 @@ Install only what you use: the core has no dependencies, and each schema library
 its own small adapter. Hey API users can also generate builder classes from an OpenAPI
 spec with `hey-api-builders`. Releases are published on npm's `next` channel, and the
 [documentation website](https://jeffreynijs.github.io/mimlet/) has guides and a live demo.
+To try Mimlet without installing anything, [run the examples in your browser](https://jeffreynijs.github.io/mimlet/guide/try-it.html).
+The sandbox runs locally in the page and uses the beta packages.
 
 The published beta is **0.1.0-beta.0** for the toolkit and **3.0.0-beta.0** for
 the Hey API integration. Use matching versions. Existing `hey-api-builders@latest`

@@ -5,8 +5,11 @@ import { clearTimeout, setTimeout } from 'node:timers';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepare, root } from './prepare.ts';
+import { buildSandboxRuntime } from './sandbox-runtime.ts';
 
 await prepare();
+// Built once per dev session; restart after changing apps/docs/sandbox or a bundled package.
+await buildSandboxRuntime();
 const child = spawn(
   process.execPath,
   [

@@ -11,18 +11,24 @@
     "type-check": "pnpm docs:runtime && pnpm docs:prepare && vue-tsc --noEmit",
     "test": "playwright test && node scripts/test-dev.ts",
     "test:install": "playwright install --with-deps chromium",
-    "docs:runtime": "pnpm --filter @mimlet/core --filter @mimlet/fast-check build"
+    "docs:runtime": "pnpm --filter @mimlet/core --filter @mimlet/fast-check --filter @mimlet/json-schema --filter @mimlet/zod --filter @mimlet/valibot build"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
     "@types/node": "22.20.1",
     "typescript": "6.0.3",
+    "vite": "6.4.3",
     "vitepress": "1.6.4",
     "vue": "3.5.43",
     "vue-tsc": "3.3.11",
     "@mimlet/core": "workspace:*",
     "@mimlet/fast-check": "workspace:*",
-    "fast-check": "4.10.2"
+    "@mimlet/json-schema": "workspace:*",
+    "@mimlet/valibot": "workspace:*",
+    "@mimlet/zod": "workspace:*",
+    "fast-check": "4.10.2",
+    "valibot": "1.5.0",
+    "zod": "4.6.5"
   }
 }

@@ -40,6 +40,13 @@ shutdown. **Workers are not an OS sandbox:** native/ArrayBuffer allocations and
 engine failures can affect the host process. Use a separately restricted process
 or container for hostile schemas requiring hard filesystem/network/memory controls.
 
+The website's [in-browser sandbox](docs/try-it.md) runs the JavaScript a visitor edits
+in a Web Worker inside a sandboxed frame. The frame has an opaque origin, so the code
+cannot reach the page, its cookies or the site's storage, and its Content Security Policy
+blocks network requests and other scripts. Each run has a time limit and an output limit,
+not a memory limit. It relies on the browser's own isolation and is meant for trying
+examples, not for running code you do not trust.
+
 ## Loopback and filesystem policy
 
 The playground binds only to `127.0.0.1`, checks Host/origin/fetch-site and a
