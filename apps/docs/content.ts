@@ -8,7 +8,7 @@ export const identity = {
     'Give your tests a little life. Build fixtures that fit your schemas, keep related data connected, and bring a failing case back on cue.',
 };
 
-export const alphaStatus = `Beta ${identity.releaseVersion} on npm’s next channel. APIs can still change before a stable release, and there is no production adoption to point to yet.`;
+export const alphaStatus = `Beta ${identity.releaseVersion} on npm’s latest tag. APIs can still change before a stable release, and there is no production adoption to point to yet.`;
 
 export const feedbackUrl =
   'https://github.com/JeffreyNijs/mimlet/issues/new?template=beta-feedback.yml';

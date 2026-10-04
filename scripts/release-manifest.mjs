@@ -1,12 +1,13 @@
 /** Pure release metadata checks shared by local preparation and release verification. */
-import { versionPattern } from './check-workspace.mjs';
+import { releaseDistTag, versionPattern } from './check-workspace.mjs';
+/** Format 2 records the channel as `prerelease` and each package's own npm dist-tag. */
 export function validateReleaseManifest(value, expectedTag) {
   const fail = (message) => {
     throw new Error(`Release: ${message}`);
   };
   if (
     !value ||
-    value.format !== 1 ||
+    value.format !== 2 ||
     !/^[a-f0-9]{40}$/.test(value.commit ?? '') ||
     !versionPattern.test(value.coreVersion ?? '')
   )
@@ -14,8 +15,8 @@ export function validateReleaseManifest(value, expectedTag) {
   const tag = `toolkit-v${value.coreVersion}`;
   if (value.tag !== tag || (expectedTag !== undefined && expectedTag !== tag))
     fail('release tag does not match the core version');
-  if (value.distTag !== (value.coreVersion.includes('-') ? 'next' : 'latest'))
-    fail('incorrect distribution tag');
+  if (value.prerelease !== value.coreVersion.includes('-'))
+    fail('release channel does not match the core version');
   if (!Array.isArray(value.packages) || value.packages.length < 2 || value.packages.length > 64)
     fail('invalid package inventory');
   const names = new Set(),
@@ -39,6 +40,8 @@ export function validateReleaseManifest(value, expectedTag) {
       fail('neutral packages must share the release train version');
     if (item.version.includes('-') !== value.coreVersion.includes('-'))
       fail('stable and prerelease packages cannot be mixed');
+    if (item.distTag !== releaseDistTag(item.name, item.version))
+      fail(`incorrect distribution tag for ${item.name}`);
     names.add(item.name);
     files.add(filename);
   }
@@ -70,6 +73,11 @@ export function validateReleasePackageMetadata(manifest, metadata) {
       pkg.private !== false
     )
       fail('packed package identity differs from the verified manifest');
+    if (
+      expected.distTag !== releaseDistTag(pkg.name, pkg.version) ||
+      pkg.publishConfig?.tag !== expected.distTag
+    )
+      fail(`packed distribution tag differs from the verified manifest: ${pkg.name}`);
     seen.add(pkg.name);
     for (const group of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
       const dependencies = pkg[group] ?? {};

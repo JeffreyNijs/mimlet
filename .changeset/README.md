@@ -14,6 +14,7 @@ operation, not part of normal development.
 
 Internal runtime dependencies remain exact rather than source-only workspace
 protocols. After versioning, `pnpm check:workspace` catches any drift. The package
-publishConfig tag must remain `next` for prereleases and be changed to `latest`
-only for a reviewed stable train. See `docs/releases.md` for artifact verification,
-trusted publisher setup, partial-release recovery, and rollback.
+publishConfig tag is `latest` for every `@mimlet/*` package, including prereleases.
+`hey-api-builders` keeps `next` for prereleases and changes to `latest` only for a
+reviewed stable train. See `docs/releases.md` for distribution tags, artifact
+verification, trusted publisher setup, partial-release recovery, and rollback.

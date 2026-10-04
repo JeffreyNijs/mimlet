@@ -183,7 +183,7 @@ export async function bootstrapRelease(mode, npmRoot, directory, provenanceDirec
       const bytes = await regularFile(join(directory, pkg.filename), 64 * 1024 * 1024);
       if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== pkg.integrity)
         throw new Error('Artifact changed after verification');
-      console.log(`Publishing ${pkg.name}@${pkg.version} to ${manifest.distTag}`);
+      console.log(`Publishing ${pkg.name}@${pkg.version} to ${pkg.distTag}`);
       // Select the pre-signed bundle, not local automatic signing. libnpmpublish
       // verifies and attaches it; the tarball's provenance policy remains true.
       const options = {
@@ -193,7 +193,8 @@ export async function bootstrapRelease(mode, npmRoot, directory, provenanceDirec
         registry,
         '@mimlet:registry': registry,
         access: 'public',
-        defaultTag: manifest.distTag,
+        // Verified per package against the policy and the tarball's publishConfig.tag.
+        defaultTag: pkg.distTag,
         ignoreScripts: true,
         provenance: false,
         provenanceFile: join(provenanceDirectory, `${pkg.filename}.sigstore`),

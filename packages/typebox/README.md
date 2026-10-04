@@ -1,12 +1,12 @@
 # Native TypeBox builders
 
-`@mimlet/typebox` accepts native `typebox` schemas. Prereleases use npm's `next` tag. Its current compatibility target is exactly `typebox@1.3.34`; broader ranges require additional matrix testing.
+`@mimlet/typebox` accepts native `typebox` schemas. Releases, including betas, are published on npm's `latest` tag. Its current compatibility target is exactly `typebox@1.3.34`; broader ranges require additional matrix testing.
 
-Install from npm's `next` tag. Pin exact versions when you need to
+Install from npm. Pin exact versions when you need to
 reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
 
 ```sh
-npm install --save-dev @mimlet/typebox@next typebox@1.3.34
+npm install --save-dev @mimlet/typebox typebox@1.3.34
 ```
 
 ```ts

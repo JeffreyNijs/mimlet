@@ -13,11 +13,11 @@ recipes and the [compatibility matrix](https://jeffreynijs.github.io/mimlet/guid
 
 ## Install
 
-Prereleases use npm's `next` tag. Pin exact versions when you need to reproduce
-fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
+Releases, including betas, are published on npm's `latest` tag. Pin exact versions
+when you need to reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
 
 ```sh
-npm install --save-dev @mimlet/arktype@next arktype@2.2.7
+npm install --save-dev @mimlet/arktype arktype@2.2.7
 ```
 
 ## Builders and factories

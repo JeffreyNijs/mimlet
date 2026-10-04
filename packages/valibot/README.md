@@ -5,11 +5,11 @@ through the pinned `@valibot/to-json-schema@1.8.0` converter. The original nativ
 parser retains its output transformations and is invoked once per validated build.
 Conversion failures are not suppressed or downgraded to warnings.
 
-Install from npm's `next` tag. Pin exact versions when you need to
-reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
+Install from npm's `latest` tag, which includes betas. Pin exact versions when you
+need to reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
 
 ```sh
-npm install --save-dev @mimlet/valibot@next valibot@1.5.0
+npm install --save-dev @mimlet/valibot valibot@1.5.0
 ```
 
 ```ts

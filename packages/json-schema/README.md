@@ -3,11 +3,11 @@
 Offline schema-to-fixture generation, with independent Ajv validation, reproducible
 sessions, and the same immutable builder pipeline as the native adapters.
 
-Install from npm's `next` tag. Pin exact versions when you need to
-reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
+Install from npm's `latest` tag, which includes betas. Pin exact versions when you
+need to reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
 
 ```sh
-npm install --save-dev @mimlet/json-schema@next
+npm install --save-dev @mimlet/json-schema
 ```
 
 ```ts

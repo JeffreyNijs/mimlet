@@ -29,7 +29,7 @@ await server.close();
 
 The CLI is `mimlet-playground [--port 0..65535]`; `--help` describes it.
 During development, build the packages and run the compiled `dist/cli.js` from
-this directory. Check the website for current registry availability; prereleases use npm's `next` tag.
+this directory. Check the website for current registry availability; releases, including betas, are published on npm's `latest` tag.
 
 The UI accepts schema documents and an in-memory reference dictionary. It offers
 minimal, seeded variation, boundary-focused, defaults and examples profiles;

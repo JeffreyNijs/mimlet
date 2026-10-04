@@ -1,7 +1,9 @@
 # Beta readiness checklist
 
 The first beta, toolkit **0.1.0-beta.0** and `hey-api-builders` **3.0.0-beta.0**, was
-published on `next` on 2026-10-03 after this checklist's entry items passed. The
+published on `next` on 2026-10-03 after this checklist's entry items passed. Betas after
+`0.1.0-beta.1` publish the `@mimlet/*` packages straight to `latest` and keep
+`hey-api-builders` on `next`; see [distribution tags](releases.md#distribution-tags). The
 candidate record (evidence for each item) is in
 [the release PR](https://github.com/JeffreyNijs/mimlet/pull/55). The repository is in
 Changesets `beta` mode. This document does not change versions or authorize publication.
@@ -28,7 +30,7 @@ Existing records, not beta-candidate verification:
 ## Entry: approve the beta candidate
 
 - [ ] **Select the exact candidate.** The maintainer records source SHA, toolkit
-      and Hey API versions and `next` channel; reviews the alpha-to-beta Changesets
+      and Hey API versions and dist-tags; reviews the alpha-to-beta Changesets
       transition, changelogs and exact coordinated internal dependencies.
 - [ ] **Review API and compatibility scope.** Identify intended beta contracts
       and known gaps for exported APIs/types, named builders, diagnostics and saved
@@ -66,7 +68,8 @@ Existing records, not beta-candidate verification:
       ownership, trusted-publisher and environment checks. Checklist completion or
       merging alone does not authorize publication.
 - [ ] After publication, verify each new registry artifact and its provenance
-      against the reviewed inventory/source, coherent `next` tags and a clean full
+      against the reviewed inventory/source, coherent dist-tags (`latest` for
+      `@mimlet/*`, `next` for `hey-api-builders`) and a clean full
       registry install. An already-published-version skip is not new OIDC evidence.
       Use [recovery](releases.md#failure-partial-release-and-rollback) for partial releases.
 
@@ -84,4 +87,4 @@ Existing records, not beta-candidate verification:
 - [ ] The maintainer records another beta, release candidate or hold. Stable
       promotion still requires every [first-stable gate](stability.md#gates-for-the-first-stable-release),
       including new trusted-publisher RC evidence and explicit stable approval.
-      Application merges, deployments and `latest` publication remain separate decisions.
+      Application merges, deployments and stable publication remain separate decisions.

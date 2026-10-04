@@ -33,8 +33,8 @@ const { theme, isDark } = useData();
           >
         </div>
         <p class="release-note">
-          {{ identity.releaseStatus }} · {{ identity.releaseVersion }}<br />Available on npm’s next
-          channel.
+          {{ identity.releaseStatus }} · {{ identity.releaseVersion }}<br />Available on npm’s
+          latest tag.
         </p>
       </div>
       <div class="hero-stage">

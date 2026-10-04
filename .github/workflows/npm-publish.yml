@@ -59,7 +59,7 @@ jobs:
           import { readFileSync } from 'node:fs';
           import { validateReleaseManifest } from './scripts/release-manifest.mjs';
           const manifest = validateReleaseManifest(JSON.parse(readFileSync('release/manifest.json')), process.env.RELEASE_TAG);
-          if ((manifest.distTag === 'next') !== (process.env.PRERELEASE === 'true')) throw new Error('Release channel mismatch');
+          if (manifest.prerelease !== (process.env.PRERELEASE === 'true')) throw new Error('Release channel mismatch');
           JS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         id: upload
@@ -104,9 +104,16 @@ jobs:
           if (raw.length > 128000) throw new Error('Oversized manifest');
           const m = JSON.parse(raw);
           const version = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-          if (m.format !== 1 || !/^[a-f0-9]{40}$/.test(m.commit) || !version.test(m.coreVersion) || m.tag !== `toolkit-v${m.coreVersion}` || m.tag !== process.env.RELEASE_TAG) throw new Error('Invalid release identity');
+          if (m.format !== 2 || !/^[a-f0-9]{40}$/.test(m.commit) || !version.test(m.coreVersion) || m.tag !== `toolkit-v${m.coreVersion}` || m.tag !== process.env.RELEASE_TAG) throw new Error('Invalid release identity');
           const prerelease = m.coreVersion.includes('-');
-          if (m.distTag !== (prerelease ? 'next' : 'latest') || prerelease !== (process.env.PRERELEASE === 'true')) throw new Error('Release channel mismatch');
+          if (m.prerelease !== prerelease || prerelease !== (process.env.PRERELEASE === 'true')) throw new Error('Release channel mismatch');
+          // BEGIN CANONICAL DIST-TAG POLICY
+          function releaseDistTag(name, version) {
+            if (typeof name !== 'string' || typeof version !== 'string')
+              throw new Error('Invalid package identity for the distribution tag');
+            return name === 'hey-api-builders' && version.includes('-') ? 'next' : 'latest';
+          }
+          // END CANONICAL DIST-TAG POLICY
           if (!Array.isArray(m.packages) || m.packages.length < 2 || m.packages.length > 64) throw new Error('Invalid inventory');
           const metadataSet = [];
           const seen = new Set(), files = new Set(['manifest.json', 'SHA256SUMS']);
@@ -122,6 +129,7 @@ jobs:
             if (p.filename !== `${p.name.replace('@', '').replace('/', '-')}-${p.version}.tgz` || files.has(p.filename)) throw new Error('Invalid artifact filename');
             if (p.name !== 'hey-api-builders' && p.version !== m.coreVersion) throw new Error('Version train mismatch');
             if (p.version.includes('-') !== prerelease) throw new Error('Mixed release channels');
+            if (p.distTag !== releaseDistTag(p.name, p.version)) throw new Error(`Distribution tag policy mismatch: ${p.name}`);
             const path = resolve('release', p.filename), stat = lstatSync(path);
             if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024 * 1024) throw new Error('Invalid artifact type or size');
             const data = readFileSync(path);
@@ -156,6 +164,11 @@ jobs:
                 pkg.private !== false
               )
                 fail('packed package identity differs from the verified manifest');
+              if (
+                expected.distTag !== releaseDistTag(pkg.name, pkg.version) ||
+                pkg.publishConfig?.tag !== expected.distTag
+              )
+                fail(`packed distribution tag differs from the verified manifest: ${pkg.name}`);
               seen.add(pkg.name);
               for (const group of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
                 const dependencies = pkg[group] ?? {};
@@ -185,7 +198,8 @@ jobs:
             else if (current.dist?.integrity !== p.integrity) throw new Error(`Published content differs: ${p.name}@${p.version}`);
             else console.log(`Already published with matching integrity: ${p.name}@${p.version}`);
           }
+          // Each package keeps its own verified tag: `latest`, or `next` for hey-api-builders prereleases.
           for (const p of pending) {
-            execFileSync('npm', ['publish', resolve('release', p.filename), '--access', 'public', '--ignore-scripts', '--tag', m.distTag, '--provenance'], { stdio: 'inherit', timeout: 120000 });
+            execFileSync('npm', ['publish', resolve('release', p.filename), '--access', 'public', '--ignore-scripts', '--tag', p.distTag, '--provenance'], { stdio: 'inherit', timeout: 120000 });
           }
           JS
