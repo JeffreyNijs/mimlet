@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { emitBuilders, inspectSchema } from '../../packages/codegen/src/index.js';
+import { emitBuilders, inspectSchema, reportStatus } from '../../packages/codegen/src/index.js';
 it('generates deterministic collision-safe fluent helpers', () => {
   const targets = [
     {
@@ -30,4 +30,14 @@ it('inspection reports preparation, not satisfiability or sampled fixtures', () 
   const unsupported = inspectSchema({ $ref: 'https://example.invalid/not-supplied' });
   expect(unsupported.ok).toBe(false);
   expect(unsupported.diagnostics[0]?.code).toBe('SCHEMA_PREPARATION_FAILED');
+});
+
+it('exports reportStatus as the value that sets a report status', () => {
+  expect(reportStatus([])).toBe(true);
+  expect(
+    reportStatus([{ code: 'NO_MIMLET_PACKAGES', severity: 'warning', message: '', hint: '' }])
+  ).toBe(true);
+  const failed = inspectSchema({ $ref: 'https://example.invalid/not-supplied' });
+  expect(reportStatus(failed.diagnostics)).toBe(false);
+  expect(reportStatus(failed.diagnostics)).toBe(failed.ok);
 });

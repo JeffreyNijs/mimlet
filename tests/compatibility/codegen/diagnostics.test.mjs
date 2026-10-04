@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { diagnoseProject, inspectSchema } from '@mimlet/codegen';
+import { diagnoseProject, inspectSchema, reportStatus } from '@mimlet/codegen';
 
 const cli = join(dirname(fileURLToPath(import.meta.resolve('@mimlet/codegen'))), 'cli.js');
 async function temporary(run) {
@@ -215,6 +215,30 @@ describe('data-only schema inspection and CLI diagnostics', () => {
     );
     assert.equal(inspectSchema({}, null).ok, false);
     assert.equal(calls, 0);
+  });
+  it('exports the rule that sets a report status as a callable value', () => {
+    const entry = (code, severity) => ({ code, severity, message: '', hint: '' });
+    assert.equal(reportStatus([]), true);
+    assert.equal(reportStatus([entry('NO_MIMLET_PACKAGES', 'warning')]), true);
+    assert.equal(
+      reportStatus([
+        entry('NO_MIMLET_PACKAGES', 'warning'),
+        entry('PACKAGE_NOT_INSTALLED', 'error'),
+      ]),
+      false
+    );
+    const reports = [
+      inspectSchema({ type: 'string' }),
+      inspectSchema({ $ref: 'https://schema.invalid/missing' }),
+    ];
+    assert.deepEqual(
+      reports.map((report) => report.ok),
+      [true, false]
+    );
+    assert.deepEqual(
+      reports.map((report) => reportStatus(report.diagnostics)),
+      [true, false]
+    );
   });
   it('provides machine-readable commands and preserves legacy code generation', () =>
     temporary(async (root) => {

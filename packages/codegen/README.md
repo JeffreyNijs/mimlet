@@ -60,6 +60,10 @@ contracts, limitations and version-specific availability.
 
 ## Other exports
 
+- `diagnoseProject(directory?)` (async) and `inspectSchema(schema, options?)` build the
+  reports behind `mimlet doctor` and `mimlet inspect`. `reportStatus(diagnostics)`
+  returns `false` when any diagnostic has severity `error`, the rule that sets a
+  report's `ok`. Use it after filtering or combining diagnostics yourself.
 - `selfContainedRuntime(prefix = 'builder-runtime')` (advanced) returns the files
   that `--self-contained` adds: the installed `@mimlet/core` JavaScript,
   declarations, `LICENSE` and `THIRD_PARTY_NOTICES.md` under `<prefix>/`. Write them

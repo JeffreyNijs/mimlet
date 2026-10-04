@@ -27,8 +27,8 @@ emitJsonSchemaBuilders([
 ]);
 
 // Diagnostics remain typed without importing app code or accepting native callbacks.
-import { diagnoseProject, inspectSchema } from '@mimlet/codegen';
-import type { DiagnosticReport } from '@mimlet/codegen';
+import { diagnoseProject, inspectSchema, reportStatus } from '@mimlet/codegen';
+import type { Diagnostic, DiagnosticReport } from '@mimlet/codegen';
 const inspection = inspectSchema({ type: 'string' });
 const sampled: false = inspection.sampled;
 const network: false = inspection.capabilities.network;
@@ -42,3 +42,9 @@ inspectSchema({}, { provider: () => 'value' });
 inspectSchema({}, { references: [] });
 // @ts-expect-error Diagnostic reports are immutable.
 inspection.ok = false;
+// The status rule is a runtime value, not only a type.
+const entries: readonly Diagnostic[] = inspection.diagnostics;
+const status: boolean = reportStatus(entries);
+void status;
+// @ts-expect-error The rule takes the diagnostics list, not a whole report.
+reportStatus(inspection);
