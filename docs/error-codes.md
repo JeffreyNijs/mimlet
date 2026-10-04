@@ -59,6 +59,10 @@ points at the `$ref`. References the schema does not reach are not prepared.
 | `@mimlet/protobuf` | `ProtobufFixtureError` | `PROTOBUF_FIXTURE_FAILED` | A Protobuf schema could not be prepared, or a message failed to decode.                  |
 | `@mimlet/avro`     | `AvroFixtureError`     | `AVRO_FIXTURE_FAILED`     | An Avro schema failed to compile or a value does not fit it; the error carries the path. |
 
+A `GraphQLFixtureError` for a missing custom-scalar hook names the scalar, and schema or
+operation validation issues keep GraphQL's message. A `ProtobufFixtureError` for a
+missing import names the `imports` key to add.
+
 ## Tooling
 
 | Package              | Class             | Code                 | When                                                                               |

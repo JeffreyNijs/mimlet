@@ -21,3 +21,19 @@ it('shares one default session across a session-less builder list', () => {
   expect(list).toEqual(builder.buildList(4, adapter.session()));
   expect(builder.build()).toEqual(list[0]);
 });
+
+it('names the import that was not supplied', () => {
+  const proto = `syntax = "proto3";
+import "google/protobuf/timestamp.proto";
+import "logistics/hub.proto";
+message Scan { google.protobuf.Timestamp at = 1; }`;
+  const timestamp =
+    'syntax = "proto3"; package google.protobuf; message Timestamp { int64 seconds = 1; int32 nanos = 2; }';
+  expect(() =>
+    protobufAdapter(proto, 'Scan', {
+      imports: { 'google/protobuf/timestamp.proto': timestamp },
+    })
+  ).toThrow(
+    'Imported schema was not supplied in memory: add "logistics/hub.proto" to imports (imported by "schema.proto")'
+  );
+});
