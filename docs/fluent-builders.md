@@ -56,6 +56,10 @@ In a generic helper, type the schema parameter as an object schema of that libra
 `S extends v.ObjectSchema<v.ObjectEntries, undefined>` (Valibot),
 `S extends Type<object>` (ArkType), or `schema: Schema.Codec<A, I>` with
 `I extends object` (Effect). The setter types resolve where the helper is called.
+If a lint rule requires an explicit return type, the helper returns
+`FluentFieldsBuilder<B, K>` from `@mimlet/core`: `B` is the builder type, such as
+`TypeBoxBuilder<S>` or `ZodBuilder<S>`, and `K` the type of the listed names, such
+as `Extract<keyof S['properties'], string>` for TypeBox.
 
 The functions read the schema only. They never run a factory or generate data, so
 they also work with factory builders such as `fromZodFactory()` and

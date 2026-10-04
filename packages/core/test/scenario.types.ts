@@ -52,3 +52,41 @@ const unknownNode = cart.node('dynamic', [], (): unknown => 1);
 unknownNode.build(session);
 const emptyTrait = cart.trait('named', {});
 expectType<number>(emptyTrait.build(session).total);
+
+// A function returning a scenario can declare its return type with the exported Scenario type.
+import type { Scenario } from '../src/index.js';
+interface CartNodes {
+  customer: { id: number; name: string };
+  lines: { owner: number; quantity: number; price: number }[];
+  total: number;
+}
+function namedCart(): Scenario<CartNodes> {
+  return cart;
+}
+const named: Scenario<CartNodes> = cart;
+const inferred: typeof cart = named;
+expectType<number>(inferred.build(session).total);
+expectType<string>(
+  namedCart()
+    .override('customer', () => ({ id: 7, name: 'Lin' }))
+    .build(session).customer.name
+);
+expectType<number>(
+  namedCart()
+    .node('count', ['lines'], ({ lines }) => lines.length)
+    .build(session).count
+);
+// @ts-expect-error The declared node types stay checked.
+namedCart().override('total', () => 'free');
+function namedAsyncCart(): Scenario<CartNodes & { external: string }, true> {
+  return asyncCart;
+}
+expectType<Promise<string>>(
+  namedAsyncCart()
+    .buildAsync(session)
+    .then((value) => value.external)
+);
+// @ts-expect-error A scenario declared async exposes only the async methods.
+namedAsyncCart().build(session);
+// @ts-expect-error An async scenario cannot be declared synchronous.
+const _notSync: Scenario<CartNodes & { external: string }> = asyncCart;

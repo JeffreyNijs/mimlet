@@ -74,7 +74,7 @@ The options are passed to the selected validator, which decides their meaning. T
 
 All methods return a new builder. All configured operations run in registration order before all transforms, even when fluent calls are interleaved. This preserves the original patch-before-transform contract.
 
-For typing helpers, the package exports `BuilderPatch<T>` (what `with()` accepts and a `withFactory()` callback returns) and the `Builder`, `AsyncBuilder`, `SchemaBuilder` and `AsyncSchemaBuilder` interfaces as types.
+For typing helpers, the package exports `BuilderPatch<T>` (what `with()` accepts and a `withFactory()` callback returns) and the `Builder`, `AsyncBuilder`, `SchemaBuilder` and `AsyncSchemaBuilder` interfaces as types. `BuilderFor<F>` and `SchemaBuilderFor<S, F>` are what `createBuilder(factory)` and `createSchemaBuilder(schema, factory)` return. When a lint rule requires explicit return types on generic helpers, the TypeBox, Zod and Effect adapters also export named builder types, such as `TypeBoxBuilder<S>` and `TypeBoxFactoryBuilder<S, F>`.
 
 `with(patch)` shallow-merges plain records. Nested objects and arrays are replaced, not deep-merged. Atomic values such as Date, Map, Set, RegExp, and typed arrays are replaced without spreading away their prototypes. `replace(value)` explicitly replaces a complete value, including a whole plain record.
 

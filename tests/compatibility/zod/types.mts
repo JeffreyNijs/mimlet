@@ -120,3 +120,85 @@ fluent(fromZod(loose), zodFields(loose)).withId('a');
 zodFields(z.string());
 // @ts-expect-error A nullable root has no single field list.
 zodFields(Account.nullable());
+
+// Named builder types give a generic helper an explicit return type that is exactly what
+// the entry point returns, for lint rules such as explicit-function-return-type.
+import type { BuilderPatch, FluentFieldsBuilder } from '@mimlet/core';
+import type { ZodBuilder, ZodFactoryBuilder } from '@mimlet/zod';
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
+declare function exact<T extends true>(): T;
+type AccountInput = z.input<typeof Account>;
+type AccountOutput = z.output<typeof Account>;
+
+function accountRows<S extends z.ZodObject>(
+  schema: S,
+  defaults: () => BuilderPatch<z.input<S>>
+): ZodBuilder<S> {
+  return fromZod(schema).withFactory(defaults);
+}
+expectType<AccountOutput[]>(accountRows(Account, () => ({ id: 'a' })).buildValidatedList(2));
+function dtoBuilder<S extends z.ZodType>(
+  schema: S,
+  create: () => z.input<S>
+): ZodFactoryBuilder<S, () => z.input<S>> {
+  return fromZodFactory(schema, create);
+}
+function inferredDtoBuilder<S extends z.ZodType>(schema: S, create: () => z.input<S>) {
+  return fromZodFactory(schema, create);
+}
+exact<
+  Equal<
+    ReturnType<typeof dtoBuilder<typeof Account>>,
+    ReturnType<typeof inferredDtoBuilder<typeof Account>>
+  >
+>();
+const dtos = dtoBuilder(Account, () => ({ id: 'a', age: '1', exact: 'x' }));
+expectType<AccountInput>(dtos.build());
+expectType<number>(
+  dtos
+    .with({ age: '2' })
+    .withFactory(() => ({ id: 'b' }))
+    .buildValidated().age
+);
+expectType<number>(fluent(dtos, zodFields(Account)).withAge('3').buildValidated().age);
+// @ts-expect-error Patches stay input-typed.
+dtos.with({ age: 2 });
+function loadedDtos<S extends z.ZodType>(
+  schema: S,
+  load: (id: string) => Promise<z.input<S>>
+): ZodFactoryBuilder<S, (id: string) => Promise<z.input<S>>> {
+  return fromZodFactory(schema, load);
+}
+const loaded = loadedDtos(Account, async (id) => ({ id, age: '1', exact: 'x' }));
+expectType<Promise<AccountOutput>>(loaded.with({ age: '2' }).buildValidatedAsync('a'));
+// @ts-expect-error An async factory never advertises synchronous builds.
+loaded.buildValidated('a');
+function bothWays<S extends z.ZodObject>(schema: S, create: () => z.input<S>): void {
+  const inferred = fromZodFactory(schema, create);
+  const named: ZodFactoryBuilder<S, () => z.input<S>> = inferred;
+  const back: typeof inferred = named;
+  exact<Equal<typeof inferred, ZodFactoryBuilder<S, () => z.input<S>>>>();
+  exact<Equal<ReturnType<typeof fromZod<S>>, ZodBuilder<S>>>();
+  void back;
+}
+void bothWays;
+function fieldRows<S extends z.ZodObject>(
+  schema: S
+): FluentFieldsBuilder<ZodBuilder<S>, Extract<keyof z.input<S>, string>> {
+  return fluent(fromZod(schema), zodFields(schema));
+}
+expectType<number>(fieldRows(Account).withAge('4').buildValidated().age);
+function fieldDtos<S extends z.ZodObject>(
+  schema: S,
+  load: () => Promise<z.input<S>>
+): FluentFieldsBuilder<
+  ZodFactoryBuilder<S, () => Promise<z.input<S>>>,
+  Extract<keyof z.input<S>, string>
+> {
+  return fluent(fromZodFactory(schema, load), zodFields(schema));
+}
+const fieldLoaded = fieldDtos(Account, async () => ({ id: 'a', age: '1', exact: 'x' }));
+expectType<Promise<AccountOutput>>(fieldLoaded.withAge('5').buildValidatedAsync());
+// @ts-expect-error Setters on an async factory builder keep it async-only.
+fieldLoaded.withAge('5').buildValidated();
