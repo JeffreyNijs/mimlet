@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { type } from 'arktype';
 import * as v from 'valibot';
 import { fromStandardJsonSchema } from '@mimlet/json-schema';
-import { fromValibot, valibotAdapter } from '@mimlet/valibot';
-import { createSchemaBuilder, createSession, BuilderValidationError } from '@mimlet/core';
+import { fromValibot, valibotAdapter, valibotFields } from '@mimlet/valibot';
+import { createSchemaBuilder, createSession, fluent, BuilderValidationError } from '@mimlet/core';
 const session = () =>
   createSession({ seed: 42, fingerprint: 'library-corpus/v1', provider: 'test' });
 
@@ -176,5 +176,33 @@ describe('real schema library generation and parsing', () => {
       () => strict.replace({ x: 1, extra: true }).buildValidated(),
       BuilderValidationError
     );
+  });
+  it('lists object entries for a setter per field, through pipes and factory builders', () => {
+    const Order = v.object({
+      id: v.pipe(v.string(), v.minLength(1)),
+      total: v.pipe(v.string(), v.transform(Number)),
+    });
+    assert.deepEqual([...valibotFields(Order)], ['id', 'total']);
+    const piped = v.pipe(
+      Order,
+      v.transform((value) => ({ ...value, paid: value.total > 0 }))
+    );
+    assert.deepEqual([...valibotFields(piped)], ['id', 'total']);
+    for (const schema of [v.strictObject({ a: v.string() }), v.looseObject({ a: v.string() })])
+      assert.deepEqual([...valibotFields(schema)], ['a']);
+    const orders = fluent(fromValibot(piped), valibotFields(piped));
+    assert.deepEqual(orders.withId('o-1').withTotal('3').buildValidated(), {
+      id: 'o-1',
+      total: 3,
+      paid: true,
+    });
+    const Dated = v.object({ id: v.string(), at: v.date() });
+    const dated = fluent(
+      createSchemaBuilder(valibotAdapter(Dated).standard, () => ({ id: 'x', at: new Date(0) })),
+      valibotFields(Dated)
+    );
+    assert.equal(dated.withId('y').buildValidated().id, 'y');
+    for (const schema of [v.string(), v.union([Order, v.object({ b: v.string() })]), null])
+      assert.throws(() => valibotFields(schema), /Valibot object schema/);
   });
 });

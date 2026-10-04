@@ -54,6 +54,25 @@ const adults = fromEffectFactory(schema, (session: GenerationSession) => ({
 const adult = adults.buildValidated(session);
 ```
 
+`effectFields(schema)` lists a struct's top-level keys as encoded, which is what
+builders take: a key renamed with `Schema.encodeKeys` is listed by its encoded name.
+Pass it to `fluent()` from `@mimlet/core` for a `withX()` setter per field. It reads
+the schema's AST only, so it works with every entry point and in a generic helper:
+
+```ts
+import { fluent } from '@mimlet/core';
+import type * as S from 'effect/Schema';
+import { effectFields, fromEffect } from '@mimlet/effect';
+function rows<A, I extends object>(schema: S.Codec<A, I>) {
+  return fluent(fromEffect(schema), effectFields(schema));
+}
+const person = rows(schema).withAge('42').buildValidated(session);
+```
+
+Non-struct schemas such as unions throw a `TypeError`; symbol keys get no setter, and
+structs with index signatures (records, `StructWithRest`) get no typed setters. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 `effectAdapter` exposes the original source, native Standard Schema validation,
 input/output checks, sync/async encode/decode, and native Effect 4 input/output
 arbitraries. Input checking checks the encoded shape, not the success of a subsequent

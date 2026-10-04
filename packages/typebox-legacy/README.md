@@ -18,7 +18,7 @@ const output = events.with({ timestamp: 1000 }).buildValidated();
 
 ## Contract
 
-The exported functions are `fromTypeBox`, `fromTypeBoxFactory`, and `typeBoxAdapter`, as in the modern adapter. All builders use the same core runtime, preserve factory argument tuples and encoded/decoded types, and restrict known-asynchronous factories to asynchronous build methods.
+The exported functions are `fromTypeBox`, `fromTypeBoxFactory`, `fromTypeBoxVariant`, `typeBoxAdapter`, `typeBoxVariantAdapter` and `typeBoxFields`, as in the modern adapter. All builders use the same core runtime, preserve factory argument tuples and encoded/decoded types, and restrict known-asynchronous factories to asynchronous build methods.
 
 Automatic creation delegates to native `Value.Create`, clones its result, and checks it. This constructs native defaults/minimal examples, not random data. Unsupported creation raises `BuilderGenerationError` with a cause; `fromTypeBoxFactory(schema, factory, options)` supplies application-specific data instead. There is no unbounded retry loop, no assertion that every satisfiable schema can be generated, and no silent repair of invalid overrides.
 
@@ -41,6 +41,23 @@ users.buildValidatedList(2);
 ```
 
 TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred, or name it `ReturnType<typeof fromTypeBoxFactory<S, () => StaticEncode<S>>>`. The `fromTypeBox()` type does not describe a custom-factory builder.
+
+### Named setters for every field
+
+`typeBoxFields(schema)` lists an object schema's top-level properties. Pass it to `fluent()` from `@mimlet/core` for a `withX()` setter per field, typed with the encoded input. It reads only `schema.properties`, so a helper shared by many row schemas needs no field lists and no casts:
+
+```ts
+import { fluent } from '@mimlet/core';
+import type { TObject } from '@sinclair/typebox';
+import { fromTypeBox, typeBoxFields } from '@mimlet/typebox-legacy';
+
+function rows<S extends TObject>(schema: S) {
+  return fluent(fromTypeBox(schema), typeBoxFields(schema));
+}
+rows(Order).withStatus('PAID').buildValidated();
+```
+
+It also works with `fromTypeBoxFactory()` and, for a selected union branch, `typeBoxFields(Pet.anyOf[1])`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
 
 ## References and native values
 

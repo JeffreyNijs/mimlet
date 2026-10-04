@@ -156,3 +156,46 @@ expectType<{ id: string; timestamp: number }>(legacyGeneric.build());
 expectType<{ id: string; timestamp: Date }>(legacyGeneric.buildValidated());
 // @ts-expect-error Legacy helper patches stay schema-typed too.
 legacyRows(OldEvent, () => ({ timestamp: new Date() }));
+
+// A setter per schema field, from a generic helper, with no field list and no casts.
+import { fluent } from '@mimlet/core';
+import { typeBoxFields } from '@mimlet/typebox';
+import { typeBoxFields as legacyFields } from '@mimlet/typebox-legacy';
+function namedRows<S extends TObject>(schema: S) {
+  return fluent(fromTypeBox(schema), typeBoxFields(schema));
+}
+const named = namedRows(Event);
+expectType<{ id: string; timestamp: Date; note?: string }>(
+  named.withId('event-1').withTimestamp(1).withNote('n').buildValidated()
+);
+// @ts-expect-error Setters take encoded input, not decoded output.
+named.withTimestamp(new Date());
+// @ts-expect-error Like with(), an exact optional key is omitted, never set to undefined.
+named.withNote(undefined);
+// @ts-expect-error Fields that are not in the schema have no setter.
+named.withOther(1);
+const namedAsync = named.transformAsync(async (value) => value).withId('event-2');
+namedAsync.buildValidatedAsync();
+// @ts-expect-error Async transitions remove synchronous build methods.
+namedAsync.buildValidated();
+const Machine = Type.Object({ factory: Type.String(), serial: Type.String() });
+const machines = fluent(fromTypeBox(Machine), typeBoxFields(Machine));
+machines.withSerial('m-1').withFactory(() => ({ factory: 'plant-1' }));
+// @ts-expect-error A field named factory cannot replace the withFactory() builder method.
+machines.withFactory('plant-1');
+// @ts-expect-error Only object schemas list fields.
+typeBoxFields(Type.String());
+// @ts-expect-error Unions have no single field list.
+typeBoxFields(Pet);
+function prismaRows<S extends LegacyObject>(schema: S) {
+  return fluent(fromLegacy(schema), legacyFields(schema));
+}
+const prisma = prismaRows(OldEvent);
+expectType<{ id: string; timestamp: Date }>(
+  prisma.withId('row-1').withTimestamp(1).buildValidated()
+);
+prisma.withId('row-1').buildValidatedList(2);
+// @ts-expect-error Legacy setters take encoded input.
+prisma.withTimestamp(new Date());
+// @ts-expect-error Legacy unions have no single field list.
+legacyFields(LegacyPet);

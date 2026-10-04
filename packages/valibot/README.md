@@ -40,6 +40,16 @@ Standard Schema implementations. For Date/Map/Set, refinements and those actions
 `fromValibot` throws the converter's "cannot be converted" error instead of dropping
 the rule. No inverse transform or shrinker is invented.
 
+`valibotFields(schema)` lists an object schema's top-level entries. Pass it to
+`fluent()` from `@mimlet/core` for a `withX()` setter per field, typed with the
+schema's input. It reads only `schema.entries` (a `v.pipe()` that starts with an
+object keeps them) and does not convert the schema, so it also works with
+`createSchemaBuilder(valibotAdapter(schema).standard, factory)` and in a generic
+helper such as `<S extends v.ObjectSchema<v.ObjectEntries, undefined>>(schema: S) =>
+fluent(fromValibot(schema), valibotFields(schema))`. Non-object schemas throw a
+`TypeError`; `looseObject()` and `objectWithRest()` inputs get no typed setters. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 `v.isoDateTime()` and `v.isoTime()` convert to JSON Schema `date-time` and `time`,
 which require seconds and a UTC offset. Valibot's formats (`2026-01-02T03:04`,
 `03:04`) allow neither, so generated values fail `buildValidated()`. Set those

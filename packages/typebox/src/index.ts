@@ -1,10 +1,16 @@
-import type { StaticDecode, StaticEncode, TProperties, TSchema } from 'typebox';
+import type { StaticDecode, StaticEncode, TObject, TProperties, TSchema } from 'typebox';
 import * as Value from 'typebox/value';
-import { BuilderGenerationError, BuilderValidationError, createSchemaBuilder } from '@mimlet/core';
+import {
+  BuilderGenerationError,
+  BuilderValidationError,
+  createSchemaBuilder,
+  schemaFields,
+} from '@mimlet/core';
 import type {
   SchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
+  SchemaFields,
   StandardSchemaV1,
   ValidationIssue,
 } from '@mimlet/core';
@@ -124,6 +130,20 @@ export function fromTypeBoxFactory<
   options: TypeBoxOptions<C> = {}
 ): SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F> {
   return createSchemaBuilder(typeBoxAdapter(schema, options).standard, factory, options);
+}
+
+/**
+ * The object schema's top-level property names, for a setter per field:
+ * `fluent(fromTypeBox(schema), typeBoxFields(schema))`. Reads only `schema.properties`.
+ */
+export function typeBoxFields<S extends TObject>(
+  schema: S
+): SchemaFields<Extract<keyof S['properties'], string>> {
+  const properties: unknown = schema?.type === 'object' ? schema.properties : undefined;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    throw new TypeError('Expected a TypeBox object schema');
+  }
+  return schemaFields(Object.keys(properties) as Extract<keyof S['properties'], string>[]);
 }
 
 /** Literal indexes of a statically known union; runtime-length unions accept numbers. */

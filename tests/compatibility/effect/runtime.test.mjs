@@ -6,8 +6,14 @@ import * as SAST from 'effect/SchemaAST';
 import * as ST from 'effect/SchemaTransformation';
 import * as E from 'effect/Effect';
 import * as A from 'effect/Arbitrary';
-import { fromEffect, fromEffectAsync, fromEffectFactory, effectAdapter } from '@mimlet/effect';
-import { createSession, BuilderValidationError } from '@mimlet/core';
+import {
+  fromEffect,
+  fromEffectAsync,
+  fromEffectFactory,
+  effectAdapter,
+  effectFields,
+} from '@mimlet/effect';
+import { createSession, fluent, BuilderValidationError } from '@mimlet/core';
 const session = () =>
   createSession({ seed: 42, fingerprint: 'effect-corpus/v1', provider: 'effect@4.0.0' });
 describe('Effect native adapter', () => {
@@ -190,5 +196,34 @@ describe('Effect native adapter', () => {
   it('reports exhausted native sampling instead of returning a partial value', () => {
     const never = S.Int.check(S.makeFilter(() => false));
     assert.throws(() => fromEffect(never).build(session()), RangeError);
+  });
+  it('lists encoded struct keys for a setter per field', async () => {
+    const Invoice = S.Struct({
+      customerId: S.String,
+      total: S.NumberFromString,
+      note: S.optionalKey(S.String),
+    }).pipe(S.encodeKeys({ customerId: 'customer_id' }));
+    assert.deepEqual([...effectFields(Invoice)], ['customer_id', 'total', 'note']);
+    const symbol = Symbol('hidden');
+    assert.deepEqual([...effectFields(S.Struct({ [symbol]: S.String, id: S.String }))], ['id']);
+    const invoices = fluent(fromEffect(Invoice), effectFields(Invoice));
+    assert.deepEqual(
+      invoices.withCustomerId('c-1').withTotal('3').withNote('n').buildValidated(session()),
+      { customerId: 'c-1', total: 3, note: 'n' }
+    );
+    const viaFactory = fluent(
+      fromEffectFactory(Invoice, () => ({ customer_id: 'c', total: '1' })),
+      effectFields(Invoice)
+    );
+    assert.equal(viaFactory.withTotal('2').buildValidated().total, 2);
+    const asynchronous = fluent(fromEffectAsync(Invoice), effectFields(Invoice));
+    assert.equal((await asynchronous.withTotal('4').buildValidatedAsync(session())).total, 4);
+    for (const schema of [
+      S.String,
+      S.NullOr(Invoice),
+      S.Union([Invoice, S.Struct({ other: S.String })]),
+      null,
+    ])
+      assert.throws(() => effectFields(schema), /Effect struct schema/);
   });
 });

@@ -4,7 +4,12 @@ import Type from 'typebox';
 import { Type as Legacy, FormatRegistry } from '@sinclair/typebox';
 import * as NativeValue from 'typebox/value';
 import * as LegacyValue from '@sinclair/typebox/value';
-import { createBuilder, BuilderValidationError, BuilderGenerationError } from '@mimlet/core';
+import {
+  createBuilder,
+  fluent,
+  BuilderValidationError,
+  BuilderGenerationError,
+} from '@mimlet/core';
 import * as modern from '@mimlet/typebox';
 import * as legacy from '@mimlet/typebox-legacy';
 
@@ -153,6 +158,39 @@ for (const [name, T, api, Value] of [
         () => api.fromTypeBox(S).buildValidated(),
         (error) =>
           error === failure || error.cause === failure || error.message.includes('codec failed')
+      );
+    });
+    it('lists object fields for a setter per field, also from a generic helper', () => {
+      const Order = T.Object({
+        id: T.String({ default: 'order-1' }),
+        status: T.Union([T.Literal('NEW'), T.Literal('PAID')], { default: 'NEW' }),
+        factory: T.String({ default: 'plant-1' }),
+        note: T.Optional(T.String()),
+      });
+      assert.deepEqual([...api.typeBoxFields(Order)], ['id', 'status', 'factory', 'note']);
+      assert.ok(Object.isFrozen(api.typeBoxFields(Order)));
+      const rows = (schema) => fluent(api.fromTypeBox(schema), api.typeBoxFields(schema));
+      const orders = rows(Order);
+      assert.deepEqual(orders.withStatus('PAID').withNote('n').buildValidated(), {
+        id: 'order-1',
+        status: 'PAID',
+        factory: 'plant-1',
+        note: 'n',
+      });
+      // A field named factory keeps withFactory() as the builder method.
+      assert.equal(orders.withFactory(() => ({ factory: 'plant-2' })).build().factory, 'plant-2');
+      assert.throws(() => orders.withStatus('LOST').buildValidated(), BuilderValidationError);
+      const Pet = T.Union([
+        T.Object({ kind: T.Literal('cat'), lives: T.Number() }),
+        T.Object({ kind: T.Literal('dog'), bark: T.Boolean() }),
+      ]);
+      const dogs = fluent(api.fromTypeBoxVariant(Pet, 1), api.typeBoxFields(Pet.anyOf[1]));
+      assert.deepEqual(dogs.withBark(true).buildValidated(), { kind: 'dog', bark: true });
+      for (const schema of [Pet, T.String(), T.Array(T.String()), null])
+        assert.throws(() => api.typeBoxFields(schema), /TypeBox object schema/);
+      assert.throws(
+        () => fluent(api.fromTypeBox(T.Object({})), api.typeBoxFields(T.Object({}))),
+        TypeError
       );
     });
   });

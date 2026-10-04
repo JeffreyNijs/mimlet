@@ -61,6 +61,23 @@ events.buildValidatedList(2);
 
 TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred; the `fromTypeBox()` type does not describe a custom-factory builder.
 
+### Named setters for every field
+
+`typeBoxFields(schema)` lists an object schema's top-level properties. Pass it to `fluent()` from `@mimlet/core` for a `withX()` setter per field, typed with the encoded input. It reads only `schema.properties`, so it also works in a generic helper and with `fromTypeBoxFactory()`:
+
+```ts
+import { fluent } from '@mimlet/core';
+import type { TObject } from 'typebox';
+import { fromTypeBox, typeBoxFields } from '@mimlet/typebox';
+
+function rows<S extends TObject>(schema: S) {
+  return fluent(fromTypeBox(schema), typeBoxFields(schema));
+}
+rows(Order).withStatus('PAID').buildValidated();
+```
+
+For a selected union branch, pass that branch: `fluent(fromTypeBoxVariant(Pet, 1), typeBoxFields(Pet.anyOf[1]))`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 ## Strict checking, codecs and references
 
 `typeBoxAdapter(schema, options)` exposes the original `source`, a Standard Schema `standard` wrapper, and `check`, `issues`, `create`, `decode`, and `encode` operations. `check` does not coerce or decode. The Standard Schema wrapper first checks the encoded input and then executes decode callbacks on a clone. It deliberately does not invoke the modern `Value.Decode` default/convert/clean pipeline.
