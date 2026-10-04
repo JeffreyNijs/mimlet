@@ -68,7 +68,7 @@ writeFileSync(
 );
 const run = (command, ...args) => spawnSync(command, args, { cwd: 'app', encoding: 'utf8' });
 const quiet = ['--no-audit', '--no-fund'];
-const mimlet = ['@mimlet/core', '@mimlet/effect', '@mimlet/codegen'].map((name) => \`\${name}@0.1.0-alpha.2\`);
+const mimlet = ['@mimlet/core', '@mimlet/effect', '@mimlet/codegen'].map((name) => \`\${name}@0.1.0-beta.0\`);
 
 const install = run('npm', 'i', '-D', ...mimlet, 'effect', ...quiet);
 console.log(install.status, /ERESOLVE overriding peer dependency/.test(install.stderr));
@@ -612,7 +612,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, 'Then run npx mimlet doctor · @mimlet/codegen · alpha', {
+      text(960, 832, 'Then run npx mimlet doctor · @mimlet/codegen · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

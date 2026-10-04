@@ -36,14 +36,14 @@ import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
  * The generated files, setters and built user in the video come from running this program with
- * @hey-api/openapi-ts 0.99.0, hey-api-builders 3.0.0-alpha.2, @mimlet/core 0.1.0-alpha.2,
+ * @hey-api/openapi-ts 0.99.0, hey-api-builders 3.0.0-beta.0, @mimlet/core 0.1.0-beta.0,
  * Faker 10.5.0 and TypeScript 6.0.3. Re-run it with `node scripts/video/verify.ts hey-api`.
  */
 export const facts = {
   packages: {
     '@hey-api/openapi-ts': '0.99.0',
-    'hey-api-builders': '3.0.0-alpha.2',
-    '@mimlet/core': '0.1.0-alpha.2',
+    'hey-api-builders': '3.0.0-beta.0',
+    '@mimlet/core': '0.1.0-beta.0',
     '@faker-js/faker': '10.5.0',
     typescript: '6.0.3',
   },
@@ -537,7 +537,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, 'hey-api-builders v3 alpha · Hey API 0.99 · Faker 10', {
+      text(960, 832, 'hey-api-builders v3 beta · Hey API 0.99 · Faker 10', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',
