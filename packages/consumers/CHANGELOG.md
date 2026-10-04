@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.1
+
+### Patch Changes
+
+- b92c4ca: Compile the declarations without the DOM library. `JsonResponseOptions.headers`
+  referenced the DOM-only global `HeadersInit`, so a Node-only project (`@types/node`
+  without `lib: ["DOM"]`, and `skipLibCheck: false`) failed with TS2304. It now accepts
+  whatever the global `Headers` constructor accepts: still `HeadersInit` with the DOM
+  library, and the equivalent `@types/node` type without it.
+- Updated dependencies [536ca1e]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes

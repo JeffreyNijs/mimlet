@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0-beta.1
+
+### Minor Changes
+
+- 21315c1: Only the `references` a schema reaches are prepared and compiled. A reference map that
+  holds a whole OpenAPI component set no longer fails an unrelated schema because one
+  component uses an unsupported keyword such as `discriminator`. When a reference the
+  schema does use fails, `SchemaPreparationError` names it in the new `reference` field
+  and in the message (`... at /discriminator in reference <uri>`), and `schemaPath` is
+  relative to that reference. A `$ref` that resolves to nothing now fails with
+  `Unresolved reference <uri> at <path to the $ref>` and the new `missingReference`
+  field, instead of `Schema compilation failed at /`. The error code is unchanged and
+  the replay fingerprint still covers every supplied reference.
+- 3cd081a: Add `standardJsonSchemaFields(schema, { dialect })`, which lists the top-level
+  `properties` of a Standard JSON Schema's input projection for `fluent()` from
+  `@mimlet/core`: `fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema))`
+  has a `withX()` setter per field, typed with the schema's input. Inputs without top-level
+  `properties` throw a `TypeError`.
+
+### Patch Changes
+
+- Updated dependencies [536ca1e]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes

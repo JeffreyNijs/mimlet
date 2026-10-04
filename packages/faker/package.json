@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/faker",
-  "version": "0.1.0-beta.0",
+  "version": "0.1.0-beta.1",
   "private": false,
   "description": "Locale-aware realistic fixtures with session-owned randomness and reference time.",
   "type": "module",
@@ -58,6 +58,6 @@
     "@faker-js/faker": "10.5.0"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.0"
+    "@mimlet/core": "0.1.0-beta.1"
   }
 }

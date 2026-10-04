@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-beta.1
+
+### Minor Changes
+
+- 3cd081a: Add `effectFields(schema)`, which lists a struct's top-level encoded keys for `fluent()`
+  from `@mimlet/core`: `fluent(fromEffect(schema), effectFields(schema))` has a `withX()`
+  setter per field, also in a generic helper. Keys renamed with `Schema.encodeKeys` are
+  listed by their encoded name, because builders take encoded input. Non-struct schemas
+  throw a `TypeError`.
+
+### Patch Changes
+
+- Updated dependencies [536ca1e]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes
