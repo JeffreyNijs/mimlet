@@ -203,6 +203,16 @@ export async function prepare(): Promise<void> {
       'sessions-and-replay',
       'Explicit seeds, compatibility identities and bounded sessions',
     ],
+    [
+      'Mock Service Worker',
+      'mock-service-worker',
+      'One fixture recipe for unit tests, MSW handlers and Storybook previews',
+    ],
+    [
+      'Database seeding',
+      'database-seeding',
+      'Deterministic, idempotent seeds for integration tests and local development',
+    ],
     ['Migration', 'mimlet-migration', 'New package names and preserved serialized formats'],
     ['Compatibility', 'compatibility', 'Tested versions and runtime boundaries'],
     ['Beta readiness', 'beta-readiness', 'Candidate evidence and proposed beta exit criteria'],

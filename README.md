@@ -197,7 +197,9 @@ closing it leaves no saved user schema on the server. Do not expose its port pub
 
 The [shop example](examples/shop.mjs) combines native validation, realistic users,
 order relationships, previews, HTTP mocks and an explicitly supplied persistence
-sink. `pnpm test:examples` executes it from real installed tarballs.
+sink. `pnpm test:examples` executes it from real installed tarballs, together with
+the tested recipes for [serving fixtures from MSW](docs/mock-service-worker.md) and
+[seeding a database](docs/database-seeding.md).
 
 [Sessions and replay](docs/sessions-and-replay.md),
 [fixture capture](docs/fixture-capture.md),

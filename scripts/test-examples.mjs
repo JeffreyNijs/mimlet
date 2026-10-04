@@ -1,6 +1,6 @@
 /** Execute the checked-in example against real, isolated package tarballs. */
 import { execFileSync } from 'node:child_process';
-import { cp, writeFile } from 'node:fs/promises';
+import { cp, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath, URL } from 'node:url';
 import { withPackedConsumer } from './packed-consumer.mjs';
 const fixture = fileURLToPath(new URL('../examples/', import.meta.url));
@@ -33,7 +33,12 @@ await withPackedConsumer(fixture, async ({ temporary, compiler, run }) => {
     })
   );
   run(compiler, ['-p', `${temporary}/tsconfig.json`]);
-  execFileSync(process.execPath, ['--test', 'shop.test.mjs', 'recipes.test.mjs'], {
+  // Recipes named *-test.ts are test files shown in the guides; run each one as written.
+  const recipeTests = (await readdir(`${temporary}/compiled`))
+    .filter((name) => name.endsWith('-test.js'))
+    .sort()
+    .map((name) => `compiled/${name}`);
+  execFileSync(process.execPath, ['--test', 'shop.test.mjs', 'recipes.test.mjs', ...recipeTests], {
     cwd: temporary,
     stdio: 'inherit',
     timeout: 30_000,
