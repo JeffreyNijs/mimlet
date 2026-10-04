@@ -34,11 +34,11 @@ import {
 import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
- * The fixtures in the video are this program's output with @mimlet/core 0.1.0-alpha.2.
+ * The fixtures in the video are this program's output with @mimlet/core 0.1.0-beta.0.
  * Re-run it with `node scripts/video/verify.ts connected-data`.
  */
 export const facts = {
-  packages: { '@mimlet/core': '0.1.0-alpha.2' },
+  packages: { '@mimlet/core': '0.1.0-beta.0' },
   program: `import { createScenario, createSession } from '@mimlet/core';
 
 const shop = createScenario({ name: 'shop' })
@@ -619,7 +619,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, '@mimlet/core · scenarios · alpha', {
+      text(960, 832, '@mimlet/core · scenarios · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

@@ -33,13 +33,13 @@ import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
  * The runs, record and error in the video are this program's output with @mimlet/core and
- * @mimlet/fast-check 0.1.0-alpha.2 and fast-check 4.10.2. Re-run it with
+ * @mimlet/fast-check 0.1.0-beta.0 and fast-check 4.10.2. Re-run it with
  * `node scripts/video/verify.ts replay`.
  */
 export const facts = {
   packages: {
-    '@mimlet/core': '0.1.0-alpha.2',
-    '@mimlet/fast-check': '0.1.0-alpha.2',
+    '@mimlet/core': '0.1.0-beta.0',
+    '@mimlet/fast-check': '0.1.0-beta.0',
     'fast-check': '4.10.2',
   },
   program: `import * as fc from 'fast-check';
@@ -523,7 +523,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, 'fast-check replay · Mimlet identity checks · alpha', {
+      text(960, 832, 'fast-check replay · Mimlet identity checks · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

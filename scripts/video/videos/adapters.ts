@@ -31,18 +31,18 @@ import {
 import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
- * Every built value and message in the video is this program's output with the 0.1.0-alpha.2
+ * Every built value and message in the video is this program's output with the 0.1.0-beta.0
  * adapters and zod 4.6.5, valibot 1.5.0, typebox 1.3.34 and arktype 2.2.5.
  * Re-run it with `node scripts/video/verify.ts adapters`.
  */
 export const facts = {
   packages: {
-    '@mimlet/core': '0.1.0-alpha.2',
-    '@mimlet/zod': '0.1.0-alpha.2',
-    '@mimlet/valibot': '0.1.0-alpha.2',
-    '@mimlet/typebox': '0.1.0-alpha.2',
-    '@mimlet/json-schema': '0.1.0-alpha.2',
-    '@mimlet/arktype': '0.1.0-alpha.2',
+    '@mimlet/core': '0.1.0-beta.0',
+    '@mimlet/zod': '0.1.0-beta.0',
+    '@mimlet/valibot': '0.1.0-beta.0',
+    '@mimlet/typebox': '0.1.0-beta.0',
+    '@mimlet/json-schema': '0.1.0-beta.0',
+    '@mimlet/arktype': '0.1.0-beta.0',
     zod: '4.6.5',
     valibot: '1.5.0',
     typebox: '1.3.34',
@@ -332,7 +332,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       chips +
-      text(960, 832, 'Pick the adapter for your schema library · alpha', {
+      text(960, 832, 'Pick the adapter for your schema library · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

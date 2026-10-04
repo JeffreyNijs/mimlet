@@ -38,12 +38,12 @@ import {
 import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
- * Everything the video shows was produced by this program with @mimlet/arktype 0.1.0-alpha.2
+ * Everything the video shows was produced by this program with @mimlet/arktype 0.1.0-beta.0
  * and ArkType 2.2.5. Re-run it with `node scripts/video/verify.ts arktype-rules` before
  * changing any value below.
  */
 export const facts = {
-  packages: { '@mimlet/arktype': '0.1.0-alpha.2', arktype: '2.2.5' },
+  packages: { '@mimlet/arktype': '0.1.0-beta.0', arktype: '2.2.5' },
   program: `import { type } from 'arktype';
 import { fromArkType } from '@mimlet/arktype';
 
@@ -595,7 +595,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, '@mimlet/arktype · arktype 2.2.5 · alpha', {
+      text(960, 832, '@mimlet/arktype · arktype 2.2.5 · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

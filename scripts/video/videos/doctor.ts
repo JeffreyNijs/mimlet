@@ -39,10 +39,10 @@ import {
 import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
- * The terminal output in this video was captured on Node 22.21 with the commands below, when
- * npm's `latest` for effect was 4.0.0. Re-run them with `node scripts/video/verify.ts doctor`.
- * The program pins the Mimlet packages but installs effect exactly as the video does, so a new
- * Effect release shows up as a mismatch here first.
+ * The terminal output in this video was captured on Node 22.21 with the commands below, in an
+ * app whose package.json pins zod 3.25.76. Re-run them with `node scripts/video/verify.ts doctor`.
+ * The program pins the Mimlet packages, so a change in npm's resolver or in the adapter's
+ * supported range shows up as a mismatch here first.
  */
 export const facts = {
   packages: {},
@@ -50,52 +50,67 @@ export const facts = {
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 mkdirSync('app');
-writeFileSync('app/package.json', JSON.stringify({ private: true, type: 'module' }));
+writeFileSync(
+  'app/package.json',
+  JSON.stringify({ private: true, type: 'module', devDependencies: { zod: '3.25.76' } })
+);
 writeFileSync(
   'app/user.test.js',
   [
     "import { test } from 'node:test';",
     "import assert from 'node:assert/strict';",
-    "import * as S from 'effect/Schema';",
-    "import { createSession } from '@mimlet/core';",
-    "import { fromEffect } from '@mimlet/effect';",
-    "const User = S.Struct({ name: S.String });",
+    "import { z } from 'zod';",
+    "import { fromZod } from '@mimlet/zod';",
+    "const User = z.object({ name: z.string(), email: z.string().email() });",
     "test('builds a user', () => {",
-    "  const session = createSession({ seed: 1, fingerprint: 'user/v1', provider: 'effect@3.22.2' });",
-    "  assert.equal(fromEffect(User).with({ name: 'Ada' }).buildValidated(session).name, 'Ada');",
+    "  assert.equal(fromZod(User).with({ name: 'Ada' }).buildValidated().name, 'Ada');",
     '});',
   ].join('\\n')
 );
 const run = (command, ...args) => spawnSync(command, args, { cwd: 'app', encoding: 'utf8' });
 const quiet = ['--no-audit', '--no-fund'];
-const mimlet = ['@mimlet/core', '@mimlet/effect', '@mimlet/codegen'].map((name) => \`\${name}@0.1.0-alpha.2\`);
+const mimlet = ['@mimlet/core', '@mimlet/zod', '@mimlet/codegen'].map((name) => \`\${name}@0.1.0-beta.0\`);
 
-const install = run('npm', 'i', '-D', ...mimlet, 'effect', ...quiet);
-console.log(install.status, /ERESOLVE overriding peer dependency/.test(install.stderr));
+console.log(run('npm', 'i', ...quiet).status);
+const refused = run('npm', 'i', '-D', ...mimlet, ...quiet);
+console.log(
+  refused.status,
+  /ERESOLVE unable to resolve dependency tree/.test(refused.stderr),
+  /retry\\nnpm error this command with --force or --legacy-peer-deps/.test(refused.stderr)
+);
+const forced = run('npm', 'i', '-D', ...mimlet, '--legacy-peer-deps', ...quiet);
+console.log(forced.status, (forced.stdout.match(/added \\d+ packages/) ?? [''])[0]);
 const failing = run('node', '--test');
-console.log(failing.status, /ERR_MODULE_NOT_FOUND[^\\n]*effect\\/dist\\/FastCheck\\.js/.test(failing.stdout));
+console.log(
+  failing.status,
+  /not ok 1 - builds a user/.test(failing.stdout),
+  /Cannot read properties of undefined \\(reading 'def'\\)/.test(failing.stdout)
+);
 const doctor = run('npx', 'mimlet', 'doctor');
 console.log(doctor.status);
 console.log(doctor.stdout.split('\\n').slice(0, 4).join('\\n'));
 const report = JSON.parse(run('npx', 'mimlet', 'doctor', '--json').stdout);
 const [issue] = report.diagnostics;
 console.log(report.ok, issue.code, issue.expected, issue.actual);
-console.log(run('npm', 'i', '-D', 'effect@3.22.2', ...quiet).status);
+const upgrade = run('npm', 'i', '-D', 'zod@4.6.5', ...quiet);
+console.log(upgrade.status, (upgrade.stdout.match(/changed \\d+ package/) ?? [''])[0]);
 const fixed = run('npx', 'mimlet', 'doctor');
 console.log(fixed.status, fixed.stdout.split('\\n')[0]);
 const passing = run('node', '--test');
 console.log(passing.status, /# pass 1/.test(passing.stdout));
 `,
   stdout: [
-    '0 true',
-    '1 true',
+    '0',
+    '1 true true',
+    '0 added 26 packages',
+    '1 true true',
     '1',
     'Mimlet doctor: needs attention',
-    'ERROR PEER_VERSION_UNSUPPORTED (@mimlet/effect -> effect): "An installed peer dependency is outside the supported range."',
-    "  Align effect with the adapter's supported range.",
-    '  Expected: "3.22.2"; installed: "4.0.0"',
-    'false PEER_VERSION_UNSUPPORTED 3.22.2 4.0.0',
-    '0',
+    'ERROR PEER_VERSION_UNSUPPORTED (@mimlet/zod -> zod): "An installed peer dependency is outside the supported range."',
+    "  Align zod with the adapter's supported range.",
+    '  Expected: ">=4.4.3 <=4.6.5"; installed: "3.25.76"',
+    'false PEER_VERSION_UNSUPPORTED >=4.4.3 <=4.6.5 3.25.76',
+    '0 changed 1 package',
     '0 Mimlet doctor: checked',
     '0 true',
   ].join('\n'),
@@ -105,36 +120,43 @@ const T = {
   terminalIn: 0.2,
   install: 0.6,
   installOutput: 3.0,
-  testCommand: 4.0,
-  testOutput: 4.75,
-  diagnose: 8.6,
-  doctorCommand: 9.0,
-  doctorOutput: 9.85,
-  cardsIn: 11.0,
-  flyExpected: 11.5,
-  flyInstalled: 12.2,
+  retry: 4.2,
+  retryOutput: 6.1,
+  testCommand: 6.9,
+  testOutput: 7.65,
+  diagnose: 11.5,
+  doctorCommand: 11.9,
+  doctorOutput: 12.75,
+  cardsIn: 13.9,
+  flyExpected: 14.4,
+  flyInstalled: 15.1,
   flight: 0.6,
-  mismatch: 13.0,
-  agents: 16.4,
-  jsonCommand: 16.8,
-  jsonOutput: 17.85,
-  pin: 21.4,
-  pinCommand: 21.8,
-  pinOutput: 22.7,
-  fixed: 22.9,
-  recheckCommand: 23.4,
-  recheckOutput: 24.15,
-  retestCommand: 24.8,
-  retestOutput: 25.4,
-  endIn: 29.4,
-  end: 34.4,
+  mismatch: 15.9,
+  agents: 19.3,
+  jsonCommand: 19.7,
+  jsonOutput: 20.75,
+  pin: 24.3,
+  pinCommand: 24.7,
+  pinOutput: 25.6,
+  fixed: 25.8,
+  recheckCommand: 26.3,
+  recheckOutput: 27.05,
+  retestCommand: 27.7,
+  retestOutput: 28.3,
+  endIn: 32.3,
+  end: 37.3,
 };
 
 const beats: Beat[] = [
   {
     at: 0,
-    title: 'npm only warns. Then the test fails.',
-    subtitle: 'It installed Effect 4, and the error points inside effect.',
+    title: 'Your app is still on Zod 3.',
+    subtitle: 'npm refuses, and offers --legacy-peer-deps as a way through.',
+  },
+  {
+    at: T.testCommand - 0.3,
+    title: 'It installs. Then the test fails.',
+    subtitle: 'The error points inside zod, not at the version.',
   },
   {
     at: T.diagnose,
@@ -148,7 +170,7 @@ const beats: Beat[] = [
   },
   {
     at: T.pin,
-    title: 'Pin the version it asks for.',
+    title: 'Upgrade to the version it asks for.',
     subtitle: 'Doctor passes, and so does the test.',
   },
   { at: T.endIn, title: 'Check the install before the tests.' },
@@ -167,6 +189,8 @@ interface TerminalLine {
 }
 interface Step {
   command: string;
+  /** Characters per second; a retried command is typed faster. */
+  rate?: number;
   typedAt: number;
   printAt: number;
   output: TerminalLine[];
@@ -183,25 +207,35 @@ const screens: Screen[] = [
     until: T.diagnose,
     steps: [
       {
-        command: 'npm i -D @mimlet/core @mimlet/effect @mimlet/codegen effect',
+        command: 'npm i -D @mimlet/core @mimlet/zod @mimlet/codegen',
         typedAt: T.install,
         printAt: T.installOutput,
         output: [
-          { text: 'npm warn ERESOLVE overriding peer dependency', tone: 'dim' },
-          { text: 'npm warn …', tone: 'dim' },
-          { text: 'added 27 packages, and audited 28 packages in 1s', tone: 'output' },
+          { text: 'npm error ERESOLVE unable to resolve dependency tree', tone: 'error' },
+          {
+            text: 'npm error … retry this command with --force or --legacy-peer-deps',
+            tone: 'dim',
+            spans: [{ value: '--legacy-peer-deps', fill: color.paper }],
+          },
         ],
+      },
+      {
+        command: 'npm i -D @mimlet/core @mimlet/zod @mimlet/codegen --legacy-peer-deps',
+        rate: 45,
+        typedAt: T.retry,
+        printAt: T.retryOutput,
+        output: [{ text: 'added 26 packages in 1s', tone: 'output' }],
       },
       {
         command: 'node --test',
         typedAt: T.testCommand,
         printAt: T.testOutput,
         output: [
+          { text: '  builds a user', tone: 'error', mark: 'fail' },
           {
-            text: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/effect/dist/FastCheck.js'",
+            text: "  TypeError: Cannot read properties of undefined (reading 'def')",
             tone: 'error',
           },
-          { text: '  user.test.js', tone: 'error', mark: 'fail' },
         ],
       },
     ],
@@ -216,18 +250,18 @@ const screens: Screen[] = [
         printAt: T.doctorOutput,
         output: [
           { text: 'Mimlet doctor: needs attention', tone: 'error' },
-          { text: 'ERROR PEER_VERSION_UNSUPPORTED (@mimlet/effect -> effect):', tone: 'error' },
+          { text: 'ERROR PEER_VERSION_UNSUPPORTED (@mimlet/zod -> zod):', tone: 'error' },
           {
             text: '"An installed peer dependency is outside the supported range."',
             tone: 'output',
           },
-          { text: "  Align effect with the adapter's supported range.", tone: 'dim' },
+          { text: "  Align zod with the adapter's supported range.", tone: 'dim' },
           {
-            text: '  Expected: "3.22.2"; installed: "4.0.0"',
+            text: '  Expected: ">=4.4.3 <=4.6.5"; installed: "3.25.76"',
             tone: 'output',
             spans: [
-              { value: '"3.22.2"', fill: color.mint },
-              { value: '"4.0.0"', fill: color.coral },
+              { value: '">=4.4.3 <=4.6.5"', fill: color.mint },
+              { value: '"3.25.76"', fill: color.coral },
             ],
           },
         ],
@@ -255,14 +289,14 @@ const screens: Screen[] = [
             spans: [{ value: '"PEER_VERSION_UNSUPPORTED"', fill: color.mint }],
           },
           {
-            text: '      "expected": "3.22.2",',
+            text: '      "expected": ">=4.4.3 <=4.6.5",',
             tone: 'output',
-            spans: [{ value: '"3.22.2"', fill: color.mint }],
+            spans: [{ value: '">=4.4.3 <=4.6.5"', fill: color.mint }],
           },
           {
-            text: '      "actual": "4.0.0"',
+            text: '      "actual": "3.25.76"',
             tone: 'output',
-            spans: [{ value: '"4.0.0"', fill: color.coral }],
+            spans: [{ value: '"3.25.76"', fill: color.coral }],
           },
         ],
       },
@@ -273,15 +307,10 @@ const screens: Screen[] = [
     until: T.endIn,
     steps: [
       {
-        command: 'npm i -D effect@3.22.2',
+        command: 'npm i -D zod@4.6.5',
         typedAt: T.pinCommand,
         printAt: T.pinOutput,
-        output: [
-          {
-            text: 'added 3 packages, changed 1 package, and audited 31 packages in 992ms',
-            tone: 'output',
-          },
-        ],
+        output: [{ text: 'changed 1 package in 261ms', tone: 'output' }],
       },
       {
         command: 'npx mimlet doctor',
@@ -336,7 +365,7 @@ const laidOut = screens.map((screen) => {
       line: { text: prompt, tone: 'command', spans: [{ value: '$', fill: color.mint }] },
       index: rows.length,
       at: entry.typedAt,
-      typed: typing([prompt], entry.typedAt, 30),
+      typed: typing([prompt], entry.typedAt, entry.rate ?? 30),
       buzz: false,
     });
     const firstError = entry.output.findIndex((output) => output.tone === 'error');
@@ -437,14 +466,14 @@ const expectedFrom = (value: string): Point => {
 const versionFlights = [
   {
     start: T.flyExpected,
-    value: 'effect 3.22.2',
-    from: expectedFrom('"3.22.2"'),
+    value: 'zod >=4.4.3 <=4.6.5',
+    from: expectedFrom('">=4.4.3 <=4.6.5"'),
     to: valueSlot(SUPPORTS),
   },
   {
     start: T.flyInstalled,
-    value: 'effect 4.0.0',
-    from: expectedFrom('"4.0.0"'),
+    value: 'zod 3.25.76',
+    from: expectedFrom('"3.25.76"'),
     to: valueSlot(INSTALLED),
   },
 ];
@@ -550,8 +579,8 @@ function versionCards(t: number) {
   return place(
     versionCard(
       SUPPORTS,
-      '@MIMLET/EFFECT SUPPORTS',
-      'effect 3.22.2',
+      '@MIMLET/ZOD SUPPORTS',
+      'zod >=4.4.3 <=4.6.5',
       'mint',
       t,
       T.flyExpected + T.flight
@@ -559,11 +588,11 @@ function versionCards(t: number) {
       versionCard(
         INSTALLED,
         'NODE_MODULES HAS',
-        'effect 3.22.2',
+        'zod 4.6.5',
         'mint',
         t,
         T.flyInstalled + T.flight,
-        { value: 'effect 4.0.0', tone: 'coral' }
+        { value: 'zod 3.25.76', tone: 'coral' }
       ) +
       connector(t),
     { opacity, y: (1 - ease.out(span(t, T.cardsIn, 0.4))) * 14 }
@@ -612,7 +641,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, 'Then run npx mimlet doctor · @mimlet/codegen · alpha', {
+      text(960, 832, 'Then run npx mimlet doctor · @mimlet/codegen · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',
@@ -652,10 +681,12 @@ const gaze: Key<Point>[] = [
   { at: 0, value: { x: 900, y: 420 } },
   { at: T.install - 0.1, value: caretOf(0, 0) },
   { at: T.installOutput, value: textPoint(0, 1, 20) },
-  { at: T.installOutput + 0.4, value: textPoint(0, 3, 24) },
-  { at: T.testCommand - 0.1, value: caretOf(0, 4) },
-  { at: T.testOutput, value: textPoint(0, 5, 52) },
-  { at: T.testOutput + 1.6, value: textPoint(0, 6, 4) },
+  { at: T.installOutput + 0.5, value: textPoint(0, 2, 52) },
+  { at: T.retry - 0.1, value: caretOf(0, 3) },
+  { at: T.retryOutput, value: textPoint(0, 4, 10) },
+  { at: T.testCommand - 0.1, value: caretOf(0, 5) },
+  { at: T.testOutput, value: textPoint(0, 6, 8) },
+  { at: T.testOutput + 0.5, value: textPoint(0, 7, 40) },
   { at: T.doctorCommand - 0.1, value: caretOf(1, 0) },
   { at: T.doctorOutput, value: textPoint(1, 2, 30) },
   { at: T.doctorOutput + 0.6, value: textPoint(1, 5, 28) },
@@ -665,7 +696,7 @@ const gaze: Key<Point>[] = [
   { at: T.jsonCommand - 0.1, value: caretOf(2, 0) },
   { at: T.jsonOutput + 0.3, value: textPoint(2, 3, 24) },
   { at: T.jsonOutput + 1.0, value: textPoint(2, 5, 20) },
-  { at: 19.6, value: CONNECTOR },
+  { at: T.jsonOutput + 1.75, value: CONNECTOR },
   { at: T.pinCommand - 0.1, value: caretOf(3, 0) },
   { at: T.fixed, value: valueSlot(INSTALLED) },
   { at: T.fixed + 0.3, value: CONNECTOR },
@@ -687,7 +718,7 @@ const mouths: Key<Mouth>[] = [
   { at: T.endIn + 0.4, value: 'grin' },
 ];
 
-const blinks = [2.2, 6.6, 10.4, 14.6, 19.2, 21.0, 27.0, 31.8];
+const blinks = [2.2, 5.6, 10.4, 17.5, 22.1, 23.9, 29.9, 34.7];
 const hops = [T.recheckOutput, T.retestOutput, T.endIn + 0.6];
 
 function character(t: number) {
