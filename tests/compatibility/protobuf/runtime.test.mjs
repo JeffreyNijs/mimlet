@@ -150,6 +150,27 @@ describe('offline schema resolution and native boundaries', () => {
     imports['parts/value.proto'] = 'invalid';
     assert.equal(typeof p.create().v.x, 'string');
     fail(() => protobufAdapter(source, 'Main'));
+    // A missing import names the resolved key to add and the file that imports it.
+    assert.throws(
+      () =>
+        protobufAdapter('syntax="proto3";import "../parts/hub.proto";message X{}', 'X', {
+          filename: 'dir/scan.proto',
+          imports: { 'dir/scan.proto': 'unused' },
+        }),
+      (error) =>
+        error instanceof ProtobufFixtureError &&
+        error.code === 'PROTOBUF_FIXTURE_FAILED' &&
+        error.message ===
+          'Imported schema was not supplied in memory: add "parts/hub.proto" to imports (imported by "dir/scan.proto")'
+    );
+    assert.throws(
+      () => protobufAdapter(`syntax="proto3";import "${'x'.repeat(300)}.proto";message X{}`, 'X'),
+      (error) =>
+        error instanceof ProtobufFixtureError &&
+        /^Imported schema was not supplied in memory: add "x{197}\.\.\." to imports \(imported by "schema\.proto"\)$/.test(
+          error.message
+        )
+    );
     fail(() =>
       protobufAdapter('syntax="proto3"; import "../escape.proto";message X{}', 'X', {
         imports: { 'escape.proto': 'message Other{}' },

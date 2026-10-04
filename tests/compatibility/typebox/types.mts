@@ -156,3 +156,103 @@ expectType<{ id: string; timestamp: number }>(legacyGeneric.build());
 expectType<{ id: string; timestamp: Date }>(legacyGeneric.buildValidated());
 // @ts-expect-error Legacy helper patches stay schema-typed too.
 legacyRows(OldEvent, () => ({ timestamp: new Date() }));
+
+// Native builders take an optional generation session, like the other adapters.
+import type { GenerationSession, SchemaBuilder } from '@mimlet/core';
+import type { TypeBoxFill } from '@mimlet/typebox';
+import type { TypeBoxFill as LegacyFill } from '@mimlet/typebox-legacy';
+declare const session: GenerationSession;
+type EventInput = { id: string; timestamp: number; note?: string };
+type EventOutput = { id: string; timestamp: Date; note?: string };
+expectType<SchemaBuilder<EventInput, EventOutput, [session?: GenerationSession]>>(events);
+expectType<EventInput>(events.build(session));
+expectType<EventOutput[]>(events.buildValidatedList(2, session));
+expectType<EventInput[]>(events.buildList(2));
+// @ts-expect-error The optional argument is a generation session.
+events.build('session');
+// @ts-expect-error A list takes at most one session.
+events.buildList(2, session, session);
+// Helpers typed with the session-less builder type keep compiling.
+const sessionless: SchemaBuilder<EventInput, EventOutput> = events;
+sessionless.build();
+const counted = events.withFactory((execution?: GenerationSession) => ({
+  id: `event-${execution?.sequence('event', 1) ?? 0}`,
+}));
+expectType<EventOutput[]>(counted.buildValidatedList(3));
+expectType<GenerationSession>(typeBoxAdapter(Event).session('seed'));
+expectType<string>(typeBoxAdapter(Event).identity.fingerprint);
+expectType<EventInput>(typeBoxAdapter(Event).create(session));
+expectType<{ kind: 'dog'; bark: boolean }>(dogs.build(session));
+expectType<{ kind: 'dog'; bark: boolean }[]>(legacyDogs.buildList(2, session));
+expectType<GenerationSession>(typeBoxVariantAdapter(Pet, 1).session());
+const oldSessionless: SchemaBuilder<
+  { id: string; timestamp: number },
+  { id: string; timestamp: Date }
+> = oldEvents;
+oldSessionless.buildValidated();
+expectType<{ id: string; timestamp: number }>(oldEvents.build(session));
+// @ts-expect-error Legacy builders take a session too, not other arguments.
+oldEvents.build(1);
+expectType<GenerationSession>(legacyAdapter(OldEvent).session());
+
+// Fill options: samples and candidates are strings; `false` keeps plain native creation.
+const fill: TypeBoxFill = {
+  now: '2026-01-01T00:00:00.000Z',
+  formats: { 'x-sku': 'SKU-0001' },
+  patterns: ['APP-1'],
+};
+fromTypeBox(Event, { fill });
+fromTypeBox(Event, { fill: false });
+fromTypeBoxVariant(Pet, 1, { fill: { patterns: [] } });
+const legacyFill: LegacyFill = { patterns: ['APP-1'] };
+fromLegacy(OldEvent, { fill: legacyFill });
+legacyVariant(LegacyPet, 0, { fill: false });
+// @ts-expect-error Fill takes options or false.
+fromTypeBox(Event, { fill: true });
+// @ts-expect-error Format samples are strings.
+fromTypeBox(Event, { fill: { formats: { uuid: 1 } } });
+// @ts-expect-error Pattern candidates are strings.
+fromLegacy(OldEvent, { fill: { patterns: [/APP/] } });
+
+// A setter per schema field, from a generic helper, with no field list and no casts.
+import { fluent } from '@mimlet/core';
+import { typeBoxFields } from '@mimlet/typebox';
+import { typeBoxFields as legacyFields } from '@mimlet/typebox-legacy';
+function namedRows<S extends TObject>(schema: S) {
+  return fluent(fromTypeBox(schema), typeBoxFields(schema));
+}
+const named = namedRows(Event);
+expectType<{ id: string; timestamp: Date; note?: string }>(
+  named.withId('event-1').withTimestamp(1).withNote('n').buildValidated()
+);
+// @ts-expect-error Setters take encoded input, not decoded output.
+named.withTimestamp(new Date());
+// @ts-expect-error Like with(), an exact optional key is omitted, never set to undefined.
+named.withNote(undefined);
+// @ts-expect-error Fields that are not in the schema have no setter.
+named.withOther(1);
+const namedAsync = named.transformAsync(async (value) => value).withId('event-2');
+namedAsync.buildValidatedAsync();
+// @ts-expect-error Async transitions remove synchronous build methods.
+namedAsync.buildValidated();
+const Machine = Type.Object({ factory: Type.String(), serial: Type.String() });
+const machines = fluent(fromTypeBox(Machine), typeBoxFields(Machine));
+machines.withSerial('m-1').withFactory(() => ({ factory: 'plant-1' }));
+// @ts-expect-error A field named factory cannot replace the withFactory() builder method.
+machines.withFactory('plant-1');
+// @ts-expect-error Only object schemas list fields.
+typeBoxFields(Type.String());
+// @ts-expect-error Unions have no single field list.
+typeBoxFields(Pet);
+function prismaRows<S extends LegacyObject>(schema: S) {
+  return fluent(fromLegacy(schema), legacyFields(schema));
+}
+const prisma = prismaRows(OldEvent);
+expectType<{ id: string; timestamp: Date }>(
+  prisma.withId('row-1').withTimestamp(1).buildValidated()
+);
+prisma.withId('row-1').buildValidatedList(2);
+// @ts-expect-error Legacy setters take encoded input.
+prisma.withTimestamp(new Date());
+// @ts-expect-error Legacy unions have no single field list.
+legacyFields(LegacyPet);

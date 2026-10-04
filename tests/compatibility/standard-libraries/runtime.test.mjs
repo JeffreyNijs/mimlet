@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { type } from 'arktype';
 import * as v from 'valibot';
 import { fromStandardJsonSchema } from '@mimlet/json-schema';
-import { fromValibot, valibotAdapter } from '@mimlet/valibot';
-import { createSchemaBuilder, createSession, BuilderValidationError } from '@mimlet/core';
+import { fromValibot, valibotAdapter, valibotFields } from '@mimlet/valibot';
+import { createSchemaBuilder, createSession, fluent, BuilderValidationError } from '@mimlet/core';
 const session = () =>
   createSession({ seed: 42, fingerprint: 'library-corpus/v1', provider: 'test' });
 
@@ -104,6 +104,60 @@ describe('real schema library generation and parsing', () => {
     assert.equal(new Set(list.map((item) => item.id)).size, 3);
     assert.deepEqual(valibotAdapter(schema).generation().identity, generation.identity);
   });
+  it('Valibot: generates ISO and base64 strings that the native actions accept', () => {
+    const schema = v.object({
+      local: v.pipe(v.string(), v.isoDateTime()),
+      seconds: v.pipe(v.string(), v.isoDateTimeSecond()),
+      time: v.optional(v.pipe(v.string(), v.isoTime())),
+      times: v.array(v.pipe(v.string(), v.isoTime())),
+      blob: v.pipe(v.string(), v.base64(), v.maxLength(12)),
+    });
+    for (const dialect of ['draft-07', 'draft-2020-12']) {
+      for (const profile of ['minimal', 'random', 'boundary']) {
+        for (const value of fromValibot(schema, { dialect, profile }).buildValidatedList(20)) {
+          assert.equal(v.is(schema, value), true);
+        }
+      }
+    }
+    const { jsonSchema } = valibotAdapter(v.pipe(v.string(), v.base64())).standard['~standard'];
+    const converted = jsonSchema.output({ target: 'openapi-3.0' });
+    assert.equal(converted.contentEncoding, 'base64');
+    assert.equal(new RegExp(converted.pattern, 'u').test('QUJD'), true);
+    assert.equal(new RegExp(converted.pattern, 'u').test('abc'), false);
+  });
+  it('Valibot: keeps the converter rule of one regex action per string', () => {
+    const combined = v.pipe(v.string(), v.regex(/^2/), v.isoDateTime());
+    assert.throws(() => fromValibot(combined), /iso_date_time.*another regex action/);
+    assert.throws(
+      () => fromValibot(v.pipe(v.string(), v.isoTime(), v.startsWith('1'))),
+      /another regex action/
+    );
+    const { jsonSchema } = valibotAdapter(combined).standard['~standard'];
+    const lenient = (errorMode) =>
+      jsonSchema.input({ target: 'draft-2020-12', libraryOptions: { errorMode } });
+    // Lenient modes keep the converter's own (broader) result, as for its other actions.
+    assert.equal(lenient('ignore').pattern, '^2');
+    const warn = console.warn;
+    const warnings = [];
+    console.warn = (message) => warnings.push(message);
+    try {
+      assert.equal(lenient('warn').format, 'date-time');
+    } finally {
+      console.warn = warn;
+    }
+    assert.equal(warnings.length, 1);
+    const described = valibotAdapter(v.pipe(v.string(), v.isoTime())).standard[
+      '~standard'
+    ].jsonSchema.input({
+      target: 'draft-2020-12',
+      libraryOptions: {
+        overrideAction: ({ jsonSchema: converted }) => ({ ...converted, description: 'local' }),
+      },
+    });
+    assert.equal(described.description, 'local');
+    assert.equal(described.format, undefined);
+    assert.match(described.pattern, /^\^/);
+  });
   it('uses native invalid paths, defaults and optional semantics', () => {
     const schema = v.object({
       age: v.pipe(v.number(), v.minValue(18)),
@@ -176,5 +230,33 @@ describe('real schema library generation and parsing', () => {
       () => strict.replace({ x: 1, extra: true }).buildValidated(),
       BuilderValidationError
     );
+  });
+  it('lists object entries for a setter per field, through pipes and factory builders', () => {
+    const Order = v.object({
+      id: v.pipe(v.string(), v.minLength(1)),
+      total: v.pipe(v.string(), v.transform(Number)),
+    });
+    assert.deepEqual([...valibotFields(Order)], ['id', 'total']);
+    const piped = v.pipe(
+      Order,
+      v.transform((value) => ({ ...value, paid: value.total > 0 }))
+    );
+    assert.deepEqual([...valibotFields(piped)], ['id', 'total']);
+    for (const schema of [v.strictObject({ a: v.string() }), v.looseObject({ a: v.string() })])
+      assert.deepEqual([...valibotFields(schema)], ['a']);
+    const orders = fluent(fromValibot(piped), valibotFields(piped));
+    assert.deepEqual(orders.withId('o-1').withTotal('3').buildValidated(), {
+      id: 'o-1',
+      total: 3,
+      paid: true,
+    });
+    const Dated = v.object({ id: v.string(), at: v.date() });
+    const dated = fluent(
+      createSchemaBuilder(valibotAdapter(Dated).standard, () => ({ id: 'x', at: new Date(0) })),
+      valibotFields(Dated)
+    );
+    assert.equal(dated.withId('y').buildValidated().id, 'y');
+    for (const schema of [v.string(), v.union([Order, v.object({ b: v.string() })]), null])
+      assert.throws(() => valibotFields(schema), /Valibot object schema/);
   });
 });

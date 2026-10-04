@@ -66,6 +66,7 @@ async function compileGeneratedProject(
     },
     allowSyntheticDefaultImports: true,
     esModuleInterop: true,
+    exactOptionalPropertyTypes: true,
     forceConsistentCasingInFileNames: true,
     ignoreDeprecations: '6.0',
     module: ts.ModuleKind.CommonJS,
@@ -301,6 +302,13 @@ asynchronous.buildAsync();
 asynchronous.withDisplayName('bad').build();
 // @ts-expect-error Generated methods retain their field types.
 pet.withDisplayName(123);
+pet.withNickname(null);
+// @ts-expect-error Like with(), an exact optional key is omitted, never set to undefined.
+pet.withNickname(undefined);
+// @ts-expect-error The same rule as the named helper above.
+pet.with({ nickname: undefined });
+// @ts-expect-error A required key never accepts undefined.
+pet.withDisplayName(undefined);
 // @ts-expect-error Object union transitions require complete replacements.
 new AnimalBuilder().with({ kind: 'cat' });
 `

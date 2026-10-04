@@ -14,5 +14,14 @@
   ],
   "coveragePackages": [
     "api"
+  ],
+  "additionalTypeChecks": [
+    {
+      "file": "types.dom.mts",
+      "compilerLibs": [
+        "ES2022",
+        "DOM"
+      ]
+    }
   ]
 }

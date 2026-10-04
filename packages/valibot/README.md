@@ -40,10 +40,34 @@ Standard Schema implementations. For Date/Map/Set, refinements and those actions
 `fromValibot` throws the converter's "cannot be converted" error instead of dropping
 the rule. No inverse transform or shrinker is invented.
 
-`v.isoDateTime()` and `v.isoTime()` convert to JSON Schema `date-time` and `time`,
-which require seconds and a UTC offset. Valibot's formats (`2026-01-02T03:04`,
-`03:04`) allow neither, so generated values fail `buildValidated()`. Set those
-fields with `.with()`, or build the object with `createSchemaBuilder(schema, factory)`.
+`valibotFields(schema)` lists an object schema's top-level entries. Pass it to
+`fluent()` from `@mimlet/core` for a `withX()` setter per field, typed with the
+schema's input. It reads only `schema.entries` (a `v.pipe()` that starts with an
+object keeps them) and does not convert the schema, so it also works with
+`createSchemaBuilder(valibotAdapter(schema).standard, factory)` and in a generic
+helper such as `<S extends v.ObjectSchema<v.ObjectEntries, undefined>>(schema: S) =>
+fluent(fromValibot(schema), valibotFields(schema))`. Non-object schemas throw a
+`TypeError`; `looseObject()` and `objectWithRest()` inputs get no typed setters. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
+`v.isoDateTime()`, `v.isoDateTimeSecond()`, `v.isoTime()` and `v.base64()` convert to
+Valibot's own regular expression as a JSON Schema `pattern`, the way the converter
+already handles `v.isoTimeSecond()` and `v.isoWeek()`. On its own, the pinned converter
+maps `v.isoDateTime()` and `v.isoTime()` to the broader `date-time` and `time` formats,
+which require seconds and a time zone (`2026-01-02T03:04` and `03:04` have neither),
+cannot convert `v.isoDateTimeSecond()`, and records `v.base64()` only as
+`contentEncoding`. Generated values follow the regular expression, so they pass
+`buildValidated()`; like Valibot's check, it allows any four-digit year and does not
+compare the day with the month. `v.isoDate()` and `v.isoTimestamp()` keep the `date`
+and `date-time` formats, whose generated values Valibot accepts.
+
+As with the converter's other regex actions, one of these actions cannot share a pipe
+with another regex action such as `v.regex()` or `v.startsWith()`: that conversion
+throws. The handle's `jsonSchema` converters still honor the converter's `errorMode` and
+`overrideAction` when you pass them in `libraryOptions`. Builders
+for schemas that use these actions have a new generation fingerprint, so a session
+replay saved with an earlier version fails with `INVALID_SESSION_REPLAY` instead of
+producing different values.
 
 Zod 4.4.3 and ArkType 2.2.5 also support `fromStandardJsonSchema`. Dedicated
 [Zod and ArkType builders](https://jeffreynijs.github.io/mimlet/guide/zod-and-arktype.html) add native operation

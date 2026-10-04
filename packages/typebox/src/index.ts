@@ -1,19 +1,36 @@
-import type { StaticDecode, StaticEncode, TProperties, TSchema } from 'typebox';
+import type { StaticDecode, StaticEncode, TObject, TProperties, TSchema } from 'typebox';
 import * as Value from 'typebox/value';
-import { BuilderGenerationError, BuilderValidationError, createSchemaBuilder } from '@mimlet/core';
+import {
+  BuilderGenerationError,
+  BuilderValidationError,
+  createSchemaBuilder,
+  createSession,
+  schemaFields,
+} from '@mimlet/core';
 import type {
+  GenerationSession,
   SchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
+  SessionKey,
+  SchemaFields,
   StandardSchemaV1,
   ValidationIssue,
 } from '@mimlet/core';
+import { FillFailure, fillIdentity, fillSettings, fingerprint, prepareFill } from './fill.js';
+import type { FillNative, FillSettings, Node, TypeBoxFill } from './fill.js';
+export type { TypeBoxFill } from './fill.js';
 
 export interface TypeBoxOptions<
   Context extends TProperties = Record<never, never>,
 > extends SchemaBuilderConfig {
   /** Native named reference context. No reference is fetched from the network. */
   readonly context?: Context;
+  /**
+   * Deterministic values where native creation cannot create one, on a creation-only copy of
+   * the schema. `false` uses plain native `Value.Create`.
+   */
+  readonly fill?: TypeBoxFill | false;
 }
 function path(pointer: string): string[] {
   return pointer === ''
@@ -24,6 +41,27 @@ function path(pointer: string): string[] {
         .map((key) => key.replace(/~1/g, '/').replace(/~0/g, '~'));
 }
 
+/** Versioned creation identity: change it when native creation or the fill changes output. */
+const provider = 'test-builders/typebox@1.3.34/value-create-v1';
+type References = Readonly<Record<string, unknown>>;
+const native: FillNative<References> = {
+  kind: (node) => node['~kind'],
+  create: (node, scope) => Value.Create(scope.create as TProperties, node as unknown as TSchema),
+  check: (node, scope, value) =>
+    Value.Check(scope.check as TProperties, node as unknown as TSchema, value),
+  clone: (value) => Value.Clone(value),
+  // A Cyclic type resolves its references through its own definitions.
+  enter: (node, scope) => {
+    const definitions = node['$defs'];
+    return node['~kind'] === 'Cyclic' && typeof definitions === 'object' && definitions !== null
+      ? {
+          check: { ...scope.check, ...definitions },
+          create: { ...scope.create, ...definitions },
+        }
+      : scope;
+  },
+};
+
 /** Preserve native codecs and references instead of reducing the schema to JSON. */
 export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record<never, never>>(
   source: S,
@@ -32,6 +70,7 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
   type Input = StaticEncode<S, C>;
   type Output = StaticDecode<S, C>;
   const context: C = { ...options.context } as C;
+  const settings = fillSettings(options.fill);
   const check = (value: unknown): value is Input => Value.Check(context, source, value);
   const issues = (value: unknown): ValidationIssue[] =>
     Value.Errors(context, source, value).map((error) => ({
@@ -53,9 +92,39 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
       },
     },
   };
+  const identity = Object.freeze({
+    fingerprint: fingerprint({ schema: source, context }),
+    provider,
+    configuration: fingerprint(fillIdentity(settings)),
+  });
+  const session = (seed: SessionKey = 1): GenerationSession => createSession({ ...identity, seed });
+  let prepared: { readonly now: string; readonly source: TSchema; readonly context: TProperties };
+  const creation = (configured: FillSettings, now: string) => {
+    if (prepared?.now !== now) {
+      const fill = prepareFill(native, configured, new Date(now));
+      const original = context as References;
+      const references = Object.fromEntries(
+        Object.entries(original).map(([name, schema]) => [
+          name,
+          fill.reference(name, schema as Node, { check: original, create: original }),
+        ])
+      );
+      prepared = {
+        now,
+        context: references as TProperties,
+        source: fill.node(source as unknown as Node, {
+          check: original,
+          create: references,
+        }) as unknown as TSchema,
+      };
+    }
+    return prepared;
+  };
   return Object.freeze({
     source,
     standard,
+    identity,
+    session,
     metadata: Object.freeze({
       generation: 'native-defaults' as const,
       validation: 'native-strict' as const,
@@ -75,14 +144,28 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
       }
       return encoded;
     },
-    create(): Input {
+    /** The fill takes dates from the session's reference time; nothing else reads it. */
+    create(execution?: GenerationSession): Input {
       try {
-        const value: unknown = Value.Clone(Value.Create(context, source));
+        let created: unknown;
+        if (settings) {
+          const filled = creation(
+            settings,
+            settings.now ?? (execution ?? session()).referenceDate().toISOString()
+          );
+          created = Value.Create(filled.context, filled.source);
+        } else {
+          created = Value.Create(context, source);
+        }
+        const value: unknown = Value.Clone(created);
         if (!check(value)) {
           throw new BuilderValidationError(issues(value));
         }
         return value;
       } catch (cause) {
+        if (cause instanceof FillFailure) {
+          throw cause;
+        }
         throw new BuilderGenerationError(
           'TypeBox could not create a valid default fixture; supply fromTypeBoxFactory() for this schema',
           cause
@@ -96,16 +179,19 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
  * Generate native TypeBox defaults. This is deterministic creation, not random sampling.
  * Native creation is synchronous, so the builder type is concrete: generic helpers over an
  * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
+ * A session-less build or list uses the adapter's seed-1 session, so `withFactory()` and
+ * transforms can draw distinct values for list items from it.
  */
 export function fromTypeBox<S extends TSchema, C extends TProperties = Record<never, never>>(
   schema: S,
   options: TypeBoxOptions<C> = {}
-): SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>> {
+): SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]> {
   const adapter = typeBoxAdapter(schema, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
-    StaticEncode<S, C>,
-    StaticDecode<S, C>
-  >;
+  return createSchemaBuilder(
+    adapter.standard,
+    (session?: GenerationSession) => adapter.create(session),
+    { ...options, defaultSession: adapter.session }
+  ) as SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]>;
 }
 
 /** Use a custom sync/async factory without losing encoded/decoded types or arguments. */
@@ -124,6 +210,20 @@ export function fromTypeBoxFactory<
   options: TypeBoxOptions<C> = {}
 ): SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F> {
   return createSchemaBuilder(typeBoxAdapter(schema, options).standard, factory, options);
+}
+
+/**
+ * The object schema's top-level property names, for a setter per field:
+ * `fluent(fromTypeBox(schema), typeBoxFields(schema))`. Reads only `schema.properties`.
+ */
+export function typeBoxFields<S extends TObject>(
+  schema: S
+): SchemaFields<Extract<keyof S['properties'], string>> {
+  const properties: unknown = schema?.type === 'object' ? schema.properties : undefined;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    throw new TypeError('Expected a TypeBox object schema');
+  }
+  return schemaFields(Object.keys(properties) as Extract<keyof S['properties'], string>[]);
 }
 
 /** Literal indexes of a statically known union; runtime-length unions accept numbers. */
@@ -176,10 +276,16 @@ export function typeBoxVariantAdapter<
       },
     },
   };
+  const identity = Object.freeze({
+    ...parent.identity,
+    fingerprint: fingerprint({ union: parent.identity.fingerprint, variant: index }),
+  });
   return Object.freeze({
     source,
     variantSource,
     standard,
+    identity,
+    session: (seed: SessionKey = 1): GenerationSession => createSession({ ...identity, seed }),
     metadata: Object.freeze({ ...parent.metadata, variant: index }),
     check,
     issues,
@@ -196,8 +302,8 @@ export function typeBoxVariantAdapter<
       }
       return encoded;
     },
-    create(): Input {
-      const value = selected.create();
+    create(execution?: GenerationSession): Input {
+      const value = selected.create(execution);
       if (!parent.check(value)) {
         throw new BuilderGenerationError(
           'The selected variant does not satisfy the enclosing union',
@@ -218,10 +324,19 @@ export function fromTypeBoxVariant<
   source: S,
   index: I,
   options: TypeBoxOptions<C> = {}
-): SchemaBuilder<StaticEncode<S['anyOf'][I], C>, StaticDecode<S, C>> {
+): SchemaBuilder<
+  StaticEncode<S['anyOf'][I], C>,
+  StaticDecode<S, C>,
+  [session?: GenerationSession]
+> {
   const adapter = typeBoxVariantAdapter(source, index, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
+  return createSchemaBuilder(
+    adapter.standard,
+    (session?: GenerationSession) => adapter.create(session),
+    { ...options, defaultSession: adapter.session }
+  ) as SchemaBuilder<
     StaticEncode<S['anyOf'][I], C>,
-    StaticDecode<S, C>
+    StaticDecode<S, C>,
+    [session?: GenerationSession]
   >;
 }

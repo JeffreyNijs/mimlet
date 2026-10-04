@@ -3,8 +3,10 @@
 Use the same builders in UI previews, HTTP mocks and test-database setup without
 adding a UI framework, server, database driver or network client to the core.
 These utilities consume **explicit callbacks**, never discover production resources
-or install global interceptors. Native Web APIs are used; TypeScript consumers need
-Web platform declarations such as `lib: ["ES2022", "DOM"]`.
+or install global interceptors. Native Web APIs are used. TypeScript consumers need
+declarations for the Fetch globals `Request`, `Response` and `Headers`: either
+`lib: ["ES2022", "DOM"]`, or `@types/node` in a Node-only project without the DOM
+library. Both setups are tested with `skipLibCheck: false`.
 
 ## Component previews
 
@@ -49,11 +51,19 @@ const resolveUser = jsonResponseResolver(
 // http.get('/user', ({ request }) => resolveUser(request));
 ```
 
+`headers` accepts anything the global `Headers` constructor accepts: `HeadersInit`
+with the DOM library, or the equivalent type from `@types/node`.
+
+The [MSW guide](https://jeffreynijs.github.io/mimlet/guide/mock-service-worker.html)
+has a tested recipe that shares one fixture recipe between unit tests, MSW 3
+handlers and a Storybook story.
+
 Request aborts propagate; factory/validation/serialization errors are not changed
 into successful responses. Status defaults to 200, content type is JSON, and the
 UTF-8 response budget defaults to 1 MiB. For bodyless statuses, binary, streaming,
 multipart, or a prepared OpenAPI codec, explicitly construct a native `Response`
-from that codec instead. JSON limitations apply: BigInt, cycles and undefined roots
+from that codec instead. A body serialized by `@mimlet/api` can be passed to
+`new Response()` as it is. JSON limitations apply: BigInt, cycles and undefined roots
 are not invented wire encodings. The size check follows serialization and is not
 a sandbox or exact peak-memory limit for untrusted values/toJSON callbacks.
 
@@ -77,6 +87,11 @@ Pass the shared session so `sequence()` and `unique()` continue across the batch
 per-item `session.scope('user', index)` has its own counters, so ids built with
 `sequence()` would repeat.
 
+The [database seeding guide](https://jeffreynijs.github.io/mimlet/guide/database-seeding.html)
+has a tested recipe that writes connected customer, order and line rows to SQLite
+in one transaction, deterministically and idempotently, and maps the write step
+to Prisma and Drizzle.
+
 Only the explicitly supplied sink can write. Transactions, rollback, connections,
 credentials and schema migrations belong to that sink; this utility does not imply
 that arbitrary callbacks are transactional. There are no automatic retries. The
@@ -86,5 +101,6 @@ cancellation during I/O is passed to the sink, not falsely reported as a rollbac
 An empty batch calls the sink once with an empty array. The default limit is 1,000.
 
 The packed-consumer suite uses actual builders, native Requests/Responses and
-in-memory transactional test sinks. It does not claim a tested version matrix for
-every UI framework, mocking framework or database driver.
+in-memory transactional test sinks. The executable recipes behind the two guides
+above also run against MSW 3.0.2 and Node's built-in `node:sqlite`. This is not a
+tested version matrix for every UI framework, mocking framework or database driver.

@@ -26,18 +26,29 @@ programming errors, not states to branch on.
 | `SessionBudgetError`     | `SESSION_BUDGET_EXHAUSTED` | A generation session ran out of its operation, tracked-key, unique-value or uniqueness-attempt budget.                |
 | `SessionReplayError`     | `INVALID_SESSION_REPLAY`   | A session replay is malformed, or its fingerprint, provider/version or configuration does not match.                  |
 
+A `BuilderValidationError` message names the issue count and up to three failing
+paths, for example `Schema validation failed: 2 issues at owner.email, items[0].price`.
+It never includes native issue messages, which can repeat the rejected value. Read
+the non-enumerable `issues` property, or call `formatValidationIssues(error, { messages: true })`,
+to see them. See [validation diagnostics](../packages/core/README.md#validation-diagnostics).
+
 ## Adapters and schema packages
 
 | Package               | Class                      | Code                            | When                                                                                       |
 | --------------------- | -------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
 | `@mimlet/adapter`     | `AdapterDefinitionError`   | `INVALID_ADAPTER_DEFINITION`    | `defineAdapter` received invalid metadata or operations. Extends `TypeError`.              |
-| `@mimlet/json-schema` | `SchemaPreparationError`   | `SCHEMA_PREPARATION_FAILED`     | A schema or one of its references could not be prepared for generation.                    |
+| `@mimlet/json-schema` | `SchemaPreparationError`   | `SCHEMA_PREPARATION_FAILED`     | A schema or a reference it uses could not be prepared for generation.                      |
 |                       | `SchemaGenerationError`    | `SCHEMA_GENERATION_FAILED`      | Bounded generation could not produce a valid value. This does not prove none exists.       |
 |                       | `NegativeCaseError`        | `NEGATIVE_CASE_MISMATCH`        | A negative case did not fail validation with the expected number of issues.                |
 | `@mimlet/faker`       | `FakerSessionError`        | `FAKER_SESSION_RECONFIGURATION` | Code tried to reseed a session-scoped Faker instance; create or restore a session instead. |
 | `@mimlet/fast-check`  | `PropertyIntegrationError` | `PROPERTY_CONFIGURATION`        | A property check is misconfigured, for example without a fingerprint and provider/version. |
 |                       |                            | `PROPERTY_REPLAY`               | A property replay's version, engine, identity or path does not match.                      |
 |                       | `FixturePropertyError`     | `PROPERTY_FAILED`               | A fixture property failed; its `report` getter holds the counterexample and replay record. |
+
+`SchemaPreparationError.schemaPath` locates the problem. When it is inside a supplied
+reference, `reference` names that reference and the path is relative to it. When a
+`$ref` resolves to nothing, `missingReference` names the target and `schemaPath`
+points at the `$ref`. References the schema does not reach are not prepared.
 
 ## Protocol packages
 
@@ -47,6 +58,10 @@ programming errors, not states to branch on.
 | `@mimlet/graphql`  | `GraphQLFixtureError`  | `GRAPHQL_FIXTURE_FAILED`  | A GraphQL schema, operation or output type cannot be generated.                          |
 | `@mimlet/protobuf` | `ProtobufFixtureError` | `PROTOBUF_FIXTURE_FAILED` | A Protobuf schema could not be prepared, or a message failed to decode.                  |
 | `@mimlet/avro`     | `AvroFixtureError`     | `AVRO_FIXTURE_FAILED`     | An Avro schema failed to compile or a value does not fit it; the error carries the path. |
+
+A `GraphQLFixtureError` for a missing custom-scalar hook names the scalar, and schema or
+operation validation issues keep GraphQL's message. A `ProtobufFixtureError` for a
+missing import names the `imports` key to add.
 
 ## Tooling
 

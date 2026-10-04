@@ -1,4 +1,7 @@
-/** Test-only server exposes a fixed set of packed core ESM files for browser conformance. */
+/**
+ * Test-only server exposes a fixed set of packed core ESM files for browser conformance,
+ * and the docs sandbox bundles that scripts/test-browser.mjs builds into ./sandbox.
+ */
 import { startPlayground } from '@mimlet/playground';
 import { createServer } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
@@ -11,10 +14,38 @@ for (const name of await readdir(directory)) {
     modules.set(`/core/${name}`, await readFile(`${directory}/${name}`));
   }
 }
+for (const name of ['host.js', 'runtime.js']) {
+  modules.set(`/sandbox/${name}`, await readFile(new URL(`./sandbox/${name}`, import.meta.url)));
+}
+const sandboxPage = `<!doctype html><html lang="en"><title>Sandbox smoke</title><body><main>Sandbox smoke<div id="frames"></div></main>
+<script type="module">
+import { createFrameHost, presets, runSandbox } from '/sandbox/host.js';
+const runtime = await (await fetch('/sandbox/runtime.js')).text();
+globalThis.sandboxPresets = presets;
+globalThis.runInSandbox = (source, { timeLimitMs = 5000, stopAfterMs } = {}) => {
+  const controller = new AbortController();
+  if (stopAfterMs) setTimeout(() => controller.abort(), stopAfterMs);
+  const host = createFrameHost(runtime, document.getElementById('frames'));
+  return runSandbox(host, source, { timeLimitMs, signal: controller.signal });
+};
+document.body.dataset.ready = 'true';
+</script></body></html>`;
+// Sandbox programs try to reach this URL; the count shows whether any request arrived.
+let probes = 0;
 const core = createServer((request, response) => {
   const source = modules.get(request.url);
   response.setHeader('cache-control', 'no-store');
-  if (source) {
+  if (request.url === '/sandbox-probe') {
+    probes++;
+    response.writeHead(200, { 'access-control-allow-origin': '*' });
+    response.end('reached');
+  } else if (request.url === '/sandbox-probe-count') {
+    response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    response.end(String(probes));
+  } else if (request.url === '/sandbox/') {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end(sandboxPage);
+  } else if (source) {
     response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
     response.end(source);
   } else if (request.url === '/') {

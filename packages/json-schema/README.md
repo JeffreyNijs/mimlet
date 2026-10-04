@@ -51,6 +51,16 @@ const typedUsers = fromJsonSchema(schema) as UserBuilder;
 const user = typedUsers.with({ name: 'Ada' }).buildValidated();
 ```
 
+`standardJsonSchemaFields(schema, { dialect })` lists the top-level `properties` of a
+Standard JSON Schema's input projection, converted with the same dialect as
+`fromStandardJsonSchema()`. Pass it to `fluent()` from `@mimlet/core` for a `withX()`
+setter per field, typed with the schema's input:
+`fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema))`. Inputs
+without top-level `properties` throw a `TypeError`. A raw schema has no typed input
+to name setters after, so give a cast raw builder an explicit tuple such as
+`fluent(typedUsers, ['id', 'name'])`. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 ## Supported generation path
 
 The pinned provider is `json-schema-faker@0.6.3`, independently checked by
@@ -100,6 +110,15 @@ claimed. Snapshots contain generation state, not user callback implementations.
 
 `references` is an explicit URI-to-schema dictionary. No remote resolver, network
 request, filesystem reader, or schema-derived executable configuration is installed.
+The dictionary can hold more schemas than the root uses, such as a whole OpenAPI
+component set: only the references the schema reaches, directly or through other
+references, are compiled. A reference that cannot be prepared fails the adapter only
+when the schema reaches it. Then `SchemaPreparationError.reference` names that
+reference, the message ends with `in reference <uri>`, and `schemaPath` is relative to
+the reference. A `$ref` that resolves to nothing fails with
+`Unresolved reference <uri> at <schemaPath>`, where `schemaPath` points at the `$ref`
+and `missingReference` holds the resolved URI. The replay fingerprint still covers
+every supplied reference.
 JSON data is copied before compilation and checked for cycles, accessors, symbols,
 non-JSON values, depth, size, and allocation limits. Supplied schemas are snapshots;
 mutating the original does not change an already prepared adapter.

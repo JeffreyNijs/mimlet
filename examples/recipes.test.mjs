@@ -20,6 +20,7 @@ import { files } from './compiled/codegen.js';
 import { input as zodInput, user as zodUser } from './compiled/zod.js';
 import { input as arkInput, user as arkUser } from './compiled/arktype.js';
 import { input as fluentInput, output as fluentOutput, asynchronous } from './compiled/fluent.js';
+import { order as fieldsOrder } from './compiled/fluent-fields.js';
 import { runScenarioDemo, replayScenarioDemo } from './compiled/scenario-demo.js';
 
 import {
@@ -30,11 +31,24 @@ import {
   checkoutTotal,
   expectedCheckoutTotal,
 } from './compiled/checkout.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getResponse } from 'msw';
+import { setupServer } from 'msw/node';
+import { api, handlers, orderHandler } from './compiled/msw-handlers.js';
+import { orders } from './compiled/msw-orders.js';
+import orderStories, { Fetched, Loaded } from './compiled/msw-story.js';
+import { shop as seedGraph, shopSession } from './compiled/seed-shop.js';
+import { openShopDatabase, seedShop, writeShops } from './compiled/seed-sqlite.js';
 
 test('named fluent setters retain encoded input, native output and async behavior', () => {
   assert.deepEqual(fluentInput, { name: 'Ada', age: '42' });
   assert.deepEqual(fluentOutput, { name: 'Ada', age: 42 });
   assert.deepEqual(asynchronous, { name: 'Grace', age: 24 });
+});
+test('a generic helper gets a setter per schema field without a field list', () => {
+  assert.deepEqual(fieldsOrder, { id: 'order-1', status: 'PAID', total: 42 });
 });
 test('the interactive demo uses genuine shrinking and compatible replay with coherent relationships', () => {
   for (const seed of [12345, 1, 42, 100]) {
@@ -246,5 +260,120 @@ test('native fast-check maps, shrinks, and replays the same coherent checkout', 
     const fixed = checkNativeFixedCheckout(seed);
     assert.equal(fixed.failed, false);
     assert.equal(fixed.numRuns, 1000);
+  }
+});
+
+test('a story preview, its MSW handlers and a unit test share one fixture recipe', async () => {
+  assert.equal(orderStories.parameters.msw.handlers, handlers);
+  assert.equal(Fetched.args.orderId, 'order-1');
+  const [load] = Loaded.loaders;
+  const first = await load({});
+  const second = await load({});
+  assert.deepEqual(first, second);
+  assert.notEqual(first.order, second.order);
+  first.order.lines.length = 0;
+  assert.notEqual(second.order.lines.length, 0);
+  const response = await getResponse(handlers, new globalThis.Request(`${api}/orders/order-1`));
+  assert.equal(response?.status, 200);
+  assert.match(response?.headers.get('content-type') ?? '', /^application\/json/);
+  assert.deepEqual(await response?.json(), second.order);
+  assert.deepEqual(second.order, orders.buildValidated('order-1'));
+});
+
+test('mocked orders are seeded by id and keep totals coherent', () => {
+  const built = ['order-1', 'order-2', 'order-3', 'order-4', 'order-5'].map((id) =>
+    orders.buildValidated(id)
+  );
+  assert(new Set(built.map((order) => JSON.stringify(order.lines))).size > 1);
+  for (const order of built) {
+    assert.deepEqual(orders.buildValidated(order.id), order);
+    assert.equal(order.customer.email, `${order.id}@example.test`);
+    assert.equal(
+      order.totalCents,
+      order.lines.reduce((sum, line) => sum + line.quantity * line.unitPriceCents, 0)
+    );
+  }
+});
+
+test('an invalid builder variant fails the mocked request instead of serving bad data', async (t) => {
+  const log = t.mock.method(console, 'error', () => {});
+  const server = setupServer(orderHandler(orders.with({ lines: [] })));
+  server.listen({ onUnhandledFrame: 'error' });
+  try {
+    const response = await globalThis.fetch(`${api}/orders/order-1`);
+    assert.equal(response.status, 500);
+    assert.equal((await response.json()).name, 'BuilderValidationError');
+    await assert.rejects(globalThis.fetch(`${api}/customers/1`), /fetch failed/);
+  } finally {
+    server.close();
+  }
+  assert(log.mock.callCount() > 0);
+});
+
+const databaseRows = (db) =>
+  ['customers', 'orders', 'order_lines'].map((table) =>
+    db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()
+  );
+
+test('database seeds depend on the seed and keep every foreign key', async () => {
+  const first = openShopDatabase();
+  const second = openShopDatabase();
+  const graphs = await seedShop(first, shopSession('a'), 10);
+  await seedShop(second, shopSession('b'), 10);
+  assert.notDeepEqual(databaseRows(first), databaseRows(second));
+  assert.deepEqual(first.prepare('PRAGMA foreign_key_check').all(), []);
+  assert(Object.isFrozen(graphs));
+  const [customers, savedOrders, lines] = databaseRows(first);
+  assert.equal(customers.length, 10);
+  assert.equal(savedOrders.length, 10);
+  assert.equal(
+    lines.length,
+    graphs.reduce((sum, graph) => sum + graph.lines.length, 0)
+  );
+  for (const graph of graphs) {
+    assert.equal(graph.order.customerId, graph.customer.id);
+    assert(graph.lines.every((line) => line.orderId === graph.order.id));
+  }
+});
+
+test('a failed seed write rolls back and an oversized batch writes nothing', async () => {
+  const db = openShopDatabase();
+  const session = shopSession('rollback');
+  const [seeded] = await seedShop(db, session, 2);
+  const before = databaseRows(db);
+  const fresh = seedGraph.build(session);
+  const duplicateEmail = seedGraph
+    .override('customer', () => ({ ...seeded.customer, id: 'customer-duplicate' }))
+    .build(session);
+  assert.throws(() => writeShops(db, [fresh, duplicateEmail]), /UNIQUE/);
+  assert.deepEqual(databaseRows(db), before);
+  const empty = openShopDatabase();
+  await assert.rejects(seedShop(empty, shopSession('too-many'), 1001), RangeError);
+  assert.deepEqual(databaseRows(empty), [[], [], []]);
+});
+
+test('the local development seed is repeatable against a database file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mimlet-seed-'));
+  try {
+    const file = join(directory, 'dev.sqlite');
+    const run = () =>
+      spawnSync(process.execPath, ['--no-warnings', 'compiled/seed-dev.js', file], {
+        encoding: 'utf8',
+      });
+    const first = run();
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.stdout, 'Seeded 20 customers with orders\n');
+    const database = openShopDatabase(file);
+    const once = databaseRows(database);
+    database.close();
+    assert.equal(run().status, 0);
+    const again = openShopDatabase(file);
+    assert.deepEqual(databaseRows(again), once);
+    again.close();
+    const memory = openShopDatabase();
+    await seedShop(memory, shopSession('local-dev'), 20);
+    assert.deepEqual(databaseRows(memory), once);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });

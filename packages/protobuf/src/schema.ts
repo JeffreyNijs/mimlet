@@ -3,6 +3,7 @@ import protobuf from 'protobufjs';
 import type { ProtobufFixtureOptions } from './types.js';
 import { ProtobufFixtureError, fail, own, virtualPath } from './values.js';
 
+const clip = (path: string): string => (path.length > 200 ? `${path.slice(0, 197)}...` : path);
 /** Internal schema operations; prepared once for each native adapter. */
 export function prepareProtobufSchema({
   source,
@@ -46,7 +47,10 @@ export function prepareProtobufSchema({
         for (const imported of [...(parsed.imports ?? []), ...(parsed.weakImports ?? [])]) {
           const target = virtualPath(imported, name);
           if (!Object.hasOwn(imports, target)) {
-            return fail('Imported schema was not supplied in memory');
+            // Name the resolved key the caller must add, and the file that imports it.
+            return fail(
+              `Imported schema was not supplied in memory: add ${JSON.stringify(clip(target))} to imports (imported by ${JSON.stringify(clip(name))})`
+            );
           }
           load(target, imports[target]!, depth + 1);
         }

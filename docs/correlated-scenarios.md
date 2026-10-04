@@ -103,3 +103,10 @@ expected, so `mockResolvedValue({ ...order, user })` fails with TS2353 or TS2561
 against a row type without `user`, while a value returned from a function or held
 in a `const` is checked structurally and passes. Use a scenario when several
 relations must share generated keys or a session.
+
+## Writing scenarios to a database
+
+A scenario builds rows that already reference each other, which makes it a good
+source for test and development databases. The
+[database seeding guide](database-seeding.md) writes customer, order and line
+rows in one transaction, deterministically and idempotently.

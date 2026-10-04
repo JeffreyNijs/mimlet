@@ -5,7 +5,10 @@ and binary codecs using the pinned `protobufjs@8.8.0`. `fromProtobuf` returns th
 shared immutable schema builder. No filesystem import, URL fetch, RPC, or network
 operation is performed. Imports, including well-known types, are explicit virtual
 files supplied through `imports`; relative traversal cannot escape that virtual
-root. Reflection JSON must already contain its referenced definitions.
+root. `imports` keys are paths resolved against the importing file. A missing import
+fails with a message that names the key to add and the file that imports it, for
+example `add "logistics/hub.proto" to imports (imported by "schema.proto")`.
+Reflection JSON must already contain its referenced definitions.
 
 ```ts
 const messages = protobufAdapter(

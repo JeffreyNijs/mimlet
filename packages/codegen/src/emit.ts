@@ -90,7 +90,25 @@ function reference(value: ModuleReference, local: string): string {
   const exported = value.export === 'default' ? 'default' : identifier(value.export);
   return `import { ${exported} as ${local} } from ${json(moduleName(value.module))};\n`;
 }
-function helpers(fields: BuilderTarget['fields'], input: string): string {
+/**
+ * The local, unexported type of a generated `withX()` parameter, as the Hey API plugin emits it:
+ * never for object unions, which need a whole `replace()`. Otherwise exactly what `with()`
+ * accepts for that key, as in core `fluent()`: indexed access adds `undefined` to every optional
+ * key, so keep it only where the property accepts it (respecting `exactOptionalPropertyTypes`).
+ * `NonNullable` keeps a nullable root's helpers typechecking; they are `never` anyway.
+ * `declared` holds the file's other declarations, so the alias name never shadows one.
+ */
+function setterType(declared: string): { readonly name: string; readonly declaration: string } {
+  let name = 'BuilderSetterValue';
+  for (let n = 2; new RegExp(`\\b${name}\\b`).test(declared); n++) {
+    name = `BuilderSetterValue${n}`;
+  }
+  return {
+    name,
+    declaration: `// What with() accepts for one property: an exact optional key is omitted, never set to undefined.\ntype ${name}<T, K extends keyof NonNullable<T>> = BuilderPatch<T> extends never\n  ? never\n  : { [P in K]: undefined } extends Pick<NonNullable<T>, K>\n    ? NonNullable<T>[K]\n    : Exclude<NonNullable<T>[K], undefined>;\n`,
+  };
+}
+function helpers(fields: BuilderTarget['fields'], input: string, setter: string): string {
   if (fields === undefined) {
     return '';
   }
@@ -121,8 +139,9 @@ function helpers(fields: BuilderTarget['fields'], input: string): string {
         method = `with${suffix}${n}`;
       }
       used.add(method);
-      // A union cannot be partially switched through a generated helper. Unknown fields fail to typecheck.
-      return `  ${method}(value: BuilderPatch<${input}> extends never ? never : NonNullable<${input}>[${json(property)}]): this {\n    return this.with({ [${json(property)}]: value } as BuilderPatch<${input}>);\n  }\n`;
+      // The parameter type is the contract: unions cannot be partially switched, unknown fields
+      // fail to typecheck. The cast covers shapes whose patch is not a plain `Partial`.
+      return `  ${method}(value: ${setter}<${input}, ${json(property)}>): this {\n    return this.with({ [${json(property)}]: value } as BuilderPatch<${input}>);\n  }\n`;
     })
     .join('');
 }
@@ -192,7 +211,9 @@ export function emitBuilders(
         expression = 'fromSchema(source)';
       }
     }
-    const content = `${header}${imports}import { builderClass, type BuilderPatch } from ${json(runtime)};\n\nconst definition = () => ${expression};\ntype Input = Awaited<ReturnType<ReturnType<typeof definition>["buildAsync"]>>;\nconst Base = builderClass(definition);\nexport class ${target.name} extends Base {\n${helpers(target.fields, 'Input')}}\n`;
+    const setter = setterType(target.name);
+    const methods = helpers(target.fields, 'Input', setter.name);
+    const content = `${header}${imports}import { builderClass, type BuilderPatch } from ${json(runtime)};\n\nconst definition = () => ${expression};\ntype Input = Awaited<ReturnType<ReturnType<typeof definition>["buildAsync"]>>;\n${methods && setter.declaration}const Base = builderClass(definition);\nexport class ${target.name} extends Base {\n${methods}}\n`;
     return { path: `${target.name}.ts`, content };
   });
 }
@@ -277,7 +298,9 @@ export async function emitJsonSchemaBuilders(
       typeof schema === 'object' && schema.properties && typeof schema.properties === 'object'
         ? Object.keys(schema.properties).sort()
         : [];
-    const content = `${header}import { builderClass, type BuilderPatch, type SchemaBuilder, type GenerationSession } from ${json(runtime)};\nimport { fromJsonSchema } from "@mimlet/json-schema";\n\n${declarations}\nconst schema = ${json(schema)};\nconst options = ${json(target.options ?? {})} as const;\nconst definition = () => fromJsonSchema(schema, options) as SchemaBuilder<${name}, ${name}, [session?: GenerationSession]>;\nconst Base = builderClass(definition);\nexport class ${target.name} extends Base {\n${helpers(fields, name)}}\n`;
+    const setter = setterType(`${target.name}\n${declarations}`);
+    const methods = helpers(fields, name, setter.name);
+    const content = `${header}import { builderClass, type BuilderPatch, type SchemaBuilder, type GenerationSession } from ${json(runtime)};\nimport { fromJsonSchema } from "@mimlet/json-schema";\n\n${declarations}\nconst schema = ${json(schema)};\nconst options = ${json(target.options ?? {})} as const;\nconst definition = () => fromJsonSchema(schema, options) as SchemaBuilder<${name}, ${name}, [session?: GenerationSession]>;\n${methods && setter.declaration}const Base = builderClass(definition);\nexport class ${target.name} extends Base {\n${methods}}\n`;
     files.push({ path: `${target.name}.ts`, content });
   }
   return files;

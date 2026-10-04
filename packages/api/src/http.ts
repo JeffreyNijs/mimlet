@@ -142,6 +142,7 @@ export function serializeParameter(
   return { value: `;${name}${result ? `=${result}` : ''}`, pairs: [] };
 }
 export interface ContentCodec {
+  /** Bytes may use any buffer; `encodeContent` copies a `SharedArrayBuffer` view. */
   readonly encode: (value: unknown) => string | Uint8Array;
 }
 export type ContentCodecs = Readonly<Record<string, ContentCodec>>;
@@ -151,22 +152,31 @@ export function mediaType(value: string): string {
   }
   return value.split(';')[0]!.trim().toLowerCase();
 }
+/**
+ * Encoded bytes always own an ordinary `ArrayBuffer`, so they are valid Fetch bodies
+ * (`BodyInit`). Codec output backed by a `SharedArrayBuffer` is copied.
+ */
 export function encodeContent(
   contentType: string,
   value: unknown,
   codecs: ContentCodecs = {}
-): string | Uint8Array {
+): string | Uint8Array<ArrayBuffer> {
   const type = mediaType(contentType);
   const codec = codecs[contentType] ?? codecs[type];
   if (codec) {
     const result = codec.encode(value);
-    if (typeof result !== 'string' && !(result instanceof Uint8Array)) {
+    if (typeof result === 'string') {
+      return result;
+    }
+    if (!(result instanceof Uint8Array)) {
       if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
         void Promise.resolve(result).catch(() => {});
       }
       throw new ApiContractError('Content codecs must synchronously return text or Uint8Array');
     }
-    return result;
+    return result.buffer instanceof ArrayBuffer
+      ? (result as Uint8Array<ArrayBuffer>)
+      : new Uint8Array(result);
   }
   if (type === 'application/json' || type.endsWith('+json')) {
     const result = JSON.stringify(value);

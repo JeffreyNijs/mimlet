@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scope, type } from 'arktype';
-import { BuilderValidationError, restoreSession } from '@mimlet/core';
+import { BuilderValidationError, fluent, restoreSession } from '@mimlet/core';
 import { fromStandardJsonSchema, SchemaGenerationError } from '@mimlet/json-schema';
 import { defineAdapter } from '@mimlet/adapter';
 import { assertAdapterConformance } from '@mimlet/adapter/testing';
-import { fromArkType, fromArkTypeFactory, arkTypeAdapter } from '@mimlet/arktype';
+import { fromArkType, fromArkTypeFactory, arkTypeAdapter, arkTypeFields } from '@mimlet/arktype';
 
 test('generates input in both native dialects and preserves standards-path replay', () => {
   const schema = type({ name: 'string >= 1', count: '0 <= number.integer <= 10' });
@@ -190,4 +190,27 @@ test('draws session-less list items from one default session', () => {
   assert.deepEqual(list, people.buildList(3, arkTypeAdapter(Person).generation().session()));
   assert.deepEqual(people.buildList(3), list);
   assert.deepEqual(people.build(), list[0]);
+});
+
+test('lists input props for a setter per field, through morphs and factory builders', () => {
+  const Form = type({ email: 'string', 'tickets?': 'string.numeric.parse' });
+  assert.deepEqual([...arkTypeFields(Form)].sort(), ['email', 'tickets']);
+  const morphed = Form.pipe((value) => ({ ...value, ok: true }));
+  assert.deepEqual([...arkTypeFields(morphed)].sort(), ['email', 'tickets']);
+  const symbol = Symbol('hidden');
+  assert.deepEqual([...arkTypeFields(type({ [symbol]: 'string', name: 'string' }))], ['name']);
+  const forms = fluent(fromArkType(Form), arkTypeFields(Form));
+  assert.deepEqual(forms.withEmail('a@b.c').withTickets('2').buildValidated(), {
+    email: 'a@b.c',
+    tickets: 2,
+  });
+  const Dated = type({ id: 'string', at: 'Date' });
+  const dated = fluent(
+    fromArkTypeFactory(Dated, () => ({ id: 'x', at: new Date(0) })),
+    arkTypeFields(Dated)
+  );
+  assert.equal(dated.withId('y').buildValidated().id, 'y');
+  for (const schema of [type('string'), Form.or('null'), type({ a: 'string' }).or({ b: 'number' })])
+    assert.throws(() => arkTypeFields(schema), /ArkType object type/);
+  assert.throws(() => arkTypeFields({ in: { props: 'none' } }), /ArkType object type/);
 });

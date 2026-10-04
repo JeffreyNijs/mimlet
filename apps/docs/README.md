@@ -34,6 +34,25 @@ recipe against the published packages. Copy `dist/videos/checkout.mp4` here, the
 the poster from the shrinking scene at 21 seconds:
 `ffmpeg -ss 21 -i mimlet-checkout-demo.mp4 -frames:v 1 -vf scale=1280:720:flags=lanczos -q:v 3 mimlet-checkout-demo-poster.jpg`.
 
+## In-browser sandbox
+
+The "Try it" page (`docs/try-it.md`) renders `MimletSandbox.vue`, which is loaded only on
+that page. Its logic lives in `sandbox/`: presets, the import rewriter, the value
+formatter, the page-side runner with its time budgets, and the frame host.
+`scripts/sandbox-runtime.ts` bundles `sandbox/worker.ts` with the workspace builds of
+`@mimlet/core`, `@mimlet/json-schema`, `@mimlet/zod` and `@mimlet/valibot`, and the pinned
+`zod` and `valibot` from this app, into one content-hashed classic worker script in
+`.generated/public/sandbox/`. `prepare.ts` and `dev.ts` run it; restart `docs:dev` after
+changing `sandbox/` or a bundled package. The page fetches the runtime on the first run.
+
+Each run gets a new `sandbox="allow-scripts"` frame (opaque origin) whose Content Security
+Policy allows only its hashed bootstrap script, `eval` and a `blob:` worker. Workers
+created from `blob:` URLs inherit that policy, so visitor code has no network access.
+Stopping a run terminates the worker and removes the frame. If you change the bootstrap
+in `sandbox/frame.ts`, update `BOOTSTRAP_HASH`; `tests/unit/docs-sandbox.test.ts` checks it.
+Unit tests cover the runner, rewriter, formatter and presets, `tests/sandbox.spec.ts`
+covers the page, and `pnpm test:browser` runs a smoke test in Chromium, Firefox and WebKit.
+
 ## Toolchain boundaries
 
 - VitePress stays at stable 1.6.4. Its Vite dependency is pinned to patched 6.4.3.

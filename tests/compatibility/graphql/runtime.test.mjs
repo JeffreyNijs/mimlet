@@ -329,6 +329,81 @@ describe('GraphQL budgets and data-only boundaries', () => {
       );
     failure(() => graphqlAdapter({}, '{x}'));
   });
+  it('names missing scalars and keeps static validation messages, not fixture values', () => {
+    const caught = (run) => {
+      try {
+        run();
+      } catch (error) {
+        assert.ok(error instanceof GraphQLFixtureError);
+        assert.equal(error.code, 'GRAPHQL_FIXTURE_FAILED');
+        return error;
+      }
+      assert.fail('Expected a GraphQL fixture error');
+    };
+    const sdl =
+      'scalar DateTime scalar Money type Q { at: DateTime total: Money name: String } type Query { q: Q }';
+    assert.equal(
+      caught(() => graphqlAdapter(sdl, '{ q { name } }', { scalars: { DateTime: date } })).message,
+      'Every custom scalar requires its native fixture/coercion hooks; add options.scalars for Money'
+    );
+    assert.equal(
+      caught(() =>
+        graphqlAdapter(
+          'scalar A scalar B scalar C scalar D scalar E scalar F scalar G type Query { a: A }',
+          '{a}'
+        )
+      ).message,
+      'Every custom scalar requires its native fixture/coercion hooks; add options.scalars for A, B, C, D, E and 2 more'
+    );
+    assert.equal(
+      caught(() => graphqlAdapter(sdl, '{ q { name } }', { scalars: { Name: date } })).message,
+      'Custom scalar hooks were supplied for "Name", which is not a custom scalar in the schema'
+    );
+    assert.match(
+      caught(() => graphqlAdapter(schema, '{count}', { scalars: { ['X'.repeat(150)]: date } }))
+        .message,
+      /^Custom scalar hooks were supplied for "X{97}\.\.\.", which is not a custom scalar/
+    );
+    assert.match(
+      caught(() =>
+        graphqlAdapter(sdl, '{ q { name } }', {
+          scalars: { DateTime: date, Money: { ...date, serialize: undefined } },
+        })
+      ).message,
+      /^Custom scalar Money needs paired versioned generation\/coercion hooks/
+    );
+    const scalars = { DateTime: date, Money: date };
+    const unknown = caught(() => graphqlAdapter(sdl, '{ q { nope } }', { scalars }));
+    assert.equal(
+      unknown.message,
+      'GraphQL operation validation failed: Cannot query field "nope" on type "Q".'
+    );
+    assert.deepEqual(plain(unknown.issues), [
+      { message: 'Cannot query field "nope" on type "Q".', locations: [{ line: 1, column: 7 }] },
+    ]);
+    const introspection = caught(() =>
+      graphqlAdapter(sdl, '{ __schema { types { name } } }', { scalars })
+    );
+    assert.match(
+      introspection.message,
+      /^GraphQL operation validation failed: GraphQL introspection has been disabled, .*"__schema"\. \(and 1 more\)$/
+    );
+    assert.equal(introspection.issues.length, 2);
+    const long = caught(() => graphqlAdapter(schema, `{ ${'n'.repeat(400)} }`));
+    assert.equal(long.issues[0].message.length, 300);
+    assert.ok(long.issues[0].message.endsWith('...'));
+    const rootless = caught(() => graphqlAdapter('type Foo { a: Int }', '{a}'));
+    assert.equal(
+      rootless.message,
+      'GraphQL schema validation failed: Query root type must be provided.'
+    );
+    assert.deepEqual(plain(rootless.issues), [{ message: 'Query root type must be provided.' }]);
+    // Variable coercion can repeat the supplied value, so those issues stay redacted.
+    const variables = graphqlAdapter(schema, 'query($id: ID!) { user(id: $id) { id } }').variables;
+    const issues = variables.issues({ id: { secret: 'PRIVATE_FIXTURE_SENTINEL' } });
+    assert.ok(issues.length);
+    assert.ok(!JSON.stringify(issues).includes('PRIVATE_FIXTURE_SENTINEL'));
+  });
   it('bounds data and native execution without invoking fixture getters', () => {
     const adapter = graphqlAdapter(schema, '{count}');
     const getter = Object.defineProperty({}, 'value', {

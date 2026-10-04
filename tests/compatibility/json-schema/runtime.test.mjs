@@ -4,11 +4,13 @@ import {
   fromJsonSchema,
   fromStandardJsonSchema,
   jsonSchemaAdapter,
+  standardJsonSchemaFields,
   SchemaGenerationError,
   SchemaPreparationError,
 } from '@mimlet/json-schema';
 import {
   createSession,
+  fluent,
   restoreSession,
   BuilderValidationError,
   SessionBudgetError,
@@ -155,6 +157,118 @@ describe('JSON Schema generation contract', () => {
       () => jsonSchemaAdapter(true, { references: { 'x#fragment': true } }),
       SchemaPreparationError
     );
+  });
+  it('prepares only the references a schema reaches and attributes their failures', () => {
+    const base = 'https://shop.example.test/';
+    const references = {
+      [`${base}Product.json`]: {
+        type: 'object',
+        required: ['price'],
+        properties: { price: { $ref: `${base}Money.json` } },
+      },
+      [`${base}Money.json`]: { type: 'integer', minimum: 1, maximum: 9 },
+      // An OpenAPI component set: one unrelated schema uses an unsupported keyword,
+      // one is not valid JSON Schema at all.
+      [`${base}PaymentMethod.json`]: {
+        oneOf: [{ $ref: `${base}Money.json` }],
+        discriminator: { propertyName: 'type' },
+      },
+      [`${base}Broken.json`]: { type: 'bad' },
+      [`${base}Order.json`]: {
+        type: 'object',
+        properties: { payment: { $ref: `${base}PaymentMethod.json` } },
+      },
+      [`${base}Aliased.json`]: { $id: `${base}aliases/Card.json`, not: {}, discriminator: {} },
+    };
+    const product = jsonSchemaAdapter({ $ref: `${base}Product.json` }, { references });
+    assert.equal(product.check(product.create()), true);
+    const failure = (schema, options = { references }) => {
+      try {
+        jsonSchemaAdapter(schema, options);
+      } catch (error) {
+        assert.ok(error instanceof SchemaPreparationError);
+        assert.equal(error.code, 'SCHEMA_PREPARATION_FAILED');
+        return error;
+      }
+      assert.fail('Expected preparation to fail');
+    };
+    // Directly, and through another reference, the failure names the reference it is in.
+    for (const schema of [
+      { $ref: `${base}PaymentMethod.json` },
+      { properties: { order: { $ref: `${base}Order.json` } } },
+    ]) {
+      const error = failure(schema);
+      assert.equal(error.schemaPath, '/discriminator');
+      assert.equal(error.reference, `${base}PaymentMethod.json`);
+      assert.equal(error.missingReference, undefined);
+      assert.equal(
+        error.message,
+        `Unsupported schema keyword discriminator at /discriminator in reference ${base}PaymentMethod.json`
+      );
+    }
+    const aliased = failure({ $ref: `${base}aliases/Card.json` });
+    assert.equal(aliased.reference, `${base}Aliased.json`);
+    const broken = failure({ $ref: `${base}Broken.json` });
+    assert.equal(broken.message, `Invalid referenced schema at / in reference ${base}Broken.json`);
+    assert.equal(broken.schemaPath, '');
+    assert.ok(broken.cause instanceof Error);
+    // The root schema keeps its own diagnostics without a reference.
+    const root = failure({ discriminator: {} });
+    assert.equal(root.reference, undefined);
+    assert.equal(root.schemaPath, '/discriminator');
+  });
+  it('names a missing reference and where it is used', () => {
+    const base = 'https://shop.example.test/';
+    const failure = (schema, options) => {
+      try {
+        jsonSchemaAdapter(schema, options);
+      } catch (error) {
+        assert.ok(error instanceof SchemaPreparationError);
+        return error;
+      }
+      assert.fail('Expected preparation to fail');
+    };
+    const order = failure({
+      type: 'object',
+      properties: { id: { type: 'string' }, customer: { $ref: `${base}Customer.json` } },
+    });
+    assert.equal(order.missingReference, `${base}Customer.json`);
+    assert.equal(order.schemaPath, '/properties/customer/$ref');
+    assert.equal(order.reference, undefined);
+    assert.equal(
+      order.message,
+      `Unresolved reference ${base}Customer.json at /properties/customer/$ref`
+    );
+    // Inside a supplied reference, the path is relative to that reference.
+    const nested = failure(
+      { items: { $ref: `${base}LineItem.json` } },
+      {
+        references: {
+          [`${base}LineItem.json`]: {
+            properties: { product: { default: { $ref: 'x' }, $ref: 'Product.json' } },
+          },
+        },
+      }
+    );
+    assert.equal(nested.missingReference, `${base}Product.json`);
+    assert.equal(nested.reference, `${base}LineItem.json`);
+    assert.equal(nested.schemaPath, '/properties/product/$ref');
+    // Relative and local references resolve against the schema's own base.
+    const relative = failure(
+      { $id: `${base}Root.json`, items: [{ $ref: 'Customer.json' }] },
+      {
+        dialect: 'draft-07',
+      }
+    );
+    assert.equal(relative.missingReference, `${base}Customer.json`);
+    assert.equal(relative.schemaPath, '/items/0/$ref');
+    const local = failure({ $defs: { a: true }, $ref: '#/$defs/b' });
+    assert.equal(local.missingReference, '#/$defs/b');
+    assert.equal(local.schemaPath, '/$ref');
+    const long = `${base}${'x'.repeat(300)}`;
+    const clipped = failure({ $ref: long });
+    assert.equal(clipped.missingReference, long);
+    assert.ok(clipped.message.length < 260);
   });
   it('uses examples and defaults as validated candidates with fallback', () => {
     assert.equal(
@@ -337,6 +451,43 @@ describe('Standard JSON Schema interoperability', () => {
     ])
       assert.throws(() => fromStandardJsonSchema(s), TypeError);
   });
+  it('lists the input projection properties for a setter per field', () => {
+    const targets = [];
+    const standard = (input) => ({
+      '~standard': {
+        version: 1,
+        vendor: 'custom',
+        jsonSchema: {
+          input(options) {
+            targets.push(options.target);
+            return input;
+          },
+          output: () => assert.fail('output conversion must not run'),
+        },
+        validate: (value) => ({ value: { ...value, age: Number(value.age) } }),
+      },
+    });
+    const schema = standard({
+      type: 'object',
+      properties: {
+        name: { type: 'string', const: 'Ada' },
+        age: { type: 'string', const: '42' },
+      },
+      required: ['name', 'age'],
+    });
+    assert.deepEqual([...standardJsonSchemaFields(schema)], ['name', 'age']);
+    assert.deepEqual(
+      [...standardJsonSchemaFields(schema, { dialect: 'draft-07' })],
+      ['name', 'age']
+    );
+    assert.deepEqual(targets, ['draft-2020-12', 'draft-07']);
+    const users = fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema));
+    assert.deepEqual(users.withAge('7').buildValidated(), { name: 'Ada', age: 7 });
+    for (const s of [null, {}, { '~standard': { version: 1, validate() {} } }])
+      assert.throws(() => standardJsonSchemaFields(s), /Standard JSON Schema/);
+    for (const input of [{ type: 'string' }, { properties: [] }, null, true])
+      assert.throws(() => standardJsonSchemaFields(standard(input)), /top-level properties/);
+  });
 });
 
 describe('schema and generation boundaries', () => {
@@ -376,7 +527,7 @@ describe('schema and generation boundaries', () => {
     ])
       assert.throws(() => jsonSchemaAdapter(s), SchemaPreparationError);
     assert.throws(
-      () => jsonSchemaAdapter({ type: 'string' }, { references: { x: { type: 'bad' } } }),
+      () => jsonSchemaAdapter({ $ref: 'x' }, { references: { x: { type: 'bad' } } }),
       SchemaPreparationError
     );
   });

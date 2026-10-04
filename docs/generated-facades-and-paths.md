@@ -29,6 +29,28 @@ They do not clone subclass private fields or bind instance arrow functions to a
 new instance. Keep application state in the fixture/factory, not private subclass
 fields. The runtime state itself is held in a private WeakMap.
 
+## Generated named setters
+
+`mimlet generate` (and `emitBuilders` or `emitJsonSchemaBuilders` in
+[`@mimlet/codegen`](../packages/codegen/README.md)) writes one such facade per builder,
+with a `withX()` helper for each selected field. Each helper accepts exactly what
+`with()` accepts for that property, like [`fluent()` setters](fluent-builders.md). For a
+factory that returns `{ customerId: string; couponCode?: string }`:
+
+```ts
+new CartBuilder().withCouponCode('WELCOME10');
+new CartBuilder().omit('couponCode'); // leaves the key out
+// With exactOptionalPropertyTypes, both of these are type errors:
+new CartBuilder().withCouponCode(undefined);
+new CartBuilder().with({ couponCode: undefined });
+```
+
+A property that includes `undefined` in its type, such as `note?: string | undefined`,
+still accepts it. Root object unions and nullable root objects get no usable helpers;
+use `replace()` with a complete value. When an upgrade changes the emitted code,
+`mimlet generate --check` reports drift until you run `mimlet generate` once and commit
+the regenerated files.
+
 ## Typed nested changes
 
 Use `setPath(value, path, replacement)` and `omitPath(value, path)` inside an

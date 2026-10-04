@@ -93,7 +93,11 @@ This generic path is deliberately conservative; native TypeBox adapters addition
 
 ## Fresh nested values and derived values
 
-Direct builders can opt into named setters with `fluent(builder, ['name'])`.
+Direct builders can opt into named setters with `fluent(builder, ['name'])`. To add a
+setter for every field of an object schema, pass the adapter's field list instead, for
+example `fluent(fromTypeBox(schema), typeBoxFields(schema))`; this also works in generic
+helpers. `schemaFields(names)` creates such a list for adapter authors, and the
+`FluentBuilder` and `FluentFieldsBuilder` types name the results.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing and
 release availability. Generated ordinary-record facades already have these methods.
 
@@ -151,7 +155,7 @@ Native TypeBox packages are available in this repository:
 
 Their `fromTypeBox()` entry points can create native defaults without a handwritten factory, retain encoded/decoded types, and validate using native operations. Their READMEs document the precise version targets and generation limitations.
 
-The Hey API emitter and standalone generated classes now use this runtime. Sessions, capture, scenarios, generation providers and property testing are implemented in the core or optional packages. The root README and compatibility guide distinguish the packages and tested capabilities; publication and downstream production migration remain separate operations.
+The Hey API emitter and standalone generated classes now use this runtime. Sessions, capture, scenarios, generation providers and property testing are implemented in the core or optional packages. Tested recipes show builders and scenarios [served from MSW handlers](https://jeffreynijs.github.io/mimlet/guide/mock-service-worker.html) and [seeded into a database](https://jeffreynijs.github.io/mimlet/guide/database-seeding.html). The root README and compatibility guide distinguish the packages and tested capabilities; publication and downstream production migration remain separate operations.
 
 ## Verification
 
@@ -159,10 +163,43 @@ Run `pnpm test:core` for compilation, negative type tests, runtime tests, and co
 
 ### Validation diagnostics
 
-`BuilderValidationError` has the stable code `VALIDATION_FAILED` and the generic
-message `Schema validation failed`. Native messages may include private fixture
-values, so they are not copied into the error message, stack or enumerable fields.
-The original issue objects and paths remain available through the non-enumerable
-`error.issues` property for deliberate inspection. Applications displaying native
-diagnostics should use that property explicitly. Exceptions thrown directly by
-trusted factories or validator callbacks retain their original behavior.
+`BuilderValidationError` has the stable code `VALIDATION_FAILED`. Its message names
+the issue count and the first three distinct failing paths, so test-runner output
+shows which fields were rejected:
+
+```text
+BuilderValidationError: Schema validation failed: 2 issues at owner.email, items[0].price
+```
+
+The same message appears when the error is the `cause` of a `BuilderGenerationError`,
+for example when native TypeBox creation produces an invalid default. Long keys and
+deep paths are shortened, so the message stays under a few hundred characters.
+`(root)` stands for an empty path.
+
+Native issue messages can repeat the rejected value (Valibot and ArkType do this for
+most checks, and custom refinements can say anything), so they are not copied into
+the error message, stack or enumerable fields. Paths contain schema keys and array
+indexes, but a key of a data-keyed record or an unexpected property name comes from
+the fixture itself and can appear in the message.
+
+The original issue objects remain available through the non-enumerable
+`error.issues` property. To print them, including native messages, call
+`formatValidationIssues()` deliberately, for example in a test helper:
+
+```ts
+import { BuilderValidationError, formatValidationIssues } from '@mimlet/core';
+
+try {
+  users.with({ email: 'not-an-email' }).buildValidated();
+} catch (error) {
+  if (error instanceof BuilderValidationError) {
+    console.log(formatValidationIssues(error, { messages: true, limit: 5 }));
+    // email: Invalid email address
+  }
+  throw error;
+}
+```
+
+It accepts the error or its `issues` array, lists up to `limit` issues (default 10)
+one per line, and includes messages only with `messages: true`. Exceptions thrown
+directly by trusted factories or validator callbacks retain their original behavior.

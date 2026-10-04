@@ -22,16 +22,54 @@ export interface SchemaLimits {
   readonly maxValueNodes?: number;
   readonly maxAttempts?: number;
 }
+export interface SchemaPreparationErrorOptions extends ErrorOptions {
+  /** URI of the supplied reference that `schemaPath` points into. */
+  readonly reference?: string;
+  /** A `$ref` target that was neither supplied nor defined in the schema. */
+  readonly missingReference?: string;
+}
+const reasons = new WeakMap<SchemaPreparationError, string>();
+export const clipUri = (uri: string): string =>
+  uri.length > 200 ? `${uri.slice(0, 197)}...` : uri;
 export class SchemaPreparationError extends Error {
   readonly code = 'SCHEMA_PREPARATION_FAILED';
+  /** Set when the failure is inside a supplied reference; `schemaPath` is then relative to it. */
+  readonly reference?: string;
+  /** Set when a `$ref` could not be resolved; `schemaPath` points at that `$ref`. */
+  readonly missingReference?: string;
   constructor(
     message: string,
     readonly schemaPath: string,
-    options?: ErrorOptions
+    options?: SchemaPreparationErrorOptions
   ) {
-    super(`${message} at ${schemaPath || '/'}`, options);
+    const reference = options?.reference;
+    super(
+      `${message} at ${schemaPath || '/'}${reference === undefined ? '' : ` in reference ${clipUri(reference)}`}`,
+      options && 'cause' in options ? { cause: options.cause } : undefined
+    );
     this.name = 'SchemaPreparationError';
+    if (reference !== undefined) {
+      this.reference = reference;
+    }
+    if (options?.missingReference !== undefined) {
+      this.missingReference = options.missingReference;
+    }
+    reasons.set(this, message);
   }
+}
+/** Attribute a failure inside a supplied reference to that reference. */
+export function inReference(error: unknown, uri: string): SchemaPreparationError {
+  const prepared = error instanceof SchemaPreparationError ? error : undefined;
+  const reason = prepared && reasons.get(prepared);
+  if (!prepared || reason === undefined) {
+    // The validator rejected a reference that preparation accepted.
+    return new SchemaPreparationError('Invalid referenced schema', '', {
+      cause: error,
+      reference: uri,
+    });
+  }
+  // Preparation failures carry no cause; the reference replaces the missing context.
+  return new SchemaPreparationError(reason, prepared.schemaPath, { reference: uri });
 }
 export class SchemaGenerationError extends Error {
   readonly code = 'SCHEMA_GENERATION_FAILED';
@@ -468,6 +506,54 @@ export function fingerprint(value: unknown): string {
     hash = BigInt.asUintN(64, (hash ^ BigInt(character.codePointAt(0)!)) * 0x100000001b3n);
   }
   return `json-fnv1a64-v1:${hash.toString(16).padStart(16, '0')}`;
+}
+
+/** Resolve a reference the way an offline validator does; unresolvable bases stay textual. */
+export function resolveUri(reference: string, base: string): string {
+  let resolved: string;
+  try {
+    resolved = new URL(reference, base || undefined).href;
+  } catch {
+    resolved = reference.startsWith('#') ? `${base.replace(/#.*$/, '')}${reference}` : reference;
+  }
+  return resolved.endsWith('#') ? resolved.slice(0, -1) : resolved;
+}
+const dataKeywords = new Set(['const', 'enum', 'default', 'examples']);
+/** Find where the schema or one of its references uses a `$ref` that resolves to `target`. */
+export function locateReference(
+  target: string,
+  documents: ReadonlyArray<readonly [reference: string | undefined, schema: unknown]>
+): { readonly reference?: string; readonly schemaPath: string } | undefined {
+  const wanted = resolveUri(target, '');
+  for (const [reference, schema] of documents) {
+    const visit = (node: unknown, base: string, path: string): string | undefined => {
+      if (!node || typeof node !== 'object') {
+        return undefined;
+      }
+      const record = node as Record<string, unknown>;
+      const array = Array.isArray(node);
+      const scope = !array && typeof record.$id === 'string' ? resolveUri(record.$id, base) : base;
+      if (!array && typeof record.$ref === 'string' && resolveUri(record.$ref, scope) === wanted) {
+        return `${path}/$ref`;
+      }
+      for (const [key, child] of Object.entries(node)) {
+        // Instance data can contain a "$ref" key without being a reference.
+        const found =
+          !array && dataKeywords.has(key)
+            ? undefined
+            : visit(child, scope, `${path}/${pointer(key)}`);
+        if (found !== undefined) {
+          return found;
+        }
+      }
+      return undefined;
+    };
+    const schemaPath = visit(schema, reference ?? '', '');
+    if (schemaPath !== undefined) {
+      return reference === undefined ? { schemaPath } : { reference, schemaPath };
+    }
+  }
+  return undefined;
 }
 
 /** Ajv accepts ref siblings in draft-07; explicitly retain the dialect's older semantics. */

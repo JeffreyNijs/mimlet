@@ -42,6 +42,10 @@ After generation, ordinary object models retain their familiar API:
 const user = new UserBuilder().withEmail('ada@example.com').build();
 ```
 
+Each `withX()` helper accepts exactly what `with()` accepts for that property. With
+`exactOptionalPropertyTypes`, an optional property such as `nickname?: string | null`
+accepts `null` but not `undefined`; leave it out or call `omit('nickname')` instead.
+
 Category settings (`definitions`, `requests`, `responses`) accept booleans,
 naming templates/functions, or `{ enabled, case, name }`. Category-specific
 casing overrides the shared `case`. `includeInEntry` and the vendor's plugin
@@ -115,7 +119,8 @@ historical configuration/reference documentation, not current installation advic
 ## Verification
 
 Real Swagger 2, OpenAPI 3.0 and OpenAPI 3.1 fixtures are generated, compiled and
-executed. Negative declaration cases test incorrect properties, incomplete union
-transitions and async capability changes. A clean packed consumer installs the
+executed. Negative declaration cases, compiled with `exactOptionalPropertyTypes`,
+test incorrect properties, an explicit `undefined` for an optional property,
+incomplete union transitions and async capability changes. A clean packed consumer installs the
 actual core/plugin tarballs, runs the real generator, compiles the generated
 NodeNext client, and imports its emitted ESM without source aliases.

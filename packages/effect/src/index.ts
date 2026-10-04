@@ -3,14 +3,15 @@ import * as Arbitrary from 'effect/Arbitrary';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Cause from 'effect/Cause';
-import type * as AST from 'effect/SchemaAST';
-import { createSchemaBuilder } from '@mimlet/core';
+import * as AST from 'effect/SchemaAST';
+import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   GenerationSession,
   SchemaBuilder,
   AsyncSchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
+  SchemaFields,
   StandardSchemaV1,
 } from '@mimlet/core';
 
@@ -182,4 +183,22 @@ export function fromEffectFactory<
   options: EffectOptions = {}
 ): SchemaBuilderFor<StandardSchemaV1<I, A>, F> {
   return createSchemaBuilder(effectAdapter(source, options).standard, factory, options);
+}
+
+/**
+ * The struct's top-level encoded property names, for a setter per field:
+ * `fluent(fromEffect(schema), effectFields(schema))`. Builders take encoded input, so keys
+ * renamed with `Schema.encodeKeys` are listed by their encoded name. Symbol keys are skipped.
+ */
+export function effectFields<A, I extends object>(
+  schema: Schema.Codec<A, I>
+): SchemaFields<Extract<keyof I, string>> {
+  const encoded = schema?.ast ? AST.toEncoded(schema.ast) : undefined;
+  if (!encoded || !AST.isObjects(encoded)) {
+    throw new TypeError('Expected an Effect struct schema');
+  }
+  const names = encoded.propertySignatures
+    .map((property) => property.name)
+    .filter((name): name is string => typeof name === 'string');
+  return schemaFields(names as Extract<keyof I, string>[]);
 }

@@ -25,6 +25,9 @@ const { theme, isDark } = useData();
           <a class="button primary" :href="withBase('/guide/getting-started.html')"
             >Meet Mimlet <span aria-hidden="true">↗</span></a
           >
+          <a class="button secondary" :href="withBase('/guide/try-it.html')"
+            >Try it in your browser <span aria-hidden="true">↗</span></a
+          >
           <a class="button secondary" :href="theme.socialLinks?.[0]?.link"
             >Explore the source <span aria-hidden="true">↗</span></a
           >

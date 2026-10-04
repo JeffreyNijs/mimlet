@@ -1,10 +1,11 @@
 import * as z from 'zod/v4/core';
-import { createSchemaBuilder } from '@mimlet/core';
+import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   AsyncSchemaBuilder,
   GenerationSession,
   SchemaBuilder,
   SchemaBuilderFor,
+  SchemaFields,
   StandardSchemaV1,
 } from '@mimlet/core';
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
@@ -145,4 +146,26 @@ export function fromZodFactoryAsync<
     async (...args: never[]) => factory(...args),
     options
   ) as unknown as AsyncSchemaBuilder<z.input<S>, z.output<S>, Parameters<F>>;
+}
+
+/**
+ * The object schema's top-level input property names, for a setter per field:
+ * `fluent(fromZod(schema), zodFields(schema))`. Pipes such as `.transform()` are followed to
+ * the object that receives the input. Reads only the keys of the schema's shape.
+ */
+export function zodFields<S extends z.$ZodType<unknown, object>>(
+  schema: S
+): SchemaFields<Extract<keyof z.input<S>, string>> {
+  let definition: unknown = schema?._zod?.def;
+  for (let depth = 0; depth < 64 && (definition as z.$ZodPipeDef)?.type === 'pipe'; depth++) {
+    definition = (definition as z.$ZodPipeDef).in?._zod?.def;
+  }
+  const shape: unknown =
+    (definition as z.$ZodObjectDef | undefined)?.type === 'object'
+      ? (definition as z.$ZodObjectDef).shape
+      : undefined;
+  if (!shape || typeof shape !== 'object') {
+    throw new TypeError('Expected a Zod object schema or a pipe from one');
+  }
+  return schemaFields(Object.keys(shape) as Extract<keyof z.input<S>, string>[]);
 }

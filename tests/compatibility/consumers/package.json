@@ -3,12 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "dependencies": {},
+  "dependencies": {
+    "@types/node": "22.20.1"
+  },
   "toolkitPackages": [
     "consumers"
   ],
   "compilerLibs": [
     "ES2022",
     "DOM"
+  ],
+  "additionalTypeChecks": [
+    {
+      "file": "types.node.mts",
+      "compilerLibs": [
+        "ES2022"
+      ],
+      "compilerTypes": [
+        "node"
+      ]
+    }
   ]
 }

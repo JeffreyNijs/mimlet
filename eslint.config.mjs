@@ -25,6 +25,8 @@ export default [
         module: 'readonly',
         require: 'readonly',
         exports: 'readonly',
+        // Node 22 and browsers provide fetch; TypeScript still checks that its lib declares it.
+        fetch: 'readonly',
       },
     },
     plugins: {

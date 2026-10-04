@@ -41,6 +41,30 @@ Async variants expose `.buildAsync()` and `.buildValidatedAsync()`. All ordinary
 Mimlet patches, replacement, list budgets, cloning and transforms remain available.
 Switch object-union variants with a complete `.replace()` value.
 
+## Named setters for every field
+
+`zodFields(schema)` lists an object schema's top-level input keys. Pass it to
+`fluent()` from `@mimlet/core` for a `withX()` setter per field, typed with the
+schema's input. It follows `.transform()` and other pipes to the object that
+receives the input, reads only the shape's keys and does not convert the schema, so
+it also works with the factory and async entry points:
+
+```ts
+import { fluent } from '@mimlet/core';
+import { z } from 'zod';
+import { fromZod, zodFields } from '@mimlet/zod';
+
+function rows<S extends z.ZodObject>(schema: S) {
+  return fluent(fromZod(schema), zodFields(schema));
+}
+rows(User).withAge('42').buildValidated();
+```
+
+Non-object schemas such as unions throw a `TypeError`. `looseObject()` and
+`catchall()` inputs have an index signature and get no typed setters. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field)
+for the names that are skipped.
+
 ## Native operations and generation
 
 `zodAdapter(schema, options)` retains `source` and exposes `standard`,

@@ -35,6 +35,8 @@ function compile(directory, names) {
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       target: ts.ScriptTarget.ES2022,
       strict: true,
+      exactOptionalPropertyTypes: true,
+      declaration: true,
       skipLibCheck: false,
       outDir: join(directory, 'compiled'),
       rootDir: directory,
@@ -191,6 +193,80 @@ new ParsedBuilder().withId('2').buildValidated('1').id.toFixed();
         pathToFileURL(join(directory, 'compiled/generated/ParsedBuilder.js'))
       );
       assert.equal(new ParsedBuilder().withId('42').buildValidated('1').id, 42);
+    }));
+  it('types named setters with exactly what with() accepts for each property', async () =>
+    temporary(async (directory) => {
+      await writeFile(
+        join(directory, 'source.ts'),
+        `
+export interface Cart { customerId: string; couponCode?: string; note?: string | undefined; tag?: string | null }
+export const makeCart = (): Cart => ({ customerId: 'c-1' });
+`
+      );
+      const cart = {
+        name: 'CartBuilder',
+        source: { kind: 'factory', module: '../source.js', export: 'makeCart' },
+        fields: ['customerId', 'couponCode', 'note', 'tag'],
+      };
+      const files = [
+        ...emitBuilders([cart, { ...cart, name: 'BuilderSetterValue', fields: ['couponCode'] }]),
+        ...(await emitJsonSchemaBuilders([
+          {
+            name: 'EventBuilder',
+            schema: {
+              type: 'object',
+              properties: { id: { type: 'string' }, location: { type: ['string', 'null'] } },
+              required: ['id'],
+              additionalProperties: false,
+            },
+          },
+        ])),
+      ];
+      await writeGenerated(join(directory, 'generated'), files);
+      await writeFile(
+        join(directory, 'setters.ts'),
+        `
+import { CartBuilder } from './generated/CartBuilder.js';
+import { BuilderSetterValue } from './generated/BuilderSetterValue.js';
+import { EventBuilder } from './generated/EventBuilder.js';
+new CartBuilder().withCustomerId('c-2').withCouponCode('WELCOME').withTag(null).withTag('x');
+// A property that includes undefined explicitly still accepts it.
+new CartBuilder().withNote(undefined).withNote('gift');
+new EventBuilder().withId('e-1').withLocation(null).withLocation('Ghent');
+// @ts-expect-error Like with(), an exact optional key is omitted, never set to undefined.
+new CartBuilder().withCouponCode(undefined);
+// @ts-expect-error The same rule as the named helper above.
+new CartBuilder().with({ couponCode: undefined });
+// @ts-expect-error A nullable optional key accepts null, not undefined.
+new CartBuilder().withTag(undefined);
+// @ts-expect-error Optional schema properties follow the same rule.
+new EventBuilder().withLocation(undefined);
+// @ts-expect-error A required key never accepts undefined.
+new CartBuilder().withCustomerId(undefined);
+// @ts-expect-error The local setter type is not exported from a generated module.
+import type { BuilderSetterValue as Exported } from './generated/CartBuilder.js';
+// @ts-expect-error A builder that shares the local type's name keeps its exact setters.
+new BuilderSetterValue().withCouponCode(undefined);
+`
+      );
+      compile(directory, ['source.ts', 'setters.ts', ...files.map((f) => `generated/${f.path}`)]);
+      const declarations = await readFile(
+        join(directory, 'compiled/generated/CartBuilder.d.ts'),
+        'utf8'
+      );
+      assert.match(
+        declarations,
+        /withCouponCode\(value: BuilderSetterValue<Input, "couponCode">\)/
+      );
+      const { CartBuilder } = await import(
+        pathToFileURL(join(directory, 'compiled/generated/CartBuilder.js'))
+      );
+      assert.deepEqual(new CartBuilder().withNote(undefined).build(), {
+        customerId: 'c-1',
+        note: undefined,
+      });
+      const omitted = new CartBuilder().withCouponCode('WELCOME').omit('couponCode').build();
+      assert.equal('couponCode' in omitted, false);
     }));
   it('derives raw JSON types from the same runtime-validated schema with offline references', async () =>
     temporary(async (directory) => {

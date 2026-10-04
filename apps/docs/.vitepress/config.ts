@@ -82,7 +82,7 @@ export default defineConfig({
     nav: [
       { text: 'Get started', link: '/guide/getting-started' },
       { text: 'The toolkit', link: '/guide/adapters' },
-      { text: 'Try it', link: '/guide/scenario-demo' },
+      { text: 'Try it', link: '/guide/try-it' },
       { text: 'For agents', link: '/guide/agents' },
     ],
     socialLinks: [{ icon: 'github', link: `https://github.com/${repository}` }],
@@ -92,6 +92,7 @@ export default defineConfig({
         text: 'Start here',
         items: [
           { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'Try it in your browser', link: '/guide/try-it' },
           { text: 'Interactive demo', link: '/guide/scenario-demo' },
           { text: 'Find a checkout bug', link: '/guide/checkout-example' },
           { text: 'Compare fixture approaches', link: '/guide/checkout-comparison' },
@@ -109,6 +110,8 @@ export default defineConfig({
           { text: 'Error codes', link: '/guide/error-codes' },
           { text: 'Correlated scenarios', link: '/guide/correlated-scenarios' },
           { text: 'Sessions and replay', link: '/guide/sessions-and-replay' },
+          { text: 'Mock APIs with MSW', link: '/guide/mock-service-worker' },
+          { text: 'Seed a database', link: '/guide/database-seeding' },
           { text: 'Fixture capture', link: '/guide/fixture-capture' },
           { text: 'Union variants', link: '/guide/union-variants' },
           { text: 'Generated builders', link: '/guide/generated-facades-and-paths' },

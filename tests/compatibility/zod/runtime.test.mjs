@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
 import * as mini from 'zod/mini';
-import { BuilderValidationError, restoreSession } from '@mimlet/core';
+import { BuilderValidationError, fluent, restoreSession } from '@mimlet/core';
 import { fromStandardJsonSchema, SchemaGenerationError } from '@mimlet/json-schema';
 import { defineAdapter } from '@mimlet/adapter';
 import { assertAdapterConformance } from '@mimlet/adapter/testing';
@@ -12,6 +12,7 @@ import {
   fromZodFactory,
   fromZodFactoryAsync,
   zodAdapter,
+  zodFields,
 } from '@mimlet/zod';
 
 test('generates native inputs in supported dialects without changing existing session behavior', () => {
@@ -229,4 +230,29 @@ test('draws session-less list items from one default session', () => {
   assert.deepEqual(list, people.buildList(3, zodAdapter(Person).generation().session()));
   assert.deepEqual(people.buildList(3), list);
   assert.deepEqual(people.build(), list[0]);
+});
+
+test('lists object fields for a setter per field, through pipes and factory builders', async () => {
+  const Account = z.object({ id: z.string(), age: z.string().transform(Number) });
+  assert.deepEqual([...zodFields(Account)], ['id', 'age']);
+  const transformed = Account.transform((value) => ({ ...value, label: value.id }));
+  assert.deepEqual([...zodFields(transformed)], ['id', 'age']);
+  assert.deepEqual([...zodFields(mini.object({ name: mini.string() }))], ['name']);
+  const accounts = fluent(fromZod(transformed), zodFields(transformed));
+  assert.deepEqual(accounts.withId('a').withAge('42').buildValidated(), {
+    id: 'a',
+    age: 42,
+    label: 'a',
+  });
+  const dated = z.object({ id: z.string(), at: z.date() });
+  const factory = fluent(
+    fromZodFactory(dated, () => ({ id: 'x', at: new Date(0) })),
+    zodFields(dated)
+  );
+  assert.equal(factory.withId('y').buildValidated().id, 'y');
+  const Checked = z.object({ name: z.string().refine(async () => true) });
+  const asynchronous = fluent(fromZodAsync(Checked), zodFields(Checked));
+  assert.equal((await asynchronous.withName('Ada').buildValidatedAsync()).name, 'Ada');
+  for (const schema of [z.string(), z.union([Account, z.object({ b: z.string() })]), null])
+    assert.throws(() => zodFields(schema), /Zod object schema/);
 });

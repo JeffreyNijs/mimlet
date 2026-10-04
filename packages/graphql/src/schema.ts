@@ -13,8 +13,9 @@ import {
   visit,
 } from 'graphql';
 import type { GraphQLFixtureOptions } from './types.js';
-import { GraphQLFixtureError, immediate, redact } from './values.js';
+import { describe, GraphQLFixtureError, immediate, summarize } from './values.js';
 
+const builtInScalars = ['String', 'Int', 'Float', 'Boolean', 'ID'];
 /** Internal schema operations; prepared once for each native adapter. */
 export function prepareGraphQLSchema({
   schemaText,
@@ -73,9 +74,12 @@ export function prepareGraphQLSchema({
   }
   for (const [name, fixture] of Object.entries(scalars)) {
     const type = schema.getType(name);
+    if (!isScalarType(type) || builtInScalars.includes(name)) {
+      throw new GraphQLFixtureError(
+        `Custom scalar hooks were supplied for ${JSON.stringify(name.length > 100 ? `${name.slice(0, 97)}...` : name)}, which is not a custom scalar in the schema`
+      );
+    }
     if (
-      !isScalarType(type) ||
-      ['String', 'Int', 'Float', 'Boolean', 'ID'].includes(name) ||
       typeof fixture.id !== 'string' ||
       !fixture.id ||
       ['input', 'output', 'parseInput', 'serialize', 'parseOutput'].some(
@@ -83,7 +87,7 @@ export function prepareGraphQLSchema({
       )
     ) {
       throw new GraphQLFixtureError(
-        'Custom scalars need paired versioned generation/coercion hooks'
+        `Custom scalar ${name} needs paired versioned generation/coercion hooks: an id and input, output, parseInput, serialize and parseOutput functions`
       );
     }
     const input = fixture.parseInput;
@@ -92,20 +96,23 @@ export function prepareGraphQLSchema({
     type.coerceOutputValue = (value: unknown) => immediate(output(value));
     type.coerceInputLiteral = (node) => immediate(input(valueFromASTUntyped(node)));
   }
-  for (const type of Object.values(schema.getTypeMap())) {
-    if (
-      isScalarType(type) &&
-      !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(type.name) &&
-      !scalars[type.name]
-    ) {
-      throw new GraphQLFixtureError(
-        'Every custom scalar requires its native fixture/coercion hooks'
-      );
-    }
+  const missing = Object.values(schema.getTypeMap())
+    .filter(
+      (type) => isScalarType(type) && !builtInScalars.includes(type.name) && !scalars[type.name]
+    )
+    .map((type) => type.name);
+  if (missing.length) {
+    const listed = missing.slice(0, 5).join(', ');
+    throw new GraphQLFixtureError(
+      `Every custom scalar requires its native fixture/coercion hooks; add options.scalars for ${listed}${missing.length > 5 ? ` and ${missing.length - 5} more` : ''}`
+    );
   }
-  const schemaErrors = validateSchema(schema);
+  const schemaErrors = describe(validateSchema(schema));
   if (schemaErrors.length) {
-    throw new GraphQLFixtureError('GraphQL schema validation failed', redact(schemaErrors));
+    throw new GraphQLFixtureError(
+      summarize('GraphQL schema validation failed', schemaErrors),
+      schemaErrors
+    );
   }
   const validation = validate(
     schema,
@@ -114,7 +121,8 @@ export function prepareGraphQLSchema({
     { maxErrors: 20, hideSuggestions: true }
   );
   if (validation.length) {
-    throw new GraphQLFixtureError('GraphQL operation validation failed', redact(validation));
+    const issues = describe(validation);
+    throw new GraphQLFixtureError(summarize('GraphQL operation validation failed', issues), issues);
   }
   const operation = getOperationAST(document, options.operationName);
   if (!operation) {
