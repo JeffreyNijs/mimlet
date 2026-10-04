@@ -18,6 +18,9 @@
     "typebox": "1.3.34",
     "zod": "4.4.3"
   },
+  "devDependencies": {
+    "msw": "3.0.2"
+  },
   "toolkitPackages": [
     "faker",
     "typebox-legacy",
