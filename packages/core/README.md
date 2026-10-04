@@ -151,7 +151,7 @@ Native TypeBox packages are available in this repository:
 
 Their `fromTypeBox()` entry points can create native defaults without a handwritten factory, retain encoded/decoded types, and validate using native operations. Their READMEs document the precise version targets and generation limitations.
 
-The Hey API emitter and standalone generated classes now use this runtime. Sessions, capture, scenarios, generation providers and property testing are implemented in the core or optional packages. The root README and compatibility guide distinguish the packages and tested capabilities; publication and downstream production migration remain separate operations.
+The Hey API emitter and standalone generated classes now use this runtime. Sessions, capture, scenarios, generation providers and property testing are implemented in the core or optional packages. Tested recipes show builders and scenarios [served from MSW handlers](https://jeffreynijs.github.io/mimlet/guide/mock-service-worker.html) and [seeded into a database](https://jeffreynijs.github.io/mimlet/guide/database-seeding.html). The root README and compatibility guide distinguish the packages and tested capabilities; publication and downstream production migration remain separate operations.
 
 ## Verification
 

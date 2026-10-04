@@ -109,6 +109,8 @@ export default defineConfig({
           { text: 'Error codes', link: '/guide/error-codes' },
           { text: 'Correlated scenarios', link: '/guide/correlated-scenarios' },
           { text: 'Sessions and replay', link: '/guide/sessions-and-replay' },
+          { text: 'Mock APIs with MSW', link: '/guide/mock-service-worker' },
+          { text: 'Seed a database', link: '/guide/database-seeding' },
           { text: 'Fixture capture', link: '/guide/fixture-capture' },
           { text: 'Union variants', link: '/guide/union-variants' },
           { text: 'Generated builders', link: '/guide/generated-facades-and-paths' },
