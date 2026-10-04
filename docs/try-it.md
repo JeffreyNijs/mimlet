@@ -3,7 +3,7 @@
 Edit a small program and run it on this page, with nothing to install. The code runs
 locally in your browser. Nothing you type is sent to a server or saved.
 
-Mimlet is in beta (`0.1.0-beta.0`), so APIs can still change before a stable release.
+Mimlet is in beta (`0.1.0-beta.1`), so APIs can still change before a stable release.
 If something is confusing, [send beta feedback](https://github.com/JeffreyNijs/mimlet/issues/new?template=beta-feedback.yml).
 
 <!-- github-only -->
@@ -57,7 +57,7 @@ Install the beta packages you need, then continue with
 [correlated scenarios](correlated-scenarios.md).
 
 ```sh
-npm install --save-dev @mimlet/zod@0.1.0-beta.0 zod@4.6.5
+npm install --save-dev @mimlet/zod@0.1.0-beta.1 zod@4.6.5
 ```
 
 For JSON Schema documents on your own machine, the

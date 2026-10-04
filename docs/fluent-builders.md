@@ -37,8 +37,7 @@ factory execution.
 Each schema adapter can list an object schema's top-level input fields. Pass that
 list to `fluent()` in place of a tuple, and every field gets a setter. This works
 inside generic helpers, so a helper shared by many schemas needs no field lists and
-its callers need no casts. Schema field lists are not in `0.1.0-beta.0`; they ship
-with the next prerelease.
+its callers need no casts. Schema field lists need `0.1.0-beta.1` or newer.
 
 <!-- recipe:fluent-fields -->
 
