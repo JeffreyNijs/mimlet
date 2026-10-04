@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMarkdownRenderer } from 'vitepress';
+import { buildSandboxRuntime } from './sandbox-runtime.ts';
 import {
   agentBenefits,
   alphaStatus,
@@ -131,6 +132,17 @@ export async function prepare(): Promise<void> {
   }
   await cp(resolve(root, 'assets/brand'), resolve(generated, 'public/brand'), { recursive: true });
   await cp(resolve(root, 'assets/demo'), resolve(generated, 'public/demo'), { recursive: true });
+  // Interactive components render on the website; the Markdown alternate links to that page.
+  const interactive: Record<string, { component: string; link: string }> = {
+    scenario: {
+      component: '<ScenarioDemo />',
+      link: `[Open the interactive demo](${base}guide/scenario-demo.html).`,
+    },
+    sandbox: {
+      component: '<MimletSandbox />',
+      link: `[Open the sandbox in your browser](${base}guide/try-it.html).`,
+    },
+  };
   for (const [file, route] of documents) {
     const source = await expandRecipes(withoutGitHubOnly(await read(file)));
     for (const markdown of [false, true]) {
@@ -138,10 +150,15 @@ export async function prepare(): Promise<void> {
       await mkdir(dirname(destination), { recursive: true });
       await writeChanged(
         destination,
-        rewriteLinks(source, file, markdown).replace('<!-- interactive:scenario -->', () =>
-          markdown
-            ? `[Open the interactive demo](${base}guide/scenario-demo.html).`
-            : '<ScenarioDemo />'
+        rewriteLinks(source, file, markdown).replace(
+          /<!-- interactive:([a-z-]+) -->/g,
+          (_marker, name: string) => {
+            const target = interactive[name];
+            if (!target) {
+              throw new Error(`${file}: unknown interactive component ${name}`);
+            }
+            return markdown ? target.link : target.component;
+          }
         )
       );
     }
@@ -159,7 +176,7 @@ export async function prepare(): Promise<void> {
     `---\nlayout: page\nsidebar: false\ntitle: ${identity.name} — ${identity.tagline}\ndescription: ${identity.description}\n---\n\n<MimletHome />\n`
   );
   const overview =
-    `# ${identity.name}\n\n${identity.tagline}\n\n${identity.description}\n\n${identity.introduction}\n\nStatus: published beta ${identity.releaseVersion}, available on npm’s next channel.\n\n[Get started](${base}guide/getting-started.md) · [Choose an adapter](${base}guide/adapters.md)\n\n` +
+    `# ${identity.name}\n\n${identity.tagline}\n\n${identity.description}\n\n${identity.introduction}\n\nStatus: published beta ${identity.releaseVersion}, available on npm’s next channel.\n\n[Get started](${base}guide/getting-started.md) · [Choose an adapter](${base}guide/adapters.md) · [Try it in your browser](${base}guide/try-it.md)\n\n` +
     stories
       .map(
         (story) =>
@@ -190,6 +207,7 @@ export async function prepare(): Promise<void> {
       'Task recipes, validation, replay, shrinking and deterministic code generation',
     ],
     ['Scenarios', 'correlated-scenarios', 'Shared identities and recomputed dependent values'],
+    ['Try it', 'try-it', 'Edit and run Mimlet examples in a local, in-browser sandbox'],
     ['Interactive demo', 'scenario-demo', 'Run, shrink and replay a coherent order scenario'],
     ['Checkout regression', 'checkout-example', 'Find, shrink, replay and fix a checkout bug'],
     ['Fixture comparison', 'checkout-comparison', 'Manual factories, native fast-check and Mimlet'],
@@ -249,4 +267,5 @@ export async function prepare(): Promise<void> {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await prepare();
+  await buildSandboxRuntime();
 }
