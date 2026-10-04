@@ -441,16 +441,70 @@ describe('fluent() over builders with their own methods', () => {
       role: 'admin',
     });
     assert.throws(() => asynchronous.build(3), /buildAsync/);
-    // A class method's name is taken: an explicit selection throws, a list skips it.
-    assert.throws(() => fluent(new Users(), ['name']), /capabilities/);
-    const listed = fluent(new Users(), schemaFields(['id', 'name']));
-    assert.deepEqual(listed.withName('A').withId(1).build(), { id: 1, name: 'A', role: 'reader' });
+    // A list skips a class method's name; the class method keeps it.
+    const listed = fluent(new Users(), schemaFields(['id', 'name', 'role']));
+    assert.deepEqual(listed.withName('A').withId(1).withRole('owner').build(), {
+      id: 1,
+      name: 'A',
+      role: 'owner',
+    });
     // A facade without methods of its own adds nothing.
     const Plain = builderClass(() => createBuilder(() => ({ id: 0 })));
     assert.deepEqual(
       Object.getOwnPropertyNames(Object.getPrototypeOf(fluent(new Plain(), ['id']))).sort(),
       Object.getOwnPropertyNames(Plain.prototype).concat('withId').sort()
     );
+  });
+  it('lets an explicit name replace a class method whose field is unknown, as before', async () => {
+    let calls = 0;
+    class Users extends createBuilderClass((id = 0) => ({ id, name: '', role: 'reader' })) {
+      withName(name) {
+        calls++;
+        return this.with({ name: `class ${name}` });
+      }
+      admin() {
+        return this.with({ role: 'admin' });
+      }
+    }
+    // The outer setter replaces withName(); the other class methods are kept.
+    const users = fluent(new Users(), { withName: 'role', withKey: 'id' });
+    const configured = users
+      .withName('owner')
+      .with({ name: 'Ada' })
+      .withKey(2)
+      .withFactory(() => ({ name: 'Grace' }))
+      .withName('editor');
+    assert.deepEqual(configured.build(), { id: 2, name: 'Grace', role: 'editor' });
+    assert.equal(configured.admin().withName('viewer').build().role, 'viewer');
+    const asynchronous = configured.transformAsync(async (value) => value).withName('guest');
+    assert.deepEqual(await asynchronous.buildAsync(), { id: 2, name: 'Grace', role: 'guest' });
+    assert.throws(() => asynchronous.build(), /buildAsync/);
+    assert.equal(calls, 0);
+    // A tuple works the same; omit() and replace() keep the replacing setter.
+    const named = fluent(new Users(), ['name']);
+    assert.deepEqual(named.withName('Ada').build(1), { id: 1, name: 'Ada', role: 'reader' });
+    assert.deepEqual(
+      named
+        .replace({ id: 3, name: '', role: 'reader' })
+        .omit('role')
+        .withName('Lin')
+        .admin()
+        .build(),
+      { id: 3, name: 'Lin', role: 'admin' }
+    );
+    assert.equal(calls, 0);
+    // The replacing setter's field is known from then on, like any setter.
+    assert.equal(fluent(named, ['name']).withName('Kai').build().name, 'Kai');
+    assert.throws(() => fluent(named, { withName: 'role' }), /capabilities/);
+    // A class method kept through a middle call is still replaced.
+    const middle = fluent(new Users(), { withKey: 'id' });
+    assert.deepEqual(fluent(middle, ['name']).withName('Mo').withKey(4).admin().build(), {
+      id: 4,
+      name: 'Mo',
+      role: 'admin',
+    });
+    // The usual rules within one call still apply.
+    assert.throws(() => fluent(new Users(), { withName: 'name', other: 'name' }), /unique/);
   });
   it('forwards methods of custom builders and returns results that are not builders as is', () => {
     const make = (runtime) => ({

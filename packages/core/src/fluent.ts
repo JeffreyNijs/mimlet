@@ -127,11 +127,18 @@ type Forwarded<F, B, Self> = F extends (...args: infer A) => infer R
 /**
  * Named input setters over the same immutable runtime and native validation contract.
  * Methods of the wrapped builder, such as the setters of an inner fluent() call, are kept.
+ * Where a selected name matches a kept method, the selected setter's type is the one that
+ * applies: it repeats an inner setter for the same field or replaces a class method (another
+ * field throws at runtime).
  */
 export type FluentBuilder<B extends Source, S extends Selection<Input<B>>> = FacadeFor<B> & {
-  [M in keyof Kept<B>]: Forwarded<Kept<B>[M], B, FluentBuilder<B, S>>;
+  [M in keyof Kept<B> as M extends keyof FieldMap<S> ? never : M]: Forwarded<
+    Kept<B>[M],
+    B,
+    FluentBuilder<B, S>
+  >;
 } & {
-  [M in keyof FieldMap<S> as M extends keyof Kept<B> ? never : M]: (
+  [M in keyof FieldMap<S>]: (
     value: SetterValue<Input<B>, FieldMap<S>[M] & keyof Input<B>>
   ) => FluentBuilder<B, S>;
 };
@@ -331,7 +338,8 @@ export function fluent<B extends Source, K extends string>(
  * Use a literal field tuple, or a map such as { withUserName: 'user_name' }.
  * Ambiguous/default collisions require explicit aliases; core methods are never replaced.
  * Wrapping a fluent() builder keeps its setters. Repeating one of them for the same field is
- * allowed; reusing its name for another field throws.
+ * allowed; reusing its name for another field throws. A name that matches another kept method,
+ * such as a generated class method, replaces that method.
  */
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fluent<B extends Source, const S extends Selection<Input<B>>>(
@@ -369,11 +377,16 @@ export function fluent(builder: Source, selection: unknown): unknown {
     }
     fields = candidates.filter(([method]) => counts.get(method) === 1 && !capability(method));
   }
+  const forwarded = new Set(kept);
   const used = new Set<string>();
   for (const [method, property] of fields) {
+    const field = setters.get(method);
     // A kept setter for the same field already does what this one would.
-    const repeated = setters.get(method) === property && !used.has(property);
-    if (!repeated && (capability(method) || used.has(property))) {
+    const repeated = field === property && !used.has(property);
+    // A kept method whose field is unknown, such as a generated class method, is replaced by the
+    // explicit setter, as before nesting kept methods. Lists never get here: they skip kept names.
+    const replaced = field === undefined && forwarded.has(method) && !used.has(property);
+    if (!repeated && !replaced && (capability(method) || used.has(property))) {
       throw new TypeError(
         'Fluent methods must be unique and cannot replace builder capabilities; choose an explicit alias'
       );
@@ -384,6 +397,7 @@ export function fluent(builder: Source, selection: unknown): unknown {
     }
     setters.set(method, property);
     Object.defineProperty(Base.prototype, method, {
+      configurable: false,
       value(this: object, value: unknown) {
         return Reflect.apply(Base.prototype.with, this, [{ [property]: value }]);
       },

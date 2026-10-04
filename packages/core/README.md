@@ -104,7 +104,7 @@ field is allowed; an explicit name that the inner call uses for another field th
 `TypeError`, and a field list skips it.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing,
 conflict rules and release availability. Generated ordinary-record facades already have
-these methods, and `fluent()` keeps them too.
+these methods, and `fluent()` keeps them too; an explicit name that matches one replaces it.
 
 Builder configuration is immutable, but user data is not deep-cloned or frozen. A shared object supplied to `with()` or `replace()` stays shared in `build()` output. Validated builds return whatever the validator outputs, so identity depends on the adapter: the TypeBox adapters decode a deep clone, so `buildValidated()` output never shares objects with patches; Zod and Valibot rebuild the objects and arrays they parse; ArkType returns the input itself. Compare validated output by value, not identity. Use per-build factories when fixture isolation is needed:
 

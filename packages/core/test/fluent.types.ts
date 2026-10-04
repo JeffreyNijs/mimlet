@@ -261,8 +261,8 @@ loginRows.withName('ada').withUserName('ada');
 // @ts-expect-error withName still sets user_name (a string), not name.
 loginRows.withName(1);
 // Named result types compose.
-const named: FluentBuilder<typeof login, readonly ['name']> = fluent(login, ['name']);
-named.withName('kept');
+const named: FluentBuilder<typeof login, readonly ['user_name']> = fluent(login, ['user_name']);
+named.withName('kept').withUserName('added');
 // Methods of a generated class are kept too, and return the outer builder.
 class Customers extends createBuilderClass((id: number) => ({ id, name: '', vip: false })) {
   label = 'Customer';
@@ -294,3 +294,23 @@ const customersAsync = customers
 customersAsync.buildAsync(1);
 // @ts-expect-error Kept class methods do not restore synchronous build methods.
 customersAsync.build(1);
+// An explicit name that matches a class method replaces it, and its setter type wins.
+const flagged = fluent(new Customers(), { withName: 'vip', withKey: 'id' });
+expectType<{ id: number; name: string; vip: boolean }>(
+  flagged.withName(true).vip().withKey(2).build(1)
+);
+// @ts-expect-error The replaced class method's parameter type is gone, not overloaded.
+flagged.withName('Ada');
+const renamedCustomers = fluent(new Customers(), ['name']);
+const renamedAsync = renamedCustomers
+  .with({ id: 2 })
+  .withName('Ada')
+  .withFactory(() => ({ vip: true }))
+  .vip()
+  .transformAsync(async (value) => value)
+  .withName('Grace');
+renamedAsync.buildAsync(1);
+// @ts-expect-error The replacing setter keeps the input type after an async transition.
+renamedAsync.withName(1);
+// @ts-expect-error Replacing does not restore synchronous build methods.
+renamedAsync.build(1);

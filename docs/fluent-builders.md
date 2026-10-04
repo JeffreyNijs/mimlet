@@ -123,18 +123,20 @@ hand-written class facade are kept the same way; its instance fields and getters
 are not. Nested setters need `0.1.0-beta.2` or newer; earlier versions dropped the
 inner setters.
 
-When the outer call names a method the wrapped builder already has:
+A new name for a field that already has a setter is allowed, and both setters
+exist. When the outer call names a method the wrapped builder already has:
 
-- the same name for the same field is allowed and adds nothing, so
-  `fluent(rows(Order), ['id'])` is fine;
-- a new name for a field that already has a setter is allowed, and both setters
-  exist;
-- a name that the wrapped builder uses for another field, or for a method of a
-  class facade, throws a `TypeError` in a tuple or alias map, like a builder method
-  name. A schema field list skips it instead, and the wrapped builder's method keeps
-  the name.
+| The name belongs to                           | Tuple or alias map              | Schema field list                  |
+| --------------------------------------------- | ------------------------------- | ---------------------------------- |
+| an inner `fluent()` setter for the same field | allowed, adds nothing           | skipped                            |
+| an inner `fluent()` setter for another field  | throws a `TypeError`            | skipped, the inner setter keeps it |
+| a method of a generated or hand-written class | replaces the method, as before  | skipped, the class method keeps it |
+| a builder method such as `withFactory()`      | throws a `TypeError`, as before | skipped, as before                 |
 
-Builder methods such as `with()` and `withFactory()` follow the rules above.
+So `fluent(rows(Order), ['id'])` is fine, and `fluent(new CartBuilder(), ['couponCode'])`
+still replaces the generated `withCouponCode()` with a setter for `couponCode`, in
+the types too. The replacing setter survives the same operations as any other.
+
 Explicit tuples and alias maps need a concrete input type, nested or not, so a
 generic helper cannot add one: add it where the helper is called. Nested schema
 field lists work inside generic helpers.

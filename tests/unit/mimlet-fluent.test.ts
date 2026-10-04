@@ -1,5 +1,10 @@
 import { expect, expectTypeOf, it } from 'vitest';
-import { createBuilder, createSession, fluent } from '../../packages/core/src/index.js';
+import {
+  createBuilder,
+  createBuilderClass,
+  createSession,
+  fluent,
+} from '../../packages/core/src/index.js';
 import {
   fromZod,
   fromZodFactory,
@@ -146,4 +151,32 @@ it('combines the setters of a shared helper with per-builder tuples and aliases'
       .buildValidatedAsync()
   ).toEqual({ age: 4 });
   expect(() => fluent(rows(User), { withAge: 'id' })).toThrow(TypeError);
+});
+
+it('lets an explicit setter replace a generated class method, with its own type', async () => {
+  class Users extends createBuilderClass((id: number) => ({ id, name: '', admin: false })) {
+    withName(name: string) {
+      return this.with({ name: name.toUpperCase() });
+    }
+    promoted() {
+      return this.with({ admin: true });
+    }
+  }
+  const users = fluent(new Users(), { withName: 'admin' });
+  // The setter's signature replaces the class method's; there is no overload of both.
+  expectTypeOf(users.withName).toEqualTypeOf<(value: boolean) => typeof users>();
+  expectTypeOf(users.promoted).toEqualTypeOf<() => typeof users>();
+  expect(users.withName(true).with({ name: 'ada' }).build(1)).toEqual({
+    id: 1,
+    name: 'ada',
+    admin: true,
+  });
+  const asynchronous = users.transformAsync(async (value) => value).withName(false);
+  expect(await asynchronous.promoted().withName(false).buildAsync(2)).toEqual({
+    id: 2,
+    name: '',
+    admin: false,
+  });
+  // A list leaves the class method in place.
+  expect(fluent(new Users(), ['id']).withName('ada').build(3).name).toBe('ADA');
 });

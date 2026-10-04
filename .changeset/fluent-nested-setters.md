@@ -9,5 +9,5 @@ setters. They survive every builder operation and async transitions, and return 
 builder. Repeating an inner setter for the same field is allowed and adds nothing. An
 explicit tuple or alias map that reuses an inner setter's name for another field throws a
 `TypeError`; a schema field list skips that name. Methods of generated and hand-written
-class facades are kept the same way, so an explicit name that matches one of them now
-throws instead of replacing it.
+class facades are kept too. An explicit name that matches one of them still replaces it,
+as before, and a schema field list skips it.
