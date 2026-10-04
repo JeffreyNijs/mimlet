@@ -1,8 +1,10 @@
 import {
   createBuilder,
+  createBuilderClass,
   createSchemaBuilder,
   fluent,
   schemaFields,
+  type FluentBuilder,
   type SchemaBuilder,
   type SchemaFields,
   type StandardSchemaV1,
@@ -181,3 +183,114 @@ orderRows.withNote(undefined);
 orderRows.with({ note: undefined });
 // @ts-expect-error Unknown fields have no setter.
 orderRows.withTotal(1);
+
+// Nested calls combine setters: the inner ones are kept and return the outer builder.
+const keyed = fluent(rows(OrderSchema), { withKey: 'id', withState: 'status' });
+expectType<Order>(
+  keyed.withStatus('PAID').withKey('k').withNote('n').withState('NEW').withId('i').buildValidated()
+);
+// @ts-expect-error Kept setters keep the input type.
+keyed.withStatus('LOST');
+// @ts-expect-error Kept setters return the outer builder, not any.
+keyed.withStatus('PAID').withMissing();
+// @ts-expect-error Outer setters keep the input type too.
+keyed.withState('LOST');
+// @ts-expect-error Kept setters follow exactOptionalPropertyTypes like .with().
+keyed.withNote(undefined);
+keyed.withDraft(undefined);
+// Repeating a kept setter for the same field adds nothing new.
+expectType<(value: 'NEW' | 'PAID') => unknown>(fluent(keyed, ['status']).withStatus);
+const keyedRows = fluent(keyed, orderFields);
+keyedRows.withKey('k').withStatus('PAID').withState('NEW').build();
+const keyedAsync = keyed
+  .transformAsync(async (value) => value)
+  .withStatus('PAID')
+  .withKey('k')
+  .withNote('n');
+keyedAsync.buildValidatedAsync();
+// @ts-expect-error Kept setters do not restore synchronous build methods.
+keyedAsync.buildValidated();
+// A nested call over an async builder stays async.
+const nestedAsync = fluent(keyedAsync, ['note']).withStatus('NEW').withKey('k');
+nestedAsync.buildAsync();
+// @ts-expect-error Nesting does not restore synchronous build methods.
+nestedAsync.build();
+// The configuration methods keep both layers' setters.
+keyed
+  .with({ note: 'n' })
+  .withKey('k')
+  .withFactory(() => ({ id: 'f' }))
+  .withStatus('PAID')
+  .omit('note')
+  .withState('NEW')
+  .replace({ id: 'r', status: 'NEW', factory: '', 'first-name': '', first_name: '' })
+  .withId('i')
+  .usingValidation({})
+  .withNote('n')
+  .buildValidatedList(2);
+// An explicit tuple or alias map needs a concrete input type, nested or not, so a generic
+// helper cannot add one. Add it where the helper is called, as `keyed` does above.
+function keyedHelper<S extends ObjectSchema<object>>(schema: S) {
+  // @ts-expect-error The tuple cannot be checked against a generic schema's input.
+  return fluent(rows(schema), ['id']);
+}
+void keyedHelper;
+// Generic helpers can nest schema field lists; the setters resolve at the call site.
+function twice<S extends ObjectSchema<object>, T extends ObjectSchema<object>>(
+  schema: S,
+  other: T
+) {
+  return fluent(fluent(fromObject(schema), objectFields(schema)), objectFields(other));
+}
+expectType<Order>(
+  twice(OrderSchema, OrderSchema).withStatus('PAID').withNote('n').buildValidated()
+);
+// @ts-expect-error The nested helper's setters keep the input type.
+twice(OrderSchema, OrderSchema).withStatus('LOST');
+// A list skips a name the inner call already has; the inner call's field keeps it.
+interface Login {
+  name: number;
+  user_name: string;
+}
+const login = fluent(
+  createBuilder((): Login => ({ name: 0, user_name: '' })),
+  { withName: 'user_name' }
+);
+const loginRows = fluent(login, schemaFields(['name', 'user_name'] as const));
+loginRows.withName('ada').withUserName('ada');
+// @ts-expect-error withName still sets user_name (a string), not name.
+loginRows.withName(1);
+// Named result types compose.
+const named: FluentBuilder<typeof login, readonly ['name']> = fluent(login, ['name']);
+named.withName('kept');
+// Methods of a generated class are kept too, and return the outer builder.
+class Customers extends createBuilderClass((id: number) => ({ id, name: '', vip: false })) {
+  label = 'Customer';
+  withName(name: string) {
+    return this.with({ name });
+  }
+  vip() {
+    return this.with({ vip: true });
+  }
+  count(): number {
+    return 1;
+  }
+}
+const customers = fluent(new Customers(), { withKey: 'id' });
+expectType<{ id: number; name: string; vip: boolean }>(
+  customers.withName('Ada').vip().withKey(2).build(1)
+);
+expectType<number>(customers.vip().count());
+// @ts-expect-error Instance fields are not methods and are not kept.
+void customers.label;
+// @ts-expect-error Kept class methods keep their parameter types.
+customers.withName(1);
+// @ts-expect-error Kept class methods return the outer builder, not any.
+customers.vip().withMissing();
+const customersAsync = customers
+  .transformAsync(async (value) => value)
+  .vip()
+  .withKey(3);
+customersAsync.buildAsync(1);
+// @ts-expect-error Kept class methods do not restore synchronous build methods.
+customersAsync.build(1);

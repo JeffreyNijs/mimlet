@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  builderClass,
   createBuilder,
+  createBuilderClass,
+  createScenario,
   createSchemaBuilder,
+  createSession,
   fluent,
   schemaFields,
   BuilderValidationError,
@@ -234,5 +238,240 @@ describe('setters for every field of a schema field list', () => {
     ])
       assert.throws(() => fluent(base, selection), TypeError);
     assert.equal(reads, 0);
+  });
+});
+
+describe('nested fluent() builders', () => {
+  const setters = (builder) =>
+    Object.getOwnPropertyNames(Object.getPrototypeOf(builder))
+      .filter((name) => /^with[A-Z0-9]/.test(name) && name !== 'withFactory')
+      .sort();
+  const schema = {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (value) =>
+        value.name === 'bad'
+          ? { issues: [{ message: 'invalid name', path: ['name'] }] }
+          : { value: { ...value, valid: true } },
+    },
+  };
+  it('keeps the inner setters and adds the outer ones through every builder operation', async () => {
+    let calls = 0;
+    const source = createSchemaBuilder(schema, (id) => {
+      calls++;
+      return { id, name: 'base', email: '', user_name: '', note: '' };
+    });
+    const base = fluent(source, schemaFields(['id', 'name', 'email', 'user_name', 'note']));
+    const users = fluent(base, { withKey: 'id', withLogin: 'user_name' });
+    assert.deepEqual(setters(users), [
+      'withEmail',
+      'withId',
+      'withKey',
+      'withLogin',
+      'withName',
+      'withNote',
+      'withUserName',
+    ]);
+    const configured = users
+      .withName('Ada')
+      .withKey(1)
+      .withLogin('ada')
+      .with({ email: 'first' })
+      .withFactory(() => ({ note: 'factory' }))
+      .omit('note')
+      .withNote('kept')
+      .transform((value) => ({ ...value, name: `${value.name}!` }))
+      .withEmail('ada@example.com');
+    assert.equal(calls, 0);
+    const expected = {
+      id: 1,
+      name: 'Ada!',
+      email: 'ada@example.com',
+      user_name: 'ada',
+      note: 'kept',
+    };
+    assert.deepEqual(configured.build(7), expected);
+    assert.deepEqual(configured.buildList(2, 7), [expected, expected]);
+    assert.deepEqual(configured.buildValidated(7), { ...expected, valid: true });
+    assert.deepEqual(configured.usingValidation({}).withId(2).buildValidatedList(1, 7), [
+      { ...expected, id: 2, valid: true },
+    ]);
+    assert.deepEqual(
+      configured
+        .replace({ id: 3, name: 'R', email: '', user_name: '', note: '' })
+        .withId(4)
+        .build(),
+      { id: 4, name: 'R!', email: '', user_name: '', note: '' }
+    );
+    assert.deepEqual(
+      users
+        .replaceFactory((id) => ({ id, name: 'F', email: '', user_name: '', note: '' }))
+        .withLogin('f')
+        .build(5),
+      { id: 5, name: 'F', email: '', user_name: 'f', note: '' }
+    );
+    assert.throws(() => users.withKey(1).withName('bad').buildValidated(7), BuilderValidationError);
+    const asynchronous = configured
+      .transformAsync(async (value) => ({ ...value, note: `${value.note}?` }))
+      .withName('Grace')
+      .withKey(2);
+    assert.deepEqual(await asynchronous.buildValidatedAsync(7), {
+      ...expected,
+      id: 2,
+      name: 'Grace!',
+      note: 'kept?',
+      valid: true,
+    });
+    assert.equal((await asynchronous.withLogin('g').buildListAsync(2, 7))[1].user_name, 'g');
+    assert.throws(() => asynchronous.withName('x').build(7), /buildAsync/);
+    // Every branch is a new builder; neither call's builder changes.
+    assert.deepEqual(users.build(7), { id: 7, name: 'base', email: '', user_name: '', note: '' });
+    assert.equal(base.withName('b').build(8).name, 'b');
+    assert.equal('withKey' in base, false);
+    assert.equal(configured.describe().operations.length, 10);
+    assert.throws(() => users.withName.call({}, 'x'), /receiver/);
+    assert.throws(() => users.withKey.call(base, 1), /receiver/);
+  });
+  it('lets the outer call repeat a kept setter, and rejects or skips a name that sets another field', () => {
+    const source = createBuilder(() => ({ id: 0, name: '', user_name: '', 'first-name': '' }));
+    const base = fluent(source, schemaFields(['id', 'name', 'user_name']));
+    // The same name for the same field is allowed and adds nothing.
+    const again = fluent(base, ['id', 'name']);
+    assert.deepEqual(setters(again), setters(base));
+    assert.deepEqual(again.withId(1).withName('A').build(), {
+      id: 1,
+      name: 'A',
+      user_name: '',
+      'first-name': '',
+    });
+    // Another name for a field the inner call already sets is a new setter.
+    assert.equal(fluent(base, { withLogin: 'user_name' }).withLogin('l').build().user_name, 'l');
+    // An explicit name that the inner call uses for another field throws, as do the old rules.
+    for (const selection of [
+      { withName: 'user_name' },
+      { withId: 'name' },
+      ['id', 'id'],
+      { withId: 'id', withKey: 'id' },
+      ['factory'],
+      { build: 'id' },
+    ])
+      assert.throws(() => fluent(base, selection), /unique|capabilities/);
+    // A list skips a name the inner call already has, keeping the inner field.
+    const aliased = fluent(source, { withName: 'user_name' });
+    const listed = fluent(aliased, schemaFields(['id', 'name', 'user_name', 'first-name']));
+    assert.deepEqual(setters(listed), ['withFirstName', 'withId', 'withName', 'withUserName']);
+    assert.deepEqual(listed.withName('alias').withFirstName('F').build(), {
+      id: 0,
+      name: '',
+      user_name: 'alias',
+      'first-name': 'F',
+    });
+  });
+  it('remembers the field of every setter across more than two calls', () => {
+    const source = createBuilder((id = 0) => ({ id, name: '', user_name: '' }));
+    const one = fluent(source, ['id']);
+    const two = fluent(one, { withLogin: 'user_name' });
+    const three = fluent(two, schemaFields(['id', 'name', 'user_name']));
+    assert.deepEqual(setters(three), ['withId', 'withLogin', 'withName', 'withUserName']);
+    assert.deepEqual(three.withId(1).withLogin('l').withName('n').build(), {
+      id: 1,
+      name: 'n',
+      user_name: 'l',
+    });
+    const four = fluent(three, { withLogin: 'user_name', withId: 'id' });
+    assert.equal(four.withLogin('x').build().user_name, 'x');
+    assert.throws(() => fluent(three, { withLogin: 'name' }), /capabilities/);
+    assert.throws(() => fluent(three, { withId: 'name' }), /capabilities/);
+  });
+  it('works inside scenarios and with sessions', () => {
+    const session = () => createSession({ seed: 1, fingerprint: 'nested/v1', provider: 'test@1' });
+    const people = fluent(
+      fluent(
+        createBuilder((s) => ({ id: s.sequence('person', 1), name: '' })),
+        ['name']
+      ),
+      { withKey: 'id' }
+    );
+    const scenario = createScenario().node('person', [], (_deps, s) =>
+      people.withName('Ada').build(s)
+    );
+    assert.deepEqual(scenario.build(session()).person, { id: 1, name: 'Ada' });
+    assert.deepEqual(people.withKey(9).withName('Grace').build(session()), {
+      id: 9,
+      name: 'Grace',
+    });
+  });
+});
+
+describe('fluent() over builders with their own methods', () => {
+  it('keeps the methods of a generated class facade', async () => {
+    let reads = 0;
+    class Users extends createBuilderClass((id = 0) => ({ id, name: '', role: 'reader' })) {
+      label = 'User';
+      withName(name) {
+        return this.with({ name });
+      }
+      admin() {
+        return this.with({ role: 'admin' });
+      }
+      count() {
+        return 1;
+      }
+      get computed() {
+        reads++;
+        return () => this;
+      }
+    }
+    const users = fluent(new Users(), { withKey: 'id' });
+    assert.deepEqual(users.withName('Ada').admin().withKey(2).build(), {
+      id: 2,
+      name: 'Ada',
+      role: 'admin',
+    });
+    assert.equal(users.count(), 1);
+    // Instance fields and accessors stay on the class; reading the class runs no accessor.
+    assert.equal(users.label, undefined);
+    assert.equal('computed' in users, false);
+    assert.equal(reads, 0);
+    const asynchronous = users.transformAsync(async (value) => value).withName('Grace');
+    assert.deepEqual(await asynchronous.admin().buildAsync(3), {
+      id: 3,
+      name: 'Grace',
+      role: 'admin',
+    });
+    assert.throws(() => asynchronous.build(3), /buildAsync/);
+    // A class method's name is taken: an explicit selection throws, a list skips it.
+    assert.throws(() => fluent(new Users(), ['name']), /capabilities/);
+    const listed = fluent(new Users(), schemaFields(['id', 'name']));
+    assert.deepEqual(listed.withName('A').withId(1).build(), { id: 1, name: 'A', role: 'reader' });
+    // A facade without methods of its own adds nothing.
+    const Plain = builderClass(() => createBuilder(() => ({ id: 0 })));
+    assert.deepEqual(
+      Object.getOwnPropertyNames(Object.getPrototypeOf(fluent(new Plain(), ['id']))).sort(),
+      Object.getOwnPropertyNames(Plain.prototype).concat('withId').sort()
+    );
+  });
+  it('forwards methods of custom builders and returns results that are not builders as is', () => {
+    const make = (runtime) => ({
+      with: (patch) => make(runtime.with(patch)),
+      build: (...args) => runtime.build(...args),
+      buildAsync: (...args) => runtime.buildAsync(...args),
+      describe: () => runtime.describe(),
+      sample: () => ({ id: 1 }),
+      doubled: () => make(runtime.transform((value) => ({ id: value.id * 2 }))),
+    });
+    const custom = fluent(make(createBuilder(() => ({ id: 3 }))), ['id']);
+    assert.deepEqual(custom.sample(), { id: 1 });
+    assert.deepEqual(custom.withId(4).doubled().withId(5).build(), { id: 10 });
+    assert.throws(() => custom.sample.call({}), /receiver/);
+    // A builder without a prototype is read too; Object.prototype never is.
+    const bare = Object.assign(Object.create(null), make(createBuilder(() => ({ id: 0 }))));
+    assert.deepEqual(fluent(bare, ['id']).sample(), { id: 1 });
+    assert.equal(Object.hasOwn(Object.getPrototypeOf(custom), 'hasOwnProperty'), false);
+    let chain = make(createBuilder(() => ({ id: 0 })));
+    for (let depth = 0; depth < 63; depth++) chain = Object.create(chain);
+    assert.equal(fluent(chain, ['id']).withId(1).build().id, 1);
+    assert.throws(() => fluent(Object.create(chain), ['id']), /64 prototypes/);
   });
 });

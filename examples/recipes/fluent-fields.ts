@@ -15,3 +15,7 @@ const Order = Type.Object({
 
 export const order = rows(Order).withStatus('PAID').withTotal(42).buildValidated();
 // withStatus() accepts only 'NEW' or 'PAID', and withTotal() only numbers.
+
+// Wrap the helper's builder again to add names for one test file; its setters stay.
+const payments = fluent(rows(Order), { withReference: 'id' });
+export const payment = payments.withReference('pay-7').withStatus('PAID').buildValidated();

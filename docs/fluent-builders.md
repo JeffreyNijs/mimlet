@@ -104,6 +104,41 @@ schema, never from a fixture, and list every field: a missing name would type a
 setter that does not exist at runtime. Type the result with the schema's input keys,
 for example `schemaFields(Object.keys(shape) as Extract<keyof Input, string>[])`.
 
+## Nesting combines setters
+
+`fluent()` keeps the methods of the builder it wraps, so calls can be nested. A
+shared helper can give every model a setter per field, and a builder can add its
+own tuple or aliases on top, as `payments` does in the recipe above:
+
+```ts
+const payments = fluent(rows(Order), { withReference: 'id' });
+payments.withReference('pay-7').withStatus('PAID'); // withStatus() comes from rows()
+```
+
+`fluent(fluent(builder, a), b)` behaves like one builder with the setters of `a` and
+`b`, in the types and at runtime. Both sets survive `.with()`, `.replace()`,
+`.withFactory()`, `.omit()`, `.transform()`, async transitions, validation and every
+build method, and each setter returns the outer builder. Methods of a generated or
+hand-written class facade are kept the same way; its instance fields and getters
+are not. Nested setters need `0.1.0-beta.2` or newer; earlier versions dropped the
+inner setters.
+
+When the outer call names a method the wrapped builder already has:
+
+- the same name for the same field is allowed and adds nothing, so
+  `fluent(rows(Order), ['id'])` is fine;
+- a new name for a field that already has a setter is allowed, and both setters
+  exist;
+- a name that the wrapped builder uses for another field, or for a method of a
+  class facade, throws a `TypeError` in a tuple or alias map, like a builder method
+  name. A schema field list skips it instead, and the wrapped builder's method keeps
+  the name.
+
+Builder methods such as `with()` and `withFactory()` follow the rules above.
+Explicit tuples and alias maps need a concrete input type, nested or not, so a
+generic helper cannot add one: add it where the helper is called. Nested schema
+field lists work inside generic helpers.
+
 ## Checked-in classes
 
 For classes that should be checked into a project, use
