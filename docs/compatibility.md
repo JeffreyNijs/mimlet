@@ -42,7 +42,8 @@ requires them and recorded by the corresponding CI jobs.
 The dependency-free core and portable consumer/adapter/Faker declarations are
 additionally tested with TypeScript 5.8.3. Do not extrapolate that result to modern
 TypeBox or vendor declarations requiring newer compiler features. Some native
-vendor/consumer declarations require Web/DOM types; the core does not.
+vendor declarations require Web/DOM types; the core does not. `@mimlet/consumers`
+needs only the Fetch globals, from either the DOM library or `@types/node`.
 
 The packed core runs as native ESM in Chromium, Firefox and WebKit, and in Bun
 1.4.2 and Deno 2.9.7. Deno's acceptance contract receives no filesystem, network,
