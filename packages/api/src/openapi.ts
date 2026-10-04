@@ -52,12 +52,14 @@ export interface SerializedRequest {
   readonly method: string;
   readonly url: string;
   readonly headers: Readonly<Record<string, string>>;
-  readonly body?: string | Uint8Array;
+  /** Text, or bytes that own an ordinary `ArrayBuffer`: a valid Fetch `BodyInit`. */
+  readonly body?: string | Uint8Array<ArrayBuffer>;
 }
 export interface SerializedResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
-  readonly body?: string | Uint8Array;
+  /** Text, or bytes that own an ordinary `ArrayBuffer`: a valid Fetch `BodyInit`. */
+  readonly body?: string | Uint8Array<ArrayBuffer>;
 }
 interface Operation {
   readonly id: string;
@@ -345,7 +347,7 @@ export function openApi(source: unknown, options: ContractOptions = {}) {
         if (cookies.length) {
           headers.cookie = cookies.map(([key, value]) => `${key}=${value}`).join('; ');
         }
-        let body: string | Uint8Array | undefined;
+        let body: string | Uint8Array<ArrayBuffer> | undefined;
         if (Object.hasOwn(value, 'body')) {
           body = encodeContent(contentType!, value.body, transport.codecs);
           headers['content-type'] = headerValue(contentType!);

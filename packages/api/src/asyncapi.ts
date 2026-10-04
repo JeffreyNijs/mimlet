@@ -59,7 +59,7 @@ export interface SerializedMessage {
   readonly action: MessageAction;
   readonly address: string;
   readonly headers: Readonly<Record<string, unknown>>;
-  readonly payload?: string | Uint8Array;
+  readonly payload?: string | Uint8Array<ArrayBuffer>;
   readonly contentType?: string;
   readonly correlationId?: unknown;
 }

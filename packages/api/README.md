@@ -45,6 +45,20 @@ with `serializeParameter(parameter, value)`, which does not check schemas and re
 parameters fill percent-encoded `pairs`. Nested values are rejected. Encode a body
 with `encodeContent`.
 
+Serialized bodies are text or a `Uint8Array` that owns an ordinary `ArrayBuffer`, so
+native Fetch accepts them as they are, also with the DOM library's `BodyInit` type.
+A codec result backed by a `SharedArrayBuffer` is copied. Continuing the first example:
+
+```ts
+const native = new Request(transport.url, {
+  method: transport.method,
+  headers: transport.headers,
+  body: transport.body ?? null,
+});
+const reply = response.serialize(response.builder().buildValidated());
+const mocked = new Response(reply.body ?? null, { status: reply.status, headers: reply.headers });
+```
+
 ```ts
 import { serializeParameter } from '@mimlet/api';
 const id = serializeParameter({ name: 'id', in: 'path' }, -1);
@@ -126,9 +140,9 @@ are tested against installed package artifacts alongside the HTTP cases.
   `check` or `metadata`.
 - `serializeParameter({ name, in, style?, explode?, allowReserved? }, value)` returns
   `{ value, pairs }`, as described above.
-- `encodeContent(contentType, value, codecs?)` returns a `string` or `Uint8Array`
-  using a matching entry in `codecs` or the built-in JSON, text and URL-encoded form
-  codecs, and throws for other media types.
+- `encodeContent(contentType, value, codecs?)` returns a `string` or a
+  `Uint8Array<ArrayBuffer>` using a matching entry in `codecs` or the built-in JSON,
+  text and URL-encoded form codecs, and throws for other media types.
 - `mediaType(value)` returns the lowercase media type without parameters, for
   example `application/json` for `Application/JSON; charset=utf-8`.
 - `headerName(name)` validates an HTTP header name and returns it in lowercase.
