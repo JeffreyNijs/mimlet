@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, shallowRef, useId, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, useId, watch } from 'vue';
 import { withBase } from 'vitepress';
 import { sandboxRuntime } from '../../.generated/sandbox-runtime.ts';
 import { createFrameHost } from '../../sandbox/frame.ts';
+import { highlight } from '../../sandbox/highlight.ts';
 import { presets } from '../../sandbox/presets.ts';
 import { SANDBOX_MODULES, type OutputEntry } from '../../sandbox/protocol.ts';
 import { runSandbox, TIME_LIMITS_MS, type RunResult } from '../../sandbox/runner.ts';
@@ -20,6 +21,9 @@ const source = computed({
   },
 });
 const edited = computed(() => source.value !== preset.value.source);
+const tokens = computed(() => highlight(source.value));
+const editor = ref<HTMLTextAreaElement>();
+const colours = ref<HTMLElement>();
 const timeLimit = ref<number>(5_000);
 const phase = ref<'idle' | 'loading' | 'running'>('idle');
 const busy = computed(() => phase.value !== 'idle');
@@ -141,6 +145,15 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+/** Keeps the coloured layer under the text the textarea shows. */
+function syncScroll(): void {
+  if (editor.value && colours.value) {
+    colours.value.scrollTop = editor.value.scrollTop;
+    colours.value.scrollLeft = editor.value.scrollLeft;
+  }
+}
+
+watch(source, () => void nextTick(syncScroll));
 watch(presetId, () => {
   discard();
   entries.value = [];
@@ -173,19 +186,31 @@ onBeforeUnmount(discard);
       <a :href="withBase(preset.guide)">{{ preset.guideLabel }}</a>
     </p>
     <label class="sandbox-editor-label" :for="`${id}-code`">Code</label>
-    <textarea
-      :id="`${id}-code`"
-      v-model="source"
-      class="sandbox-editor"
-      rows="22"
-      wrap="off"
-      spellcheck="false"
-      autocapitalize="off"
-      autocomplete="off"
-      autocorrect="off"
-      :aria-describedby="`${id}-hint`"
-      @keydown="onKeydown"
-    />
+    <div class="sandbox-code">
+      <!-- The textarea draws transparent text over this coloured copy, so typing,
+      selection and assistive technology all use the native control. -->
+      <pre ref="colours" class="sandbox-colours" aria-hidden="true"><template
+          v-for="(token, index) in tokens"
+          :key="index"
+        ><span v-if="token.kind !== 'plain'" :class="`token-${token.kind}`">{{ token.text }}</span
+          ><template v-else>{{ token.text }}</template></template
+        >{{ source.endsWith('\n') ? ' ' : '' }}</pre>
+      <textarea
+        :id="`${id}-code`"
+        ref="editor"
+        v-model="source"
+        class="sandbox-editor"
+        rows="22"
+        wrap="off"
+        spellcheck="false"
+        autocapitalize="off"
+        autocomplete="off"
+        autocorrect="off"
+        :aria-describedby="`${id}-hint`"
+        @keydown="onKeydown"
+        @scroll="syncScroll"
+      />
+    </div>
     <p :id="`${id}-hint`" class="sandbox-hint">
       JavaScript, with imports from {{ modules }}. Press Ctrl+Enter or Cmd+Enter to run, and Escape
       to stop. Tab moves to the next control.
@@ -313,14 +338,82 @@ select {
   margin: 0 0 6px;
   font-weight: 650;
 }
+/* Colours match the site's Shiki themes, github-light/dark-high-contrast. */
+.sandbox-code {
+  --token-keyword: #a0111f;
+  --token-string: #032563;
+  --token-constant: #023b95;
+  --token-function: #622cbc;
+  --token-comment: #66707b;
+  position: relative;
+  border-radius: 7px;
+  background: var(--vp-code-block-bg);
+}
+.dark .sandbox-code {
+  --token-keyword: #ff9492;
+  --token-string: #addcff;
+  --token-constant: #91cbff;
+  --token-function: #dbb7ff;
+  --token-comment: #bdc4cc;
+}
+/* Both layers must lay text out identically, so they share every metric. */
+.sandbox-colours,
 .sandbox-editor {
-  display: block;
+  box-sizing: border-box;
+  margin: 0;
   padding: 14px;
   font: 13px/1.6 var(--vp-font-family-mono);
+  font-variant-ligatures: none;
+  letter-spacing: normal;
+  word-spacing: normal;
   white-space: pre;
+  tab-size: 2;
+}
+.sandbox-colours {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--ink);
+  background: transparent;
+  pointer-events: none;
+}
+.sandbox-editor {
+  position: relative;
+  display: block;
   overflow: auto;
   resize: vertical;
-  tab-size: 2;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
+}
+.sandbox-editor::selection {
+  background: color-mix(in srgb, var(--vp-c-brand-1) 28%, transparent);
+  color: transparent;
+}
+.token-keyword {
+  color: var(--token-keyword);
+}
+.token-string {
+  color: var(--token-string);
+}
+.token-constant {
+  color: var(--token-constant);
+}
+.token-function {
+  color: var(--token-function);
+}
+.token-comment {
+  color: var(--token-comment);
+}
+@media (forced-colors: active) {
+  .sandbox-colours {
+    display: none;
+  }
+  .sandbox-editor {
+    color: CanvasText;
+  }
 }
 .sandbox-hint {
   font-size: 14px;
