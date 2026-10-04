@@ -61,13 +61,18 @@ fixture capture, and provider-derived fingerprints are separate capabilities.
 ## Omitted sessions
 
 Builders whose session argument is optional (JSON Schema, Zod, ArkType, Valibot,
-Avro, Protobuf, GraphQL and the API contract packages) start each session-less
+TypeBox, Avro, Protobuf, GraphQL and the API contract packages) start each session-less
 call from their adapter's `session()`, seeded with `1`. One default session spans
 a whole session-less list, so `builder.buildList(3)` returns three successive values
 and equals `builder.buildList(3, adapter.session())`. Repeating the call repeats
 the list, and two separate session-less builds return the same value. Pass an
 explicit session when consecutive builds must differ or when you need a snapshot
 to replay. Factory builders opt in with the core `defaultSession` option.
+
+TypeBox native creation does not draw from the session, so rows differ only through
+patch factories and transforms, which receive it. The TypeBox creation fill takes its
+dates from `referenceDate()`. A TypeBox fingerprint covers the schema data, not codec
+or transform callbacks.
 
 Native Effect builders have no default because the adapter cannot derive a replay
 identity for native schemas and annotations. Their types require a session, and a
