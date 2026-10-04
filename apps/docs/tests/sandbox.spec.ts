@@ -197,3 +197,34 @@ test('the sandbox works with keyboard input, a mobile layout and the dark theme'
   await page.screenshot({ path: 'test-results/sandbox-mobile.png', fullPage: true });
   expect(errors).toEqual([]);
 });
+
+test('the editor colours its code without changing what the textarea holds', async ({ page }) => {
+  // A trailing space gives a final empty line the height the textarea gives it.
+  const mirrored = (value: string) => (value.endsWith('\n') ? `${value} ` : value);
+  await page.goto('guide/try-it.html');
+  const colours = page.locator('.sandbox-colours');
+  await expect(colours).toHaveAttribute('aria-hidden', 'true');
+  await expect(colours.locator('.token-keyword').first()).toHaveText('import');
+  await expect(colours.locator('.token-string').first()).toHaveText("'zod'");
+  // The textarea keeps its text, drawn transparently over the coloured copy.
+  expect(await code(page).evaluate((element) => globalThis.getComputedStyle(element).color)).toBe(
+    'rgba(0, 0, 0, 0)'
+  );
+  expect(await colours.textContent()).toBe(mirrored(await code(page).inputValue()));
+
+  const long = Array.from(
+    { length: 60 },
+    (_, line) => `const line${line} = 'a string long enough to scroll the editor sideways ${line}';`
+  ).join('\n');
+  await code(page).fill(`${long}\n`);
+  await expect(colours.locator('.token-constant').first()).toHaveText('line0');
+  await code(page).evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.scrollLeft = 120;
+  });
+  await expect
+    .poll(() => colours.evaluate((element) => [element.scrollTop, element.scrollLeft]))
+    .toEqual(await code(page).evaluate((element) => [element.scrollTop, element.scrollLeft]));
+  await page.getByRole('button', { name: 'Reset example' }).click();
+  expect(await colours.textContent()).toBe(mirrored(await code(page).inputValue()));
+});

@@ -15,6 +15,7 @@ import {
   FRAME_SANDBOX,
   frameDocument,
 } from '../../apps/docs/sandbox/frame.ts';
+import { HIGHLIGHT_LIMIT, highlight } from '../../apps/docs/sandbox/highlight.ts';
 import { formatLogArguments, inspect } from '../../apps/docs/sandbox/inspect.ts';
 import { presets } from '../../apps/docs/sandbox/presets.ts';
 import {
@@ -132,6 +133,77 @@ describe('docs sandbox: program preparation', () => {
     expect(
       sourceError(() => prepareProgram('x'.repeat(LIMITS.sourceCharacters + 1))).message
     ).toContain('longer than');
+  });
+});
+
+describe('docs sandbox: editor colours', () => {
+  const coloured = (source: string) =>
+    highlight(source)
+      .filter((token) => token.kind !== 'plain')
+      .map((token) => `${token.kind}:${token.text}`);
+
+  it('never changes the text, so the coloured layer lines up with the textarea', () => {
+    const awkward = [
+      '',
+      '\n\n',
+      "'unterminated\nconst x = `multi\nline ${1}` /* open",
+      'a /= b / c; x?.y ?? z; ...rest => {}; 0x1F 1_000n .5e-3',
+      '\t\u00a0é 😀 \\ \'\\\' "q\\"" // end',
+    ];
+    for (const source of [...awkward, ...presets.map((preset) => preset.source)]) {
+      expect(
+        highlight(source)
+          .map((token) => token.text)
+          .join('')
+      ).toBe(source);
+    }
+  });
+
+  it('colours keywords, strings, constants, calls and comments like the site code blocks', () => {
+    expect(
+      coloured(
+        "import { z } from 'zod';\nconst users = fromZod(User, { n: 12, ok: true }); // note\nexport async function f() { return new Map(); }"
+      )
+    ).toEqual([
+      'keyword:import',
+      'keyword:from',
+      "string:'zod'",
+      'keyword:const',
+      'constant:users',
+      'keyword:=',
+      'function:fromZod',
+      'constant:12',
+      'constant:true',
+      'comment:// note',
+      'keyword:export',
+      'keyword:async',
+      'keyword:function',
+      'function:f',
+      'keyword:return',
+      'keyword:new',
+      'function:Map',
+    ]);
+    expect(coloured('a.import(); b.from')).toEqual(['function:import']);
+    expect(coloured("z.string().default('x').catch(null); z.void()")).toEqual([
+      'function:string',
+      'function:default',
+      "string:'x'",
+      'function:catch',
+      'constant:null',
+      'function:void',
+    ]);
+    expect(coloured('f(...args, ...[1])')).toEqual([
+      'function:f',
+      'keyword:...',
+      'keyword:...',
+      'constant:1',
+    ]);
+    expect(coloured('x1 = 2x')).toEqual(['keyword:=']);
+  });
+
+  it('draws very long programs as plain text', () => {
+    const source = 'const a = 1;\n'.repeat(HIGHLIGHT_LIMIT / 10);
+    expect(highlight(source)).toEqual([{ kind: 'plain', text: source }]);
   });
 });
 
