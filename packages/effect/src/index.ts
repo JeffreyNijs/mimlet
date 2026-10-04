@@ -148,16 +148,32 @@ export function effectAdapter<A, I>(source: Schema.Codec<A, I>, options: EffectO
     }),
   });
 }
+/**
+ * The builder `fromEffect(schema, options)` returns for a `Schema.Codec<A, I>`: synchronous,
+ * with encoded input `I`, decoded output `A` and a required session.
+ */
+export type EffectBuilder<A, I> = SchemaBuilder<I, A, [session: GenerationSession]>;
+
+/**
+ * The builder `fromEffectFactory(schema, factory, options)` returns for a factory of type `F`:
+ * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
+ * the factory's own type as `F`. As with the function, sync or async is decided once `I` is known.
+ */
+export type EffectFactoryBuilder<
+  A,
+  I,
+  F extends (...args: never[]) => I | PromiseLike<I>,
+> = SchemaBuilderFor<StandardSchemaV1<I, A>, F>;
+
 /** Deterministic native generation requires an explicit session; codecs must encode synchronously. */
 export function fromEffect<A, I>(
   source: Schema.Codec<A, I>,
   options: EffectOptions = {}
-): SchemaBuilder<I, A, [session: GenerationSession]> {
+): EffectBuilder<A, I> {
   const adapter = effectAdapter(source, options);
-  return createSchemaBuilder(adapter.standard, adapter.create, options) as unknown as SchemaBuilder<
-    I,
+  return createSchemaBuilder(adapter.standard, adapter.create, options) as unknown as EffectBuilder<
     A,
-    [session: GenerationSession]
+    I
   >;
 }
 /** Native asynchronous generation and encoding, followed by asynchronous-capable decoding only when requested. */
@@ -181,7 +197,7 @@ export function fromEffectFactory<
   source: Schema.Codec<A, I>,
   factory: F,
   options: EffectOptions = {}
-): SchemaBuilderFor<StandardSchemaV1<I, A>, F> {
+): EffectFactoryBuilder<A, I, F> {
   return createSchemaBuilder(effectAdapter(source, options).standard, factory, options);
 }
 

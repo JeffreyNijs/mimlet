@@ -193,6 +193,36 @@ for (const [name, T, api, Value] of [
         TypeError
       );
     });
+    it('combines helper setters with per-builder tuples and aliases, also for variants', async () => {
+      const User = T.Object({ id: T.String(), user_name: T.String(), age: T.Number() });
+      const rows = (schema) => fluent(api.fromTypeBox(schema), api.typeBoxFields(schema));
+      const users = fluent(rows(User), { withKey: 'id', withLogin: 'user_name' });
+      assert.deepEqual(
+        users.withKey('u-1').withLogin('ada').withAge(36).withUserName('grace').buildValidated(),
+        { id: 'u-1', user_name: 'grace', age: 36 }
+      );
+      const asynchronous = users.transformAsync(async (value) => value).withAge(2);
+      assert.deepEqual(await asynchronous.withKey('u-2').buildValidatedAsync(), {
+        id: 'u-2',
+        user_name: '',
+        age: 2,
+      });
+      assert.equal(fluent(rows(User), ['id']).withId('a').withAge(1).buildValidated().id, 'a');
+      assert.throws(() => fluent(rows(User), { withAge: 'id' }), /capabilities/);
+      assert.throws(() => users.withAge('old').buildValidated(), BuilderValidationError);
+      const Pet = T.Union([
+        T.Object({ kind: T.Literal('cat'), lives: T.Number() }),
+        T.Object({ kind: T.Literal('dog'), bark: T.Boolean(), name: T.String() }),
+      ]);
+      const dogs = fluent(fluent(api.fromTypeBoxVariant(Pet, 1), api.typeBoxFields(Pet.anyOf[1])), {
+        withNickname: 'name',
+      });
+      assert.deepEqual(dogs.withBark(true).withNickname('Rex').buildValidated(), {
+        kind: 'dog',
+        bark: true,
+        name: 'Rex',
+      });
+    });
   });
 }
 

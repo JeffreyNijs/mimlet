@@ -1,3 +1,4 @@
+import { facadeClass } from './facade-class.js';
 import { initializeRuntime } from './runtime.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
@@ -74,30 +75,6 @@ export type FacadeFor<B> =
 type InputOf<B> = B extends { buildAsync(...args: never[]): Promise<infer T> } ? T : never;
 export type BuilderConstructor<B> = new (initial?: BuilderPatch<InputOf<B>>) => FacadeFor<B>;
 
-const configurationMethods = new Set([
-  'with',
-  'replace',
-  'withFactory',
-  'replaceFactory',
-  'omit',
-  'transform',
-  'transformAsync',
-  'usingValidation',
-]);
-const methods = [
-  ...configurationMethods,
-  'build',
-  'buildAsync',
-  'buildList',
-  'buildListAsync',
-  'describe',
-  'buildValidated',
-  'buildValidatedAsync',
-  'buildValidatedList',
-  'buildValidatedListAsync',
-];
-type Runtime = Record<string, (...args: unknown[]) => unknown>;
-
 /**
  * A class facade over a builder definition. Intended for generated classes and
  * method-only subclasses: fluent branches copy public own descriptors, not private fields.
@@ -106,52 +83,7 @@ type Runtime = Record<string, (...args: unknown[]) => unknown>;
 export function builderClass<B extends { buildAsync: AnyFactory; describe(): BuilderDescription }>(
   definition: () => B
 ): BuilderConstructor<B> {
-  if (typeof definition !== 'function') {
-    throw new TypeError('Expected a builder definition');
-  }
-  const states = new WeakMap<object, Runtime>();
-  const invoke = (base: Runtime, key: string, args: unknown[]): unknown => {
-    const method = base[key];
-    if (typeof method !== 'function') {
-      throw new TypeError(`Builder capability ${key} is unavailable`);
-    }
-    return Reflect.apply(method, base, args);
-  };
-  class Facade {
-    constructor(initial?: unknown) {
-      const result: unknown = Reflect.apply(definition, undefined, []);
-      if (!result || typeof result !== 'object' || typeof (result as B).buildAsync !== 'function') {
-        if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
-          void Promise.resolve(result).catch(() => {});
-        }
-        throw new TypeError('A definition must return a builder synchronously');
-      }
-      const base = result as Runtime;
-      states.set(this, initial === undefined ? base : (invoke(base, 'with', [initial]) as Runtime));
-    }
-  }
-  for (const key of methods) {
-    Object.defineProperty(Facade.prototype, key, {
-      configurable: true,
-      value: function (this: object, ...args: unknown[]) {
-        const base = states.get(this);
-        if (!base) {
-          throw new TypeError('Invalid builder facade receiver');
-        }
-        const result = invoke(base, key, args);
-        if (!configurationMethods.has(key)) {
-          return result;
-        }
-        const next: object = Object.create(
-          Object.getPrototypeOf(this),
-          Object.getOwnPropertyDescriptors(this)
-        );
-        states.set(next, result as Runtime);
-        return next;
-      },
-    });
-  }
-  return Facade as unknown as BuilderConstructor<B>;
+  return facadeClass(definition) as unknown as BuilderConstructor<B>;
 }
 
 export function createBuilderClass<F extends AnyFactory>(

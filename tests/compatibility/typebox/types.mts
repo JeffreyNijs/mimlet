@@ -200,11 +200,12 @@ const fill: TypeBoxFill = {
   now: '2026-01-01T00:00:00.000Z',
   formats: { 'x-sku': 'SKU-0001' },
   patterns: ['APP-1'],
+  nullable: 'null',
 };
 fromTypeBox(Event, { fill });
 fromTypeBox(Event, { fill: false });
 fromTypeBoxVariant(Pet, 1, { fill: { patterns: [] } });
-const legacyFill: LegacyFill = { patterns: ['APP-1'] };
+const legacyFill: LegacyFill = { patterns: ['APP-1'], nullable: 'value' };
 fromLegacy(OldEvent, { fill: legacyFill });
 legacyVariant(LegacyPet, 0, { fill: false });
 // @ts-expect-error Fill takes options or false.
@@ -213,6 +214,10 @@ fromTypeBox(Event, { fill: true });
 fromTypeBox(Event, { fill: { formats: { uuid: 1 } } });
 // @ts-expect-error Pattern candidates are strings.
 fromLegacy(OldEvent, { fill: { patterns: [/APP/] } });
+// @ts-expect-error Nullable unions are created as 'value' or 'null', not a boolean.
+fromTypeBox(Event, { fill: { nullable: true } });
+// @ts-expect-error Nullable unions are created as 'value' or 'null'.
+fromLegacy(OldEvent, { fill: { nullable: 'first' } });
 
 // A setter per schema field, from a generic helper, with no field list and no casts.
 import { fluent } from '@mimlet/core';
@@ -256,3 +261,252 @@ prisma.withId('row-1').buildValidatedList(2);
 prisma.withTimestamp(new Date());
 // @ts-expect-error Legacy unions have no single field list.
 legacyFields(LegacyPet);
+
+// Named builder types give a generic helper an explicit return type that is exactly what
+// the entry point returns, for lint rules such as explicit-function-return-type.
+import type { FluentFieldsBuilder } from '@mimlet/core';
+import type { TSchema } from 'typebox';
+import type {
+  TypeBoxBuilder,
+  TypeBoxFactoryBuilder,
+  TypeBoxOptions,
+  TypeBoxVariantBuilder,
+  TypeBoxVariantIndex,
+} from '@mimlet/typebox';
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
+declare function exact<T extends true>(): T;
+
+function dtoBuilder<S extends TSchema>(
+  schema: S,
+  create: () => StaticEncode<S>
+): TypeBoxFactoryBuilder<S, () => StaticEncode<S>> {
+  return fromTypeBoxFactory(schema, create);
+}
+function inferredDtoBuilder<S extends TSchema>(schema: S, create: () => StaticEncode<S>) {
+  return fromTypeBoxFactory(schema, create);
+}
+exact<
+  Equal<
+    ReturnType<typeof dtoBuilder<typeof Event>>,
+    ReturnType<typeof inferredDtoBuilder<typeof Event>>
+  >
+>();
+const dtos = dtoBuilder(Event, () => ({ id: 'event-1', timestamp: 1 }));
+expectType<EventInput>(dtos.build());
+expectType<EventOutput>(dtos.buildValidated());
+expectType<EventOutput[]>(dtos.buildValidatedList(2));
+dtos.buildValidated().timestamp.getTime();
+// @ts-expect-error A synchronous zero-argument factory takes no build arguments.
+dtos.build('extra');
+const patchedDtos = dtos.with({ timestamp: 2 }).withFactory(() => ({ id: 'event-2' }));
+expectType<EventOutput>(patchedDtos.buildValidated());
+// @ts-expect-error Patches stay encoded-input typed.
+dtos.with({ timestamp: new Date() });
+const namedDtos = fluent(dtos, typeBoxFields(Event));
+expectType<EventOutput>(namedDtos.withId('event-3').withTimestamp(3).buildValidated());
+
+function asyncDtoBuilder<S extends TSchema>(
+  schema: S,
+  load: (id: string) => Promise<StaticEncode<S>>
+): TypeBoxFactoryBuilder<S, (id: string) => Promise<StaticEncode<S>>> {
+  return fromTypeBoxFactory(schema, load);
+}
+function inferredAsyncDtoBuilder<S extends TSchema>(
+  schema: S,
+  load: (id: string) => Promise<StaticEncode<S>>
+) {
+  return fromTypeBoxFactory(schema, load);
+}
+exact<
+  Equal<
+    ReturnType<typeof asyncDtoBuilder<typeof Event>>,
+    ReturnType<typeof inferredAsyncDtoBuilder<typeof Event>>
+  >
+>();
+const loaded = asyncDtoBuilder(Event, async (id) => ({ id, timestamp: 1 }));
+expectType<Promise<EventOutput>>(loaded.buildValidatedAsync('event-1'));
+expectType<Promise<EventOutput>>(
+  loaded
+    .with({ timestamp: 2 })
+    .withFactory(() => ({ note: 'n' }))
+    .buildValidatedAsync('event-1')
+);
+// @ts-expect-error An async factory never advertises synchronous builds.
+loaded.build('event-1');
+// @ts-expect-error The async builder stays async after with().
+loaded.with({ timestamp: 2 }).buildValidated('event-1');
+// @ts-expect-error The factory's argument stays required.
+void loaded.buildAsync();
+const namedLoaded = fluent(loaded, typeBoxFields(Event)).withId('event-2');
+expectType<Promise<EventOutput>>(namedLoaded.buildValidatedAsync('event-2'));
+// @ts-expect-error Named setters keep the async capability.
+namedLoaded.buildValidated('event-2');
+
+// The named and inferred types are assignable both ways, also while S is unresolved.
+function bothWays<S extends TObject>(schema: S, create: () => StaticEncode<S>): void {
+  const inferred = fromTypeBoxFactory(schema, create);
+  const named: TypeBoxFactoryBuilder<S, () => StaticEncode<S>> = inferred;
+  const back: typeof inferred = named;
+  exact<Equal<typeof inferred, TypeBoxFactoryBuilder<S, () => StaticEncode<S>>>>();
+  const native = fromTypeBox(schema);
+  const namedNative: TypeBoxBuilder<S> = native;
+  const nativeBack: typeof native = namedNative;
+  exact<Equal<typeof native, TypeBoxBuilder<S>>>();
+  void back;
+  void nativeBack;
+}
+void bothWays;
+declare const eventFactory: (session?: GenerationSession) => StaticEncode<typeof Event>;
+exact<
+  Equal<
+    typeof fromTypeBoxFactory<typeof Event, Record<never, never>, typeof eventFactory>,
+    (
+      schema: typeof Event,
+      factory: typeof eventFactory,
+      options?: TypeBoxOptions
+    ) => TypeBoxFactoryBuilder<typeof Event, typeof eventFactory>
+  >
+>();
+exact<Equal<typeof events, TypeBoxBuilder<typeof Event>>>();
+exact<
+  Equal<
+    ReturnType<typeof fromTypeBox<typeof Ref, typeof context>>,
+    TypeBoxBuilder<typeof Ref, typeof context>
+  >
+>();
+exact<Equal<typeof dogs, TypeBoxVariantBuilder<typeof Pet, 1>>>();
+// @ts-expect-error The factory type must produce the schema's encoded input.
+export type WrongFactory = TypeBoxFactoryBuilder<typeof Event, () => number>;
+
+// Native builders keep their synchronous methods inside the helper, so it can chain first.
+function patchedRows<S extends TObject>(
+  schema: S,
+  defaults: () => BuilderPatch<StaticEncode<S>>
+): TypeBoxBuilder<S> {
+  return fromTypeBox(schema).withFactory(defaults).usingValidation({});
+}
+expectType<EventOutput[]>(patchedRows(Event, () => ({ id: 'event-4' })).buildValidatedList(2));
+function fieldRows<S extends TObject>(
+  schema: S
+): FluentFieldsBuilder<TypeBoxBuilder<S>, Extract<keyof S['properties'], string>> {
+  return fluent(fromTypeBox(schema), typeBoxFields(schema));
+}
+expectType<EventOutput>(fieldRows(Event).withId('event-5').withNote('n').buildValidated());
+// @ts-expect-error The explicit fluent type keeps encoded setters.
+fieldRows(Event).withTimestamp(new Date());
+function fieldDtos<S extends TObject>(
+  schema: S,
+  create: () => StaticEncode<S>
+): FluentFieldsBuilder<
+  TypeBoxFactoryBuilder<S, () => StaticEncode<S>>,
+  Extract<keyof S['properties'], string>
+> {
+  return fluent(fromTypeBoxFactory(schema, create), typeBoxFields(schema));
+}
+expectType<EventOutput>(
+  fieldDtos(Event, () => ({ id: 'event-6', timestamp: 6 }))
+    .withNote('n')
+    .buildValidated()
+);
+function variants<
+  S extends TSchema & { readonly anyOf: readonly TSchema[] },
+  const I extends TypeBoxVariantIndex<S['anyOf']>,
+>(schema: S, index: I): TypeBoxVariantBuilder<S, I> {
+  return fromTypeBoxVariant(schema, index);
+}
+expectType<{ kind: 'dog'; bark: boolean }>(variants(Pet, 1).with({ bark: true }).build());
+
+// The legacy package line exports the same names without a context parameter.
+import type {
+  TypeBoxBuilder as LegacyBuilder,
+  TypeBoxFactoryBuilder as LegacyFactoryBuilder,
+  TypeBoxVariantBuilder as LegacyVariantBuilder,
+} from '@mimlet/typebox-legacy';
+import type { TSchema as LegacySchema } from '@sinclair/typebox';
+function legacyDtos<S extends LegacySchema>(
+  schema: S,
+  create: () => LegacyEncode<S>
+): LegacyFactoryBuilder<S, () => LegacyEncode<S>> {
+  return legacyFactory(schema, create);
+}
+function inferredLegacyDtos<S extends LegacySchema>(schema: S, create: () => LegacyEncode<S>) {
+  return legacyFactory(schema, create);
+}
+exact<
+  Equal<
+    ReturnType<typeof legacyDtos<typeof OldEvent>>,
+    ReturnType<typeof inferredLegacyDtos<typeof OldEvent>>
+  >
+>();
+const oldDtos = legacyDtos(OldEvent, () => ({ id: 'row-1', timestamp: 1 }));
+expectType<{ id: string; timestamp: Date }>(
+  oldDtos
+    .with({ timestamp: 2 })
+    .withFactory(() => ({ id: 'row-2' }))
+    .buildValidated()
+);
+fluent(oldDtos, legacyFields(OldEvent)).withId('row-3').buildValidatedList(2);
+function legacyAsyncDtos<S extends LegacySchema>(
+  schema: S,
+  load: () => Promise<LegacyEncode<S>>
+): LegacyFactoryBuilder<S, () => Promise<LegacyEncode<S>>> {
+  return legacyFactory(schema, load);
+}
+const oldLoaded = legacyAsyncDtos(OldEvent, async () => ({ id: 'row-4', timestamp: 4 }));
+expectType<Promise<{ id: string; timestamp: Date }>>(oldLoaded.buildValidatedAsync());
+// @ts-expect-error Legacy async factories stay async-only.
+oldLoaded.buildValidated();
+function legacyRowsNamed<S extends LegacyObject>(
+  schema: S,
+  defaults: () => BuilderPatch<LegacyEncode<S>>
+): LegacyBuilder<S> {
+  return fromLegacy(schema).withFactory(defaults);
+}
+expectType<{ id: string; timestamp: Date }>(
+  legacyRowsNamed(OldEvent, () => ({ id: 'row-5' })).buildValidated()
+);
+function legacyBothWays<S extends LegacyObject>(schema: S, create: () => LegacyEncode<S>): void {
+  const inferred = legacyFactory(schema, create);
+  const named: LegacyFactoryBuilder<S, () => LegacyEncode<S>> = inferred;
+  const back: typeof inferred = named;
+  exact<Equal<typeof inferred, LegacyFactoryBuilder<S, () => LegacyEncode<S>>>>();
+  exact<Equal<ReturnType<typeof fromLegacy<S>>, LegacyBuilder<S>>>();
+  void back;
+}
+void legacyBothWays;
+exact<Equal<typeof oldEvents, LegacyBuilder<typeof OldEvent>>>();
+exact<Equal<typeof legacyDogs, LegacyVariantBuilder<typeof LegacyPet, 1>>>();
+
+// Nesting combines setters: a helper's setter per field plus per-builder tuples and aliases.
+const keyedEvents = fluent(namedRows(Event), { withKey: 'id', withAt: 'timestamp' });
+expectType<{ id: string; timestamp: Date; note?: string }>(
+  keyedEvents.withKey('event-1').withAt(1).withNote('n').withTimestamp(2).buildValidated()
+);
+// @ts-expect-error Kept setters take encoded input.
+keyedEvents.withTimestamp(new Date());
+// @ts-expect-error Outer setters take encoded input too.
+keyedEvents.withAt(new Date());
+// @ts-expect-error Kept setters omit an exact optional key, never set it to undefined.
+keyedEvents.withNote(undefined);
+// @ts-expect-error Kept setters return the outer builder, not any.
+keyedEvents.withNote('n').withMissing();
+fluent(namedRows(Event), ['id']).withId('event-2').withNote('n').buildValidated();
+const keyedEventsAsync = keyedEvents
+  .transformAsync(async (value) => value)
+  .withNote('n')
+  .withKey('e');
+keyedEventsAsync.buildValidatedAsync();
+// @ts-expect-error Nested setters do not restore synchronous build methods.
+keyedEventsAsync.buildValidated();
+// A generic helper can nest schema field lists.
+function nestedRows<S extends TObject>(schema: S) {
+  return fluent(fluent(fromTypeBox(schema), typeBoxFields(schema)), typeBoxFields(schema));
+}
+nestedRows(Event).withId('event-3').withTimestamp(3).buildValidated();
+// @ts-expect-error The nested helper's setters keep the input type.
+nestedRows(Event).withTimestamp(new Date());
+const nestedDogs = fluent(fluent(dogs, typeBoxFields(Pet.anyOf[1])), { withWoof: 'bark' });
+nestedDogs.withBark(true).withWoof(false).buildValidated();
+// @ts-expect-error Variant setters keep the branch's input type.
+nestedDogs.withWoof('loud');

@@ -61,6 +61,17 @@ for (const [name, T, api] of [
         api.typeBoxAdapter(User, { fill: {} }).identity.configuration,
         identity.configuration
       );
+      // fill.nullable changes the identity only when it changes output, so a replay recorded
+      // with the other setting fails instead of creating different values.
+      assert.equal(
+        api.typeBoxAdapter(User, { fill: { nullable: 'value' } }).identity.configuration,
+        identity.configuration
+      );
+      const nulls = api.typeBoxAdapter(User, { fill: { nullable: 'null' } });
+      assert.notEqual(nulls.identity.configuration, identity.configuration);
+      const snapshot = nulls.session('nullable').snapshot();
+      assert.throws(() => restoreSession(snapshot, identity), SessionReplayError);
+      assert.deepEqual(restoreSession(snapshot, nulls.identity).snapshot(), snapshot);
     });
     it('passes the session to variant builders as well', () => {
       const Pet = T.Union([

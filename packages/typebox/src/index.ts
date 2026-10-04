@@ -176,6 +176,26 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
 }
 
 /**
+ * The builder `fromTypeBox(schema, options)` returns: synchronous, with encoded input, decoded
+ * output and an optional session. Name it as a generic helper's return type.
+ */
+export type TypeBoxBuilder<
+  S extends TSchema,
+  C extends TProperties = Record<never, never>,
+> = SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]>;
+
+/**
+ * The builder `fromTypeBoxFactory(schema, factory, options)` returns for a factory of type `F`:
+ * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
+ * the factory's own type as `F`. As with the function, sync or async is decided once `S` is known.
+ */
+export type TypeBoxFactoryBuilder<
+  S extends TSchema,
+  F extends (...args: never[]) => StaticEncode<S, C> | PromiseLike<StaticEncode<S, C>>,
+  C extends TProperties = Record<never, never>,
+> = SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F>;
+
+/**
  * Generate native TypeBox defaults. This is deterministic creation, not random sampling.
  * Native creation is synchronous, so the builder type is concrete: generic helpers over an
  * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
@@ -185,13 +205,13 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
 export function fromTypeBox<S extends TSchema, C extends TProperties = Record<never, never>>(
   schema: S,
   options: TypeBoxOptions<C> = {}
-): SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]> {
+): TypeBoxBuilder<S, C> {
   const adapter = typeBoxAdapter(schema, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]>;
+  ) as TypeBoxBuilder<S, C>;
 }
 
 /** Use a custom sync/async factory without losing encoded/decoded types or arguments. */
@@ -204,11 +224,7 @@ export function fromTypeBoxFactory<
     S,
     C
   >,
->(
-  schema: S,
-  factory: F,
-  options: TypeBoxOptions<C> = {}
-): SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F> {
+>(schema: S, factory: F, options: TypeBoxOptions<C> = {}): TypeBoxFactoryBuilder<S, F, C> {
   return createSchemaBuilder(typeBoxAdapter(schema, options).standard, factory, options);
 }
 
@@ -315,28 +331,30 @@ export function typeBoxVariantAdapter<
   });
 }
 
+/**
+ * The builder `fromTypeBoxVariant(union, index, options)` returns: input of the selected
+ * branch, decoded output of the whole union, synchronous, with an optional session.
+ */
+export type TypeBoxVariantBuilder<
+  S extends TSchema & { readonly anyOf: readonly TSchema[] },
+  I extends TypeBoxVariantIndex<S['anyOf']>,
+  C extends TProperties = Record<never, never>,
+> = SchemaBuilder<
+  StaticEncode<S['anyOf'][I], C>,
+  StaticDecode<S, C>,
+  [session?: GenerationSession]
+>;
+
 /** Safe discriminated-union selection: generate the entire branch before applying patches. */
 export function fromTypeBoxVariant<
   S extends TSchema & { readonly anyOf: readonly TSchema[] },
   const I extends TypeBoxVariantIndex<S['anyOf']>,
   C extends TProperties = Record<never, never>,
->(
-  source: S,
-  index: I,
-  options: TypeBoxOptions<C> = {}
-): SchemaBuilder<
-  StaticEncode<S['anyOf'][I], C>,
-  StaticDecode<S, C>,
-  [session?: GenerationSession]
-> {
+>(source: S, index: I, options: TypeBoxOptions<C> = {}): TypeBoxVariantBuilder<S, I, C> {
   const adapter = typeBoxVariantAdapter(source, index, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as SchemaBuilder<
-    StaticEncode<S['anyOf'][I], C>,
-    StaticDecode<S, C>,
-    [session?: GenerationSession]
-  >;
+  ) as TypeBoxVariantBuilder<S, I, C>;
 }

@@ -173,6 +173,26 @@ export function typeBoxAdapter<S extends TSchema>(source: S, options: TypeBoxOpt
   });
 }
 /**
+ * The builder `fromTypeBox(schema, options)` returns: synchronous, with encoded input, decoded
+ * output and an optional session. Name it as a generic helper's return type.
+ */
+export type TypeBoxBuilder<S extends TSchema> = SchemaBuilder<
+  StaticEncode<S>,
+  StaticDecode<S>,
+  [session?: GenerationSession]
+>;
+
+/**
+ * The builder `fromTypeBoxFactory(schema, factory, options)` returns for a factory of type `F`:
+ * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
+ * the factory's own type as `F`. As with the function, sync or async is decided once `S` is known.
+ */
+export type TypeBoxFactoryBuilder<
+  S extends TSchema,
+  F extends (...args: never[]) => StaticEncode<S> | PromiseLike<StaticEncode<S>>,
+> = SchemaBuilderFor<StandardSchemaV1<StaticEncode<S>, StaticDecode<S>>, F>;
+
+/**
  * Native creation is synchronous, so the builder type is concrete: generic helpers over an
  * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
  * A session-less build or list uses the adapter's seed-1 session, so `withFactory()` and
@@ -181,22 +201,18 @@ export function typeBoxAdapter<S extends TSchema>(source: S, options: TypeBoxOpt
 export function fromTypeBox<S extends TSchema>(
   schema: S,
   options: TypeBoxOptions = {}
-): SchemaBuilder<StaticEncode<S>, StaticDecode<S>, [session?: GenerationSession]> {
+): TypeBoxBuilder<S> {
   const adapter = typeBoxAdapter(schema, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as SchemaBuilder<StaticEncode<S>, StaticDecode<S>, [session?: GenerationSession]>;
+  ) as TypeBoxBuilder<S>;
 }
 export function fromTypeBoxFactory<
   S extends TSchema,
   F extends (...args: never[]) => NoInfer<StaticEncode<S>> | PromiseLike<NoInfer<StaticEncode<S>>>,
->(
-  schema: S,
-  factory: F,
-  options: TypeBoxOptions = {}
-): SchemaBuilderFor<StandardSchemaV1<StaticEncode<S>, StaticDecode<S>>, F> {
+>(schema: S, factory: F, options: TypeBoxOptions = {}): TypeBoxFactoryBuilder<S, F> {
   return createSchemaBuilder(typeBoxAdapter(schema, options).standard, factory, options);
 }
 
@@ -306,19 +322,24 @@ export function typeBoxVariantAdapter<
   });
 }
 
+/**
+ * The builder `fromTypeBoxVariant(union, index, options)` returns: input of the selected
+ * branch, decoded output of the whole union, synchronous, with an optional session.
+ */
+export type TypeBoxVariantBuilder<
+  S extends TSchema & { readonly anyOf: readonly TSchema[] },
+  I extends TypeBoxVariantIndex<S['anyOf']>,
+> = SchemaBuilder<StaticEncode<S['anyOf'][I]>, StaticDecode<S>, [session?: GenerationSession]>;
+
 /** Safe discriminated-union selection: generate the entire branch before applying patches. */
 export function fromTypeBoxVariant<
   S extends TSchema & { readonly anyOf: readonly TSchema[] },
   const I extends TypeBoxVariantIndex<S['anyOf']>,
->(
-  source: S,
-  index: I,
-  options: TypeBoxOptions = {}
-): SchemaBuilder<StaticEncode<S['anyOf'][I]>, StaticDecode<S>, [session?: GenerationSession]> {
+>(source: S, index: I, options: TypeBoxOptions = {}): TypeBoxVariantBuilder<S, I> {
   const adapter = typeBoxVariantAdapter(source, index, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as SchemaBuilder<StaticEncode<S['anyOf'][I]>, StaticDecode<S>, [session?: GenerationSession]>;
+  ) as TypeBoxVariantBuilder<S, I>;
 }
