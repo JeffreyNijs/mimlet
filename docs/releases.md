@@ -64,7 +64,9 @@ The rule is enforced in three places, and each fails closed:
   `npm publish --tag <packages[].distTag>` for each package.
 
 The workflow keeps its own inline copies of the policy and the tarball check;
-`tests/tooling` fails if they differ from the tested functions in `scripts/`.
+`tests/tooling` fails if they differ from the tested functions in `scripts/`. It
+also runs the publish step's script against fixture tarballs, with npm replaced by
+a recorder, to check the tag passed for each package and the failure cases.
 
 Still mark a beta's GitHub release as a prerelease: the flag must match the
 versions, but it no longer selects the npm tag. Trusted publishing sets the tag at
