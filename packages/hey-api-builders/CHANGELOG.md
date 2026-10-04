@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.0-beta.1
+
+### Patch Changes
+
+- a0a8142: Type generated `withX()` helpers with exactly what `.with()` accepts for that
+  property, as core `fluent()` setters already are. Under `exactOptionalPropertyTypes`,
+  an optional property such as `notes?: string` no longer accepts `withNotes(undefined)`,
+  which built a present-but-undefined field that the model type forbids. Properties that
+  include `undefined` explicitly still accept it. Regenerate the client to pick up the
+  change; the generated file gains a local, unexported `BuilderSetterValue` type.
+- Updated dependencies [536ca1e]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+
 ## 3.0.0-beta.0
 
 ### Patch Changes

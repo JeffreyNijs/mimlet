@@ -1,5 +1,24 @@
 # @mimlet/zod
 
+## 0.1.0-beta.1
+
+### Minor Changes
+
+- 3cd081a: Add `zodFields(schema)`, which lists an object schema's top-level input keys for
+  `fluent()` from `@mimlet/core`: `fluent(fromZod(schema), zodFields(schema))` has a
+  `withX()` setter per field, also in a generic helper over `S extends z.ZodObject`. It
+  follows `.transform()` and other pipes to the object that receives the input and works
+  with the factory and async entry points. Non-object schemas throw a `TypeError`.
+
+### Patch Changes
+
+- Updated dependencies [536ca1e]
+- Updated dependencies [21315c1]
+- Updated dependencies [3cd081a]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+  - @mimlet/json-schema@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes

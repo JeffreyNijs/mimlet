@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.1
+
+### Patch Changes
+
+- 0bcdeea: A missing import now names the `imports` key to add and the file that imports it,
+  for example `Imported schema was not supplied in memory: add "logistics/hub.proto" to
+imports (imported by "schema.proto")`.
+- Updated dependencies [536ca1e]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes

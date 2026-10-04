@@ -1,5 +1,24 @@
 # @mimlet/arktype
 
+## 0.1.0-beta.1
+
+### Minor Changes
+
+- 3cd081a: Add `arkTypeFields(schema)`, which lists an object type's top-level input props for
+  `fluent()` from `@mimlet/core`: `fluent(fromArkType(schema), arkTypeFields(schema))` has
+  a `withX()` setter per field, also in a generic helper over `S extends Type<object>`. It
+  reads the native `schema.in.props`, so a morph lists the keys of its input. Unions and
+  non-object types throw a `TypeError`.
+
+### Patch Changes
+
+- Updated dependencies [536ca1e]
+- Updated dependencies [21315c1]
+- Updated dependencies [3cd081a]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+  - @mimlet/json-schema@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes

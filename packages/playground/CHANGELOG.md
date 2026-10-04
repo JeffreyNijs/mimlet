@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.1
+
+### Patch Changes
+
+- Updated dependencies [536ca1e]
+- Updated dependencies [21315c1]
+- Updated dependencies [3cd081a]
+- Updated dependencies [a69850d]
+  - @mimlet/core@0.1.0-beta.1
+  - @mimlet/json-schema@0.1.0-beta.1
+
 ## 0.1.0-beta.0
 
 ### Patch Changes
