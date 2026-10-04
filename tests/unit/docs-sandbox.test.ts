@@ -219,7 +219,7 @@ describe('docs sandbox: value formatting', () => {
       failure = error;
     }
     expect(inspect(failure)).toMatch(
-      /^BuilderValidationError \[VALIDATION_FAILED\]: Schema validation failed\n {2}- age: .+$/
+      /^BuilderValidationError \[VALIDATION_FAILED\]: Schema validation failed: 1 issue at age\n {2}- age: .+$/
     );
   });
 
@@ -256,7 +256,7 @@ describe('docs sandbox: error reports', () => {
     ).toMatchObject({
       name: 'BuilderValidationError',
       code: 'VALIDATION_FAILED',
-      message: 'Schema validation failed',
+      message: 'Schema validation failed: 1 issue at lines[1].quantity',
       issues: [{ path: 'lines[1].quantity', message: expect.stringContaining('>0') }],
     });
     const Delivery = valibot.object({
