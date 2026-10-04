@@ -1,6 +1,6 @@
 # Compatibility contract
 
-This describes the published `0.1.0-beta.0` train and its tested source contracts. A supported interface, a native parser,
+This describes the published `0.1.0-beta.1` train and its tested source contracts. A supported interface, a native parser,
 an automatic generator and a shrinker are different capabilities. Native package
 versions below are explicit conformance targets or exhaustively tested bounded
 ranges. Fixture manifests, lockfiles and `tests/vendor-versions.json` are the

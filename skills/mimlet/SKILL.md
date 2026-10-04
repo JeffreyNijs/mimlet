@@ -7,14 +7,14 @@ description: Use Mimlet to create typed test fixtures, native-schema builders, c
 
 Mimlet is a modular schema-aware test-data toolkit. This is an optional product
 skill, not permission to install dependencies, change unrelated code, or replace
-the user's chosen library. The current alpha is
-`@mimlet/*@0.1.0-beta.0` on npm's `next` channel. Inspect the installed versions
+the user's chosen library. The current beta is
+`@mimlet/*@0.1.0-beta.1` on npm's `next` channel. Inspect the installed versions
 and use the matching documented APIs.
 
 Use `fluent(fromZod(schema), ['name'])` for direct named setters when the installed
 train is alpha.2 or newer. When the installed adapter exports a field list function
 (`zodFields`, `typeBoxFields`, `valibotFields`, `arkTypeFields`, `effectFields`,
-`standardJsonSchemaFields`; newer than beta.0), `fluent(fromZod(schema), zodFields(schema))`
+`standardJsonSchemaFields`; beta.1 and newer), `fluent(fromZod(schema), zodFields(schema))`
 adds a setter per field, also inside generic helpers. Keep small declarations beside
 tests; do not create builder files or a generation step unless the task needs them. Check
 `docs/fluent-builders.md` and `docs/cli-diagnostics.md` for version-specific APIs.
