@@ -26,6 +26,12 @@ programming errors, not states to branch on.
 | `SessionBudgetError`     | `SESSION_BUDGET_EXHAUSTED` | A generation session ran out of its operation, tracked-key, unique-value or uniqueness-attempt budget.                |
 | `SessionReplayError`     | `INVALID_SESSION_REPLAY`   | A session replay is malformed, or its fingerprint, provider/version or configuration does not match.                  |
 
+A `BuilderValidationError` message names the issue count and up to three failing
+paths, for example `Schema validation failed: 2 issues at owner.email, items[0].price`.
+It never includes native issue messages, which can repeat the rejected value. Read
+the non-enumerable `issues` property, or call `formatValidationIssues(error, { messages: true })`,
+to see them. See [validation diagnostics](../packages/core/README.md#validation-diagnostics).
+
 ## Adapters and schema packages
 
 | Package               | Class                      | Code                            | When                                                                                       |

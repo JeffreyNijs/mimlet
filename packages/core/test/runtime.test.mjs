@@ -3,7 +3,13 @@ import { describe, it } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { runInNewContext } from 'node:vm';
 
-import { BuilderValidationError, createBuilder, createSchemaBuilder } from '../dist/index.js';
+import {
+  BuilderGenerationError,
+  BuilderValidationError,
+  createBuilder,
+  createSchemaBuilder,
+  formatValidationIssues,
+} from '../dist/index.js';
 
 function schema(validate) {
   return { '~standard': { version: 1, vendor: 'test', validate } };
@@ -253,7 +259,7 @@ describe('Standard Schema validation', () => {
       () => base.buildValidated(),
       (error) => {
         assert.equal(error.name, 'BuilderValidationError');
-        assert.equal(error.message, 'Schema validation failed');
+        assert.equal(error.message, 'Schema validation failed: 1 issue at age');
         assert.equal(error.code, 'VALIDATION_FAILED');
         assert.equal(error.issues, issues);
         return true;
@@ -267,7 +273,10 @@ describe('Standard Schema validation', () => {
       schema(() => ({ issues: [] })),
       () => 1
     );
-    assert.throws(() => base.buildValidated(), /Schema validation failed/);
+    assert.throws(
+      () => base.buildValidated(),
+      /^BuilderValidationError: Schema validation failed$/
+    );
   });
 
   it('preserves validation after with(), replace() and transform()', () => {
@@ -371,17 +380,27 @@ describe('Standard Schema validation', () => {
 });
 
 // A validator may echo private input in native diagnostics. Default error surfaces
-// remain safe while deliberate issue inspection retains the original objects.
+// name only paths, while deliberate issue inspection retains the original objects.
 for (const asynchronous of [false, true]) {
   it(`keeps native fixture diagnostics opt-in (${asynchronous ? 'async' : 'sync'})`, async () => {
     const marker = 'PRIVATE_FIXTURE_SENTINEL';
-    const issues = [{ message: marker, path: ['value'], input: marker }];
+    const issues = [
+      { message: marker, path: ['value'], input: marker },
+      {
+        message: marker,
+        path: [
+          { key: 'nested', value: marker },
+          { key: 0, input: marker },
+        ],
+      },
+    ];
     const validator = schema(() => (asynchronous ? Promise.resolve({ issues }) : { issues }));
     const builder = createSchemaBuilder(validator, () => marker);
     const check = (error) => {
       assert.ok(error instanceof BuilderValidationError);
       assert.equal(error.code, 'VALIDATION_FAILED');
       assert.equal(error.issues, issues);
+      assert.equal(error.message, 'Schema validation failed: 2 issues at value, nested[0]');
       assert.equal(String(error).includes(marker), false);
       assert.equal(error.stack.includes(marker), false);
       assert.equal(JSON.stringify(error).includes(marker), false);
@@ -392,3 +411,86 @@ for (const asynchronous of [false, true]) {
     else assert.throws(() => builder.buildValidated(), check);
   });
 }
+
+describe('validation issue summaries', () => {
+  const failure = (issues) => new BuilderValidationError(issues).message;
+
+  it('formats Standard Schema keys, segments, symbols and the root', () => {
+    assert.equal(
+      failure([
+        { message: 'x', path: ['items', 0, 'price'] },
+        { message: 'x', path: [{ key: 'owner' }, { key: 'email' }] },
+        { message: 'x', path: [] },
+      ]),
+      'Schema validation failed: 3 issues at items[0].price, owner.email, (root)'
+    );
+    assert.equal(
+      failure([{ message: 'x', path: ['tags', '12', Symbol('meta'), 'first-name', 'ok'] }]),
+      'Schema validation failed: 1 issue at tags[12][Symbol(meta)]["first-name"].ok'
+    );
+    assert.equal(failure([{ message: 'x' }]), 'Schema validation failed: 1 issue at (root)');
+    assert.equal(
+      failure([{ message: 'x', path: [Symbol(), 1.5, null, '-1'] }]),
+      'Schema validation failed: 1 issue at [Symbol()][1.5][?]["-1"]'
+    );
+  });
+
+  it('lists three distinct paths and counts the rest', () => {
+    const issues = ['a', 'a', 'b', 'c', 'd', 'e'].map((key) => ({ message: 'x', path: [key] }));
+    assert.equal(failure(issues), 'Schema validation failed: 6 issues at a, b, c and 2 more paths');
+    assert.equal(
+      failure(issues.slice(0, 5)),
+      'Schema validation failed: 5 issues at a, b, c and 1 more path'
+    );
+  });
+
+  it('bounds long keys and deep paths', () => {
+    const long = 'k'.repeat(500);
+    const message = failure([
+      { message: 'x', path: [long] },
+      { message: 'x', path: [`${long}!`] },
+      { message: 'x', path: Array.from({ length: 200 }, (_, index) => `level${index}`) },
+    ]);
+    assert.ok(message.length < 320, message);
+    assert.match(message, /at k{29}\.\.\., \["k{29}\.\.\."\], level0\.level1\..*\.\.\..*level199$/);
+  });
+
+  it('falls back to the generic message for malformed issues', () => {
+    const hostile = {
+      message: 'x',
+      get path() {
+        throw new Error('getter');
+      },
+    };
+    assert.equal(failure([hostile]), 'Schema validation failed');
+    assert.equal(failure(undefined), 'Schema validation failed');
+    assert.equal(failure([null, 'x']), 'Schema validation failed: 2 issues at (root)');
+  });
+
+  it('keeps the summary in a generation error cause', () => {
+    const cause = new BuilderValidationError([{ message: 'x', path: ['id'] }]);
+    const error = new BuilderGenerationError('Could not create a valid default fixture', cause);
+    assert.equal(error.cause.message, 'Schema validation failed: 1 issue at id');
+  });
+
+  it('formats issues with opt-in messages and a bounded limit', () => {
+    const issues = [
+      { message: 'Expected\n  number', path: ['a'] },
+      { message: 'm'.repeat(300), path: [{ key: 'b' }] },
+      { message: 'third', path: ['c'] },
+    ];
+    const error = new BuilderValidationError(issues);
+    assert.equal(formatValidationIssues(error), 'a\nb\nc');
+    assert.equal(formatValidationIssues(issues, { limit: 2 }), 'a\nb\n... and 1 more');
+    const lines = formatValidationIssues(error, { messages: true }).split('\n');
+    assert.equal(lines[0], 'a: Expected number');
+    assert.equal(lines[1], `b: ${'m'.repeat(197)}...`);
+    assert.equal(lines[2], 'c: third');
+    assert.equal(formatValidationIssues([null], { messages: true }), '(root): undefined');
+    assert.equal(formatValidationIssues([]), '');
+    for (const limit of [0, 1.5, -1]) {
+      assert.throws(() => formatValidationIssues(issues, { limit }), RangeError);
+    }
+    assert.throws(() => formatValidationIssues({}), TypeError);
+  });
+});
