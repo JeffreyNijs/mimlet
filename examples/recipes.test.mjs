@@ -20,6 +20,7 @@ import { files } from './compiled/codegen.js';
 import { input as zodInput, user as zodUser } from './compiled/zod.js';
 import { input as arkInput, user as arkUser } from './compiled/arktype.js';
 import { input as fluentInput, output as fluentOutput, asynchronous } from './compiled/fluent.js';
+import { order as fieldsOrder } from './compiled/fluent-fields.js';
 import { runScenarioDemo, replayScenarioDemo } from './compiled/scenario-demo.js';
 
 import {
@@ -35,6 +36,9 @@ test('named fluent setters retain encoded input, native output and async behavio
   assert.deepEqual(fluentInput, { name: 'Ada', age: '42' });
   assert.deepEqual(fluentOutput, { name: 'Ada', age: 42 });
   assert.deepEqual(asynchronous, { name: 'Grace', age: 24 });
+});
+test('a generic helper gets a setter per schema field without a field list', () => {
+  assert.deepEqual(fieldsOrder, { id: 'order-1', status: 'PAID', total: 42 });
 });
 test('the interactive demo uses genuine shrinking and compatible replay with coherent relationships', () => {
   for (const seed of [12345, 1, 42, 100]) {

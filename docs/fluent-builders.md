@@ -32,6 +32,81 @@ explicit aliases allow a 1,024-character field and a 128-character method name.
 Duplicate fields, colliding names, getters and sparse arrays are rejected before
 factory execution.
 
+## A setter for every schema field
+
+Each schema adapter can list an object schema's top-level input fields. Pass that
+list to `fluent()` in place of a tuple, and every field gets a setter. This works
+inside generic helpers, so a helper shared by many schemas needs no field lists and
+its callers need no casts. Schema field lists are not in `0.1.0-beta.0`; they ship
+with the next prerelease.
+
+<!-- recipe:fluent-fields -->
+
+| Adapter                  | Field list                         | Reads                                      |
+| ------------------------ | ---------------------------------- | ------------------------------------------ |
+| `@mimlet/typebox`        | `typeBoxFields(schema)`            | `schema.properties`                        |
+| `@mimlet/typebox-legacy` | `typeBoxFields(schema)`            | `schema.properties`                        |
+| `@mimlet/zod`            | `zodFields(schema)`                | the object's shape, through `.transform()` |
+| `@mimlet/valibot`        | `valibotFields(schema)`            | `schema.entries`, also after `v.pipe()`    |
+| `@mimlet/arktype`        | `arkTypeFields(schema)`            | `schema.in.props`, also for morphs         |
+| `@mimlet/effect`         | `effectFields(schema)`             | the struct's encoded keys                  |
+| `@mimlet/json-schema`    | `standardJsonSchemaFields(schema)` | the input JSON Schema's `properties`       |
+
+In a generic helper, type the schema parameter as an object schema of that library:
+`S extends TObject` (TypeBox), `S extends z.ZodObject` (Zod),
+`S extends v.ObjectSchema<v.ObjectEntries, undefined>` (Valibot),
+`S extends Type<object>` (ArkType), or `schema: Schema.Codec<A, I>` with
+`I extends object` (Effect). The setter types resolve where the helper is called.
+
+The functions read the schema only. They never run a factory or generate data, so
+they also work with factory builders such as `fromZodFactory()` and
+`fromTypeBoxVariant()` (pass the selected branch, for example
+`typeBoxFields(Pet.anyOf[1])`). Builders take **input**, so the lists name input
+keys: Effect keys renamed with `Schema.encodeKeys` are listed by their encoded name,
+and a Zod or ArkType pipe lists the keys of the object it receives.
+
+The setters follow the same rules as a tuple: input types, `.with()` semantics for
+optional keys under `exactOptionalPropertyTypes`, validation, async transitions and
+factory arguments. A schema list cannot take aliases, so `fluent()` skips the names
+it could not add without guessing, and TypeScript leaves them out too:
+
+- a name that two fields share, such as `first-name` and `first_name`
+  (`withFirstName()`), is skipped for both;
+- a name that is a builder method is skipped: a field named `factory` leaves
+  `withFactory()` as the builder method;
+- a field name longer than 64 characters gets no setter.
+
+Set those fields with `.with()`, or give them an alias in an explicit map. A list
+holds 1 to 1,000 fields, so an empty object schema is rejected.
+
+Inputs that cannot be patched one field at a time get no setters, as with tuples:
+index signatures (for example Zod `looseObject()` or Valibot `looseObject()`),
+root unions, nullable roots and arrays. The field functions throw a `TypeError` for
+schemas that have no object properties to list, such as unions, primitives and
+references.
+
+### Builders that cannot list their fields
+
+`createBuilder()` factories, `createSchemaBuilder()` with a plain Standard Schema,
+raw `fromJsonSchema()` (whose input type is `unknown`) and custom builders have no
+schema to read. Pass an explicit tuple to them. Generated codegen and Hey API
+classes already have setters. A plain array such as `Object.keys(schema.properties)`
+is still rejected: its type cannot promise which fields exist at runtime.
+
+Setters for every field can hide which fields a test cares about. For a builder that
+many tests share, a short explicit tuple still documents intent better; schema lists
+suit generic row helpers and builders with many interchangeable fields.
+
+### Adapter authors
+
+`schemaFields(names)` from `@mimlet/core` marks a list as a schema's complete
+top-level input fields; `fluent()` accepts the result. Read the names from the
+schema, never from a fixture, and list every field: a missing name would type a
+setter that does not exist at runtime. Type the result with the schema's input keys,
+for example `schemaFields(Object.keys(shape) as Extract<keyof Input, string>[])`.
+
+## Checked-in classes
+
 For classes that should be checked into a project, use
 [generated facades](generated-facades-and-paths.md). Generic `.with()` remains the
 smallest API when named methods do not make a test clearer.

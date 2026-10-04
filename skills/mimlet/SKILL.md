@@ -12,8 +12,11 @@ the user's chosen library. The current alpha is
 and use the matching documented APIs.
 
 Use `fluent(fromZod(schema), ['name'])` for direct named setters when the installed
-train is alpha.2 or newer. Keep small declarations beside tests; do not create
-builder files or a generation step unless the task needs them. Check
+train is alpha.2 or newer. When the installed adapter exports a field list function
+(`zodFields`, `typeBoxFields`, `valibotFields`, `arkTypeFields`, `effectFields`,
+`standardJsonSchemaFields`; newer than beta.0), `fluent(fromZod(schema), zodFields(schema))`
+adds a setter per field, also inside generic helpers. Keep small declarations beside
+tests; do not create builder files or a generation step unless the task needs them. Check
 `docs/fluent-builders.md` and `docs/cli-diagnostics.md` for version-specific APIs.
 Do not suggest `fluent()` or `mimlet doctor`/`inspect` for alpha.1. Check diagnostic
 format/version and branch on codes, not human-readable messages. Successful
