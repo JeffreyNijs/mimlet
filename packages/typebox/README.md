@@ -29,9 +29,38 @@ const output = events.with({ timestamp: 1000 }).buildValidated();
 
 ## Native creation is not random sampling
 
-`fromTypeBox(schema)` uses TypeBox's native `Value.Create` to construct defaults/minimal examples, clones the result, and checks it against the native schema. Every build creates a fresh value. This is not a Faker backend, a complete JSON Schema solver, or a promise to generate every refinement or recursive structure.
+`fromTypeBox(schema)` uses TypeBox's native `Value.Create` to construct defaults/minimal examples, clones the result, and checks it against the native schema. Every build creates a fresh value, and repeated builds return equal values. This is not a Faker backend, a complete JSON Schema solver, or a promise to generate every refinement or recursive structure.
 
-When native creation fails or yields an invalid candidate, `BuilderGenerationError` preserves the cause and recommends a custom factory. No retries or automatic repairs are performed. A failure to create a value is not a proof that the schema is unsatisfiable.
+### Deterministic fill
+
+`Value.Create` cannot create strings with a `format` or `pattern`, arrays with `uniqueItems`, or a union whose first member creates a value the union rejects. The adapter fills these cases on a copy of the schema that it uses only for creation. Checks and `buildValidated()` use your original schema, so overrides are never repaired, and parts that native creation already handles keep their native values.
+
+- **Formats.** `date-time`, `date` and `time` strings use the reference time: the session's `referenceDate()`, which is `2000-01-01T00:00:00.000Z` by default. `email`, `uri`, `url`, `uuid`, `ipv4`, `ipv6` and `hostname` use fixed samples such as `user@example.com` and `192.0.2.1`. `fill.formats` adds samples or replaces built-in ones.
+- **Patterns.** There is no regular expression solver. `fill.patterns` lists candidate strings, and a pattern string uses the first one that passes its own check (pattern, format and length).
+- **Unique arrays.** One item is always unique. For more, the items must be literals, an enum or booleans, and the array takes the first `minItems` distinct values.
+- **Unions.** Members are tried in order, once each. The first created value that passes the whole union is used.
+- **Bounds.** A number whose native value is outside its `exclusiveMinimum`, `exclusiveMaximum` or `maximum` gets a value inside them, such as `0.5` for `exclusiveMinimum: 0` and `exclusiveMaximum: 1`.
+
+Schemas in `context` are filled too. An unfillable one fails only when creation reaches it.
+
+```ts
+const Order = Type.Object({
+  id: Type.String({ format: 'uuid' }),
+  placedAt: Type.String({ format: 'date-time' }),
+  sku: Type.String({ format: 'x-sku' }),
+  code: Type.String({ pattern: '^APP-[0-9]+$' }),
+});
+const orders = fromTypeBox(Order, {
+  fill: { formats: { 'x-sku': 'SKU-0001' }, patterns: ['APP-1'] },
+});
+orders.buildValidated();
+// { id: '00000000-0000-4000-8000-000000000000', placedAt: '2000-01-01T00:00:00.000Z',
+//   sku: 'SKU-0001', code: 'APP-1' }
+```
+
+`fill.now` sets a fixed instant instead of the session's reference time. `fill: false` turns the fill off and uses plain `Value.Create`.
+
+When a value still cannot be created, `BuilderGenerationError` names its location, such as `/lines/*/code` (`*` stands for any array item), keeps the native error as its `cause`, and recommends a fill option or a custom factory. The message never contains fixture values. This happens for a format without a sample, a pattern without a fitting candidate, and a unique array that needs more distinct values than its literals provide. A failure to create a value is not a proof that the schema is unsatisfiable.
 
 ```ts
 import { fromTypeBoxFactory } from '@mimlet/typebox';
@@ -43,9 +72,25 @@ const code = codes.buildValidated(42);
 
 Custom factory arguments are preserved, including required and multiple arguments. An asynchronous factory returns an async-only builder. Both native and custom-factory builders share the core runtime.
 
+## Sessions and distinct rows
+
+`fromTypeBox()` and `fromTypeBoxVariant()` builders take an optional `GenerationSession`, like the Zod, Valibot, ArkType and JSON Schema builders. Native creation does not draw from it, so `buildList(3)` without patches still returns three equal rows. Patch factories and transforms receive the session, and a session-less build or list uses one seed-1 session from `typeBoxAdapter(schema).session()`, so list items can differ:
+
+```ts
+import type { GenerationSession } from '@mimlet/core';
+
+const User = Type.Object({ id: Type.String(), name: Type.String({ default: 'Ada' }) });
+const users = fromTypeBox(User).withFactory((session?: GenerationSession) => ({
+  id: `user-${session?.sequence('user', 1)}`,
+}));
+users.buildValidatedList(3); // ids user-1, user-2 and user-3, the same on every run
+```
+
+TypeScript types the callback's session as optional, but the builder always passes one. Pass an explicit session to continue a sequence across builds or to replay one. `typeBoxAdapter(schema).identity` is the replay identity: a fingerprint of the schema and `context`, the creation provider and version, and the fill configuration. Codec callbacks cannot be fingerprinted, so two schemas that differ only in a callback share a fingerprint.
+
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
 
 ```ts
 import type { BuilderPatch } from '@mimlet/core';
@@ -76,7 +121,7 @@ const users = fromTypeBox(Type.Ref('User'), { context: { User } });
 
 The top-level context is copied. Schemas, native registries, and nested configuration remain caller-owned; do not mutate them during a build. No reference is downloaded automatically. Native error JSON pointers become Standard Schema paths, including escaped property names.
 
-The adapter does not install formats or change global TypeBox settings. Configure formats through the native library, and supply suitable factories when native creation cannot satisfy them.
+The adapter does not install formats or change global TypeBox settings. Configure formats through the native library. A fill sample is only used when it passes the format's native check.
 
 ## Limits and verification
 

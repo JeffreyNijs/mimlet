@@ -156,3 +156,60 @@ expectType<{ id: string; timestamp: number }>(legacyGeneric.build());
 expectType<{ id: string; timestamp: Date }>(legacyGeneric.buildValidated());
 // @ts-expect-error Legacy helper patches stay schema-typed too.
 legacyRows(OldEvent, () => ({ timestamp: new Date() }));
+
+// Native builders take an optional generation session, like the other adapters.
+import type { GenerationSession, SchemaBuilder } from '@mimlet/core';
+import type { TypeBoxFill } from '@mimlet/typebox';
+import type { TypeBoxFill as LegacyFill } from '@mimlet/typebox-legacy';
+declare const session: GenerationSession;
+type EventInput = { id: string; timestamp: number; note?: string };
+type EventOutput = { id: string; timestamp: Date; note?: string };
+expectType<SchemaBuilder<EventInput, EventOutput, [session?: GenerationSession]>>(events);
+expectType<EventInput>(events.build(session));
+expectType<EventOutput[]>(events.buildValidatedList(2, session));
+expectType<EventInput[]>(events.buildList(2));
+// @ts-expect-error The optional argument is a generation session.
+events.build('session');
+// @ts-expect-error A list takes at most one session.
+events.buildList(2, session, session);
+// Helpers typed with the session-less builder type keep compiling.
+const sessionless: SchemaBuilder<EventInput, EventOutput> = events;
+sessionless.build();
+const counted = events.withFactory((execution?: GenerationSession) => ({
+  id: `event-${execution?.sequence('event', 1) ?? 0}`,
+}));
+expectType<EventOutput[]>(counted.buildValidatedList(3));
+expectType<GenerationSession>(typeBoxAdapter(Event).session('seed'));
+expectType<string>(typeBoxAdapter(Event).identity.fingerprint);
+expectType<EventInput>(typeBoxAdapter(Event).create(session));
+expectType<{ kind: 'dog'; bark: boolean }>(dogs.build(session));
+expectType<{ kind: 'dog'; bark: boolean }[]>(legacyDogs.buildList(2, session));
+expectType<GenerationSession>(typeBoxVariantAdapter(Pet, 1).session());
+const oldSessionless: SchemaBuilder<
+  { id: string; timestamp: number },
+  { id: string; timestamp: Date }
+> = oldEvents;
+oldSessionless.buildValidated();
+expectType<{ id: string; timestamp: number }>(oldEvents.build(session));
+// @ts-expect-error Legacy builders take a session too, not other arguments.
+oldEvents.build(1);
+expectType<GenerationSession>(legacyAdapter(OldEvent).session());
+
+// Fill options: samples and candidates are strings; `false` keeps plain native creation.
+const fill: TypeBoxFill = {
+  now: '2026-01-01T00:00:00.000Z',
+  formats: { 'x-sku': 'SKU-0001' },
+  patterns: ['APP-1'],
+};
+fromTypeBox(Event, { fill });
+fromTypeBox(Event, { fill: false });
+fromTypeBoxVariant(Pet, 1, { fill: { patterns: [] } });
+const legacyFill: LegacyFill = { patterns: ['APP-1'] };
+fromLegacy(OldEvent, { fill: legacyFill });
+legacyVariant(LegacyPet, 0, { fill: false });
+// @ts-expect-error Fill takes options or false.
+fromTypeBox(Event, { fill: true });
+// @ts-expect-error Format samples are strings.
+fromTypeBox(Event, { fill: { formats: { uuid: 1 } } });
+// @ts-expect-error Pattern candidates are strings.
+fromLegacy(OldEvent, { fill: { patterns: [/APP/] } });

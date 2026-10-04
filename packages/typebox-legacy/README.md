@@ -20,13 +20,32 @@ const output = events.with({ timestamp: 1000 }).buildValidated();
 
 The exported functions are `fromTypeBox`, `fromTypeBoxFactory`, and `typeBoxAdapter`, as in the modern adapter. All builders use the same core runtime, preserve factory argument tuples and encoded/decoded types, and restrict known-asynchronous factories to asynchronous build methods.
 
-Automatic creation delegates to native `Value.Create`, clones its result, and checks it. This constructs native defaults/minimal examples, not random data. Unsupported creation raises `BuilderGenerationError` with a cause; `fromTypeBoxFactory(schema, factory, options)` supplies application-specific data instead. There is no unbounded retry loop, no assertion that every satisfiable schema can be generated, and no silent repair of invalid overrides.
+Automatic creation delegates to native `Value.Create`, clones its result, and checks it. This constructs native defaults/minimal examples, not random data. Before creating, the adapter applies the same deterministic fill as the modern adapter to a creation-only copy of the schema: format and pattern strings, unique arrays, union members and number bounds. See [Deterministic fill](https://jeffreynijs.github.io/mimlet/packages/typebox.html#deterministic-fill) in the modern adapter's README for the `fill` option and its limits. Checks use the original schema, so invalid overrides are never repaired.
+
+In this package line the fill also creates `Type.Date()` at the session's reference time, `2000-01-01T00:00:00.000Z` by default, instead of reading the clock. A schema with `minimumTimestamp` keeps that native value. Other date bounds are respected. Legacy TypeBox ships no string formats, so a built-in format sample is only used after you register the format with `FormatRegistry` and the sample passes it. Elysia's `t.Date()` is a union led by `Type.Date()`, so it gets the same instant. Elysia's `t.Uint8Array()` is a union led by a custom `ArrayBuffer` kind whose `[1, 2, 3]` default the union rejects, so the union fallback uses its `Uint8Array` member.
+
+When a value still cannot be created, `BuilderGenerationError` names its location and keeps the native error as its `cause`; `fromTypeBoxFactory(schema, factory, options)` supplies application-specific data instead. There is no unbounded retry loop and no assertion that every satisfiable schema can be generated. `fill: false` restores plain native creation.
+
+## Sessions
+
+`fromTypeBox()` and `fromTypeBoxVariant()` builders take an optional `GenerationSession`. Native creation does not draw from it, but patch factories and transforms do, and a session-less list shares one seed-1 session from `typeBoxAdapter(schema).session()`:
+
+```ts
+import type { GenerationSession } from '@mimlet/core';
+
+const users = fromTypeBox(Type.Object({ id: Type.Number() })).withFactory(
+  (session?: GenerationSession) => ({ id: session?.sequence('user', 1) ?? 0 })
+);
+users.buildValidatedList(3); // ids 1, 2 and 3, the same on every run
+```
+
+`typeBoxAdapter(schema).identity` fingerprints the schema and `references`, the creation provider and the fill configuration for replay. Transform callbacks cannot be fingerprinted.
 
 The adapter's `check` uses native checking without coercion. Successful validation calls native `Value.Decode` on a clone. As a result, `build()` returns objects passed to `with()` or `replace()` as they are, while `buildValidated()` returns copies: compare validated output by value. In this package line, Decode checks the encoded value and executes Transform callbacks without the modern default/convert/clean pipeline. A codec executes once per validated build, although the legacy implementation may perform more than one native check. `encode` calls the native encoder, which checks the encoded result. Native callback failures are preserved.
 
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
 
 ```ts
 import type { BuilderPatch } from '@mimlet/core';
