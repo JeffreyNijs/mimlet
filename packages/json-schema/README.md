@@ -100,6 +100,15 @@ claimed. Snapshots contain generation state, not user callback implementations.
 
 `references` is an explicit URI-to-schema dictionary. No remote resolver, network
 request, filesystem reader, or schema-derived executable configuration is installed.
+The dictionary can hold more schemas than the root uses, such as a whole OpenAPI
+component set: only the references the schema reaches, directly or through other
+references, are compiled. A reference that cannot be prepared fails the adapter only
+when the schema reaches it. Then `SchemaPreparationError.reference` names that
+reference, the message ends with `in reference <uri>`, and `schemaPath` is relative to
+the reference. A `$ref` that resolves to nothing fails with
+`Unresolved reference <uri> at <schemaPath>`, where `schemaPath` points at the `$ref`
+and `missingReference` holds the resolved URI. The replay fingerprint still covers
+every supplied reference.
 JSON data is copied before compilation and checked for cycles, accessors, symbols,
 non-JSON values, depth, size, and allocation limits. Supplied schemas are snapshots;
 mutating the original does not change an already prepared adapter.

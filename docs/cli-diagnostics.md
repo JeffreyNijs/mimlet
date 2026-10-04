@@ -37,13 +37,35 @@ accepting no values.
 Use `--references refs.json` for an explicit offline reference map, and
 `--dialect draft-07`, `draft-2019-09` or `draft-2020-12` when needed. CLI JSON input
 files are capped at 2 MB. Unsupported assertions report their schema location.
+
+The reference map can hold a whole component set, for example every schema extracted
+from an OpenAPI document. Only the references the schema reaches, directly or through
+other references, are prepared. An unrelated reference that uses an unsupported
+keyword, such as OpenAPI's `discriminator`, does not fail the inspected schema. When a
+reference the schema uses fails, the diagnostic's `reference` field names it and
+`schemaPath` is relative to that reference. A `$ref` that was not supplied is named in
+the message and in `missingReference`, and `schemaPath` points at the `$ref`:
+
+```json
+{
+  "code": "SCHEMA_PREPARATION_FAILED",
+  "message": "Unresolved reference https://schemas.shop.example/Customer.json at /properties/customer/$ref",
+  "schemaPath": "/properties/customer/$ref",
+  "missingReference": "https://schemas.shop.example/Customer.json"
+}
+```
+
 Unknown failures and malformed JSON do not print fixture/schema values by default.
+The only schema values a diagnostic repeats are keyword names, reference URIs and
+property names that form a schema location.
 
 ## Report and exit contracts
 
 Reports contain `format: "mimlet/diagnostics"`, `version: 1`, `command`, `ok` and
 `diagnostics`. Entries contain a `code`, `severity`, `message` and `hint`, with
-optional package/dependency/version or schema-path context. Consumers should check
+optional package/dependency/version or schema-path context. `inspect` entries can
+also carry `reference` (the supplied reference that `schemaPath` points into) and
+`missingReference` (a `$ref` target that was not supplied). Consumers should check
 the format and version, branch on codes, and tolerate added fields/codes.
 
 | Exit | Meaning                                                               |
@@ -68,7 +90,7 @@ Branch on these codes, not on message text. New codes may be added. Errors throw
 | `TOOLKIT_DEPENDENCY_MISMATCH` | `doctor`   | error    | An internal toolkit dependency is missing or incompatible.                     |
 | `MIXED_TOOLKIT_RELEASES`      | `doctor`   | warning  | More than one scoped Mimlet release version is installed.                      |
 | `PROJECT_INSPECTION_FAILED`   | `doctor`   | error    | Package metadata could not be inspected safely; no project code was executed.  |
-| `SCHEMA_PREPARATION_FAILED`   | `inspect`  | error    | The schema could not be prepared for generation.                               |
+| `SCHEMA_PREPARATION_FAILED`   | `inspect`  | error    | The schema, or a reference it uses, could not be prepared for generation.      |
 | `GENERATED_FILES_OUTDATED`    | `generate` | error    | `--check` found generated output that differs from the declared configuration. |
 | `CLI_USAGE_ERROR`             | any        | error    | Invalid arguments or input prevented the command from running (exit 2).        |
 | `COMMAND_FAILED`              | any        | error    | The requested operation failed for another reason.                             |

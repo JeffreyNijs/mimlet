@@ -37,13 +37,18 @@ to see them. See [validation diagnostics](../packages/core/README.md#validation-
 | Package               | Class                      | Code                            | When                                                                                       |
 | --------------------- | -------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
 | `@mimlet/adapter`     | `AdapterDefinitionError`   | `INVALID_ADAPTER_DEFINITION`    | `defineAdapter` received invalid metadata or operations. Extends `TypeError`.              |
-| `@mimlet/json-schema` | `SchemaPreparationError`   | `SCHEMA_PREPARATION_FAILED`     | A schema or one of its references could not be prepared for generation.                    |
+| `@mimlet/json-schema` | `SchemaPreparationError`   | `SCHEMA_PREPARATION_FAILED`     | A schema or a reference it uses could not be prepared for generation.                      |
 |                       | `SchemaGenerationError`    | `SCHEMA_GENERATION_FAILED`      | Bounded generation could not produce a valid value. This does not prove none exists.       |
 |                       | `NegativeCaseError`        | `NEGATIVE_CASE_MISMATCH`        | A negative case did not fail validation with the expected number of issues.                |
 | `@mimlet/faker`       | `FakerSessionError`        | `FAKER_SESSION_RECONFIGURATION` | Code tried to reseed a session-scoped Faker instance; create or restore a session instead. |
 | `@mimlet/fast-check`  | `PropertyIntegrationError` | `PROPERTY_CONFIGURATION`        | A property check is misconfigured, for example without a fingerprint and provider/version. |
 |                       |                            | `PROPERTY_REPLAY`               | A property replay's version, engine, identity or path does not match.                      |
 |                       | `FixturePropertyError`     | `PROPERTY_FAILED`               | A fixture property failed; its `report` getter holds the counterexample and replay record. |
+
+`SchemaPreparationError.schemaPath` locates the problem. When it is inside a supplied
+reference, `reference` names that reference and the path is relative to it. When a
+`$ref` resolves to nothing, `missingReference` names the target and `schemaPath`
+points at the `$ref`. References the schema does not reach are not prepared.
 
 ## Protocol packages
 

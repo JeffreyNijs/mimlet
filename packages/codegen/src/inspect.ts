@@ -83,8 +83,17 @@ export function inspectSchema(
             error instanceof SchemaPreparationError
               ? error.message
               : 'The schema or options cannot be prepared with the selected JSON Schema capabilities.',
-          hint: 'Check the dialect, supplied references and supported constraints; use an explicit factory for native values or opaque refinements.',
+          hint:
+            error instanceof SchemaPreparationError && error.missingReference !== undefined
+              ? 'Add the referenced schema to the references map under this exact URI; references are never fetched.'
+              : 'Check the dialect, supplied references and supported constraints; use an explicit factory for native values or opaque refinements.',
           ...(error instanceof SchemaPreparationError ? { schemaPath: error.schemaPath } : {}),
+          ...(error instanceof SchemaPreparationError && error.reference !== undefined
+            ? { reference: error.reference }
+            : {}),
+          ...(error instanceof SchemaPreparationError && error.missingReference !== undefined
+            ? { missingReference: error.missingReference }
+            : {}),
         },
       ],
     };

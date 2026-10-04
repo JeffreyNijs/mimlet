@@ -179,14 +179,47 @@ describe('data-only schema inspection and CLI diagnostics', () => {
       { type: 'string', format: 'SECRET_VALUE' },
       { $dynamicRef: 'SECRET_VALUE' },
       { type: 'string', pattern: 'SECRET_VALUE(' },
-      { $ref: 'https://private.invalid/SECRET_VALUE' },
+      { $ref: 'https://private.invalid/SECRET_VALUE', default: 'SECRET_VALUE' },
     ]) {
       const bad = inspectSchema(schema);
       assert.equal(bad.ok, false);
       assert.equal(bad.diagnostics[0].code, 'SCHEMA_PREPARATION_FAILED');
+      if (schema.$ref) {
+        // A missing reference is named so it can be supplied; nothing else is printed.
+        const [entry] = bad.diagnostics;
+        assert.equal(entry.missingReference, schema.$ref);
+        assert.equal(entry.schemaPath, '/$ref');
+        assert.equal(entry.message, `Unresolved reference ${schema.$ref} at /$ref`);
+        assert.match(entry.hint, /references map under this exact URI/);
+        assert.equal(JSON.stringify(bad).split('SECRET_VALUE').length - 1, 2);
+        continue;
+      }
       assert(!JSON.stringify(bad).includes('SECRET_VALUE'));
       assert.match(bad.diagnostics[0].hint, /factory/);
     }
+    // Only references the schema reaches are prepared; failures name the reference.
+    const shop = 'https://shop.example.test/';
+    const references = {
+      [`${shop}Product.json`]: { type: 'object', properties: { id: { type: 'string' } } },
+      [`${shop}PaymentMethod.json`]: { oneOf: [true], discriminator: { propertyName: 'type' } },
+    };
+    assert.equal(inspectSchema({ $ref: `${shop}Product.json` }, { references }).ok, true);
+    const payment = inspectSchema(
+      { properties: { payment: { $ref: `${shop}PaymentMethod.json` } } },
+      { references }
+    );
+    assert.equal(payment.ok, false);
+    assert.deepEqual(
+      { ...payment.diagnostics[0], hint: undefined },
+      {
+        code: 'SCHEMA_PREPARATION_FAILED',
+        severity: 'error',
+        message: `Unsupported schema keyword discriminator at /discriminator in reference ${shop}PaymentMethod.json`,
+        hint: undefined,
+        schemaPath: '/discriminator',
+        reference: `${shop}PaymentMethod.json`,
+      }
+    );
     assert.equal(
       inspectSchema({ type: 'string', format: 'unknown' }).diagnostics[0].schemaPath,
       '/format'
@@ -237,6 +270,29 @@ describe('data-only schema inspection and CLI diagnostics', () => {
       assert.match(
         invoke('inspect', '--schema', schema, '--references', refs).stdout,
         /No fixtures were generated/
+      );
+      await json(schema, {
+        properties: { customer: { $ref: 'https://schema.example.test/customer' } },
+      });
+      const missing = invoke('inspect', '--schema', schema, '--references', refs, '--json');
+      assert.equal(missing.status, 1);
+      assert.deepEqual(
+        JSON.parse(missing.stdout).diagnostics.map(({ code, schemaPath, missingReference }) => ({
+          code,
+          schemaPath,
+          missingReference,
+        })),
+        [
+          {
+            code: 'SCHEMA_PREPARATION_FAILED',
+            schemaPath: '/properties/customer/$ref',
+            missingReference: 'https://schema.example.test/customer',
+          },
+        ]
+      );
+      assert.match(
+        invoke('inspect', '--schema', schema).stdout,
+        /Unresolved reference https:\/\/schema\.example\.test\/customer at \/properties\/customer\/\$ref/
       );
       await json(schema, { $dynamicRef: 'SECRET_VALUE' });
       const unsupported = invoke('inspect', '--schema', schema, '--json');
