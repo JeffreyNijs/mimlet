@@ -6,6 +6,7 @@ import {
   fromZodFactory,
   fromZodFactoryAsync,
   zodAdapter,
+  zodFields,
 } from '@mimlet/zod';
 import { createBuilder, fluent } from '@mimlet/core';
 declare function expectType<T>(value: T): void;
@@ -88,3 +89,34 @@ notes.withBody(undefined);
 notes.with({ body: undefined });
 const nicknames = fluent(fromZod(z.object({ nickname: z.string().optional() })), ['nickname']);
 nicknames.withNickname(undefined);
+
+// A setter per schema field, also from a generic helper.
+function rows<S extends z.ZodObject>(schema: S) {
+  return fluent(fromZod(schema), zodFields(schema));
+}
+const Account = z.object({
+  id: z.string(),
+  age: z.string().transform(Number),
+  note: z.string().optional(),
+  exact: z.exactOptional(z.string()),
+});
+const accounts = rows(Account);
+expectType<number>(accounts.withId('a').withAge('42').buildValidated().age);
+accounts.withNote(undefined);
+// @ts-expect-error Setters take input, not parsed output.
+accounts.withAge(42);
+// @ts-expect-error An exact optional key is omitted, never set to undefined.
+accounts.withExact(undefined);
+// @ts-expect-error Fields that are not in the schema have no setter.
+accounts.withOther(1);
+const transformed = Account.transform((value) => ({ ...value, label: value.id }));
+expectType<string>(
+  fluent(fromZod(transformed), zodFields(transformed)).withId('a').buildValidated().label
+);
+const loose = z.looseObject({ id: z.string() });
+// @ts-expect-error Index signatures require complete patches, so there is no setter.
+fluent(fromZod(loose), zodFields(loose)).withId('a');
+// @ts-expect-error Only object schemas list fields.
+zodFields(z.string());
+// @ts-expect-error A nullable root has no single field list.
+zodFields(Account.nullable());

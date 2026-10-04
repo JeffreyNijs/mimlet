@@ -21,7 +21,8 @@ an ordinary `with()` value intentionally retains its supplied reference.
 `withName()` methods exist on generated ordinary-record facades. The new opt-in
 `fluent()` helper adds selected named setters to direct builders; it cannot
 recover erased TypeScript properties or safely invent partial setters for root
-unions. Its field list is explicit and checked. See [named builders](fluent-builders.md).
+unions. Its field list is either an explicit, checked tuple or a list that a schema
+adapter reads from an object schema. See [named builders](fluent-builders.md).
 
 Documented [error classes](error-codes.md) and [diagnostic codes](cli-diagnostics.md#diagnostic-codes) are machine-readable contracts.
 Human-readable message wording and stack traces are not stable parsing interfaces.

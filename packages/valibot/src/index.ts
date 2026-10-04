@@ -1,4 +1,4 @@
-import type { GenericSchema, InferInput, InferOutput } from 'valibot';
+import type { GenericSchema, InferInput, InferOutput, ObjectEntries } from 'valibot';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import type {
   ConversionConfig,
@@ -7,7 +7,8 @@ import type {
 } from '@valibot/to-json-schema';
 import { fromStandardJsonSchema, jsonSchemaAdapter } from '@mimlet/json-schema';
 import type { JsonSchema, JsonSchemaOptions } from '@mimlet/json-schema';
-import type { StandardSchemaV1, StandardJSONSchemaV1 } from '@mimlet/core';
+import { schemaFields } from '@mimlet/core';
+import type { SchemaFields, StandardSchemaV1, StandardJSONSchemaV1 } from '@mimlet/core';
 
 export type ValibotOptions = JsonSchemaOptions;
 
@@ -105,4 +106,19 @@ export function valibotAdapter<S extends GenericSchema>(source: S, options: Vali
 /** Automatic input generation; unsupported conversions throw instead of dropping constraints. */
 export function fromValibot<S extends GenericSchema>(source: S, options: ValibotOptions = {}) {
   return fromStandardJsonSchema(valibotAdapter(source, options).standard, options);
+}
+const objectTypes = new Set(['object', 'loose_object', 'strict_object', 'object_with_rest']);
+/**
+ * The object schema's top-level entry names, for a setter per field:
+ * `fluent(fromValibot(schema), valibotFields(schema))`. A `v.pipe()` that starts with an object
+ * keeps its entries. Reads only the keys of `schema.entries`.
+ */
+export function valibotFields<S extends GenericSchema & { readonly entries: ObjectEntries }>(
+  schema: S
+): SchemaFields<Extract<keyof S['entries'], string>> {
+  const entries: unknown = objectTypes.has(schema?.type) ? schema.entries : undefined;
+  if (!entries || typeof entries !== 'object') {
+    throw new TypeError('Expected a Valibot object schema');
+  }
+  return schemaFields(Object.keys(entries) as Extract<keyof S['entries'], string>[]);
 }

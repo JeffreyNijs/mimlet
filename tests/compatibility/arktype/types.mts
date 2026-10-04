@@ -43,3 +43,28 @@ const union = fromArkType(
 union.replace({ kind: 'dog', bark: true });
 // @ts-expect-error Union changes require a complete replacement.
 union.with({ kind: 'dog' });
+
+// A setter per input prop, also from a generic helper.
+import type { Type } from 'arktype';
+import { fluent } from '@mimlet/core';
+import { arkTypeFields } from '@mimlet/arktype';
+function rows<S extends Type<object>>(schema: S) {
+  return fluent(fromArkType(schema), arkTypeFields(schema));
+}
+const Form = type({ email: 'string', 'tickets?': 'string.numeric.parse' });
+const forms = rows(Form);
+expectType<number | undefined>(forms.withEmail('a@b.c').withTickets('2').buildValidated().tickets);
+// @ts-expect-error Setters take input, not parsed output.
+forms.withTickets(2);
+// @ts-expect-error An exact optional prop is omitted, never set to undefined.
+forms.withTickets(undefined);
+// @ts-expect-error Props that are not in the type have no setter.
+forms.withOther(1);
+const morphed = Form.pipe((value) => ({ ...value, ok: true }));
+expectType<boolean>(
+  fluent(fromArkType(morphed), arkTypeFields(morphed)).withEmail('a').buildValidated().ok
+);
+// @ts-expect-error Only object types list props.
+arkTypeFields(type('string'));
+// @ts-expect-error A nullable root has no single prop list.
+arkTypeFields(Form.or('null'));

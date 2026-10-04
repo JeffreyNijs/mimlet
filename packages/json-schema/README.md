@@ -51,6 +51,16 @@ const typedUsers = fromJsonSchema(schema) as UserBuilder;
 const user = typedUsers.with({ name: 'Ada' }).buildValidated();
 ```
 
+`standardJsonSchemaFields(schema, { dialect })` lists the top-level `properties` of a
+Standard JSON Schema's input projection, converted with the same dialect as
+`fromStandardJsonSchema()`. Pass it to `fluent()` from `@mimlet/core` for a `withX()`
+setter per field, typed with the schema's input:
+`fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema))`. Inputs
+without top-level `properties` throw a `TypeError`. A raw schema has no typed input
+to name setters after, so give a cast raw builder an explicit tuple such as
+`fluent(typedUsers, ['id', 'name'])`. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 ## Supported generation path
 
 The pinned provider is `json-schema-faker@0.6.3`, independently checked by

@@ -32,6 +32,14 @@ Native Date/bigint values and opaque predicates can therefore use explicit facto
 while keeping ArkType validation. This does not add asynchronous morph semantics
 or a reverse encoder to ArkType.
 
+`arkTypeFields(schema)` lists an object type's top-level input props from the native
+`schema.in.props`, so a morph lists the keys of the input it receives. Pass it to
+`fluent()` from `@mimlet/core` for a `withX()` setter per field:
+`fluent(fromArkType(Form), arkTypeFields(Form))`. In a generic helper, type the
+parameter as `S extends Type<object>`. Unions and non-object types throw a
+`TypeError`; symbol keys get no setter. See
+[named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+
 ## Native operations and generation
 
 `arkTypeAdapter(schema, options)` exposes the original `source` and `standard`

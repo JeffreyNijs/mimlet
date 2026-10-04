@@ -4,6 +4,7 @@ import {
   createBuilder,
   createSchemaBuilder,
   fluent,
+  schemaFields,
   BuilderValidationError,
 } from '../dist/index.js';
 
@@ -134,5 +135,104 @@ describe('opt-in named fluent builders', () => {
       assert.throws(() => fluent(base, selection), TypeError);
     assert.equal(reads, 0);
     assert.throws(() => fluent(null, ['name']), /builder/);
+  });
+});
+
+describe('setters for every field of a schema field list', () => {
+  it('adds a setter per field and skips names it cannot add without a guess', () => {
+    let calls = 0;
+    const long = 'x'.repeat(65);
+    const source = createBuilder((id) => {
+      calls++;
+      return { id, status: 'NEW', factory: '', 'first-name': '', first_name: '', [long]: 0 };
+    });
+    const fields = schemaFields(['id', 'status', 'factory', 'first-name', 'first_name', long, '']);
+    const rows = fluent(source, fields);
+    assert.equal(calls, 0);
+    assert.deepEqual(rows.withStatus('PAID').withValue(1).withId('changed').build('o'), {
+      id: 'changed',
+      status: 'PAID',
+      factory: '',
+      'first-name': '',
+      first_name: '',
+      [long]: 0,
+      '': 1,
+    });
+    // Two fields share withFirstName; a field named factory cannot replace withFactory().
+    assert.equal('withFirstName' in rows, false);
+    assert.equal(
+      Object.getOwnPropertyNames(Object.getPrototypeOf(rows)).some((name) => name.length > 64),
+      false
+    );
+    assert.equal(rows.withFactory(() => ({ factory: 'plant' })).build('o').factory, 'plant');
+    assert.throws(() => rows.withFactory('plant'), /factory function/);
+    assert.equal('withStatus' in source, false);
+    const asynchronous = rows.transformAsync(async (value) => value).withStatus('PAID');
+    assert.throws(() => asynchronous.build('o'), /buildAsync/);
+    // A list whose only field is skipped still wraps the builder, with no setters.
+    const only = fluent(
+      createBuilder(() => ({ factory: '' })),
+      schemaFields(['factory'])
+    );
+    const setters = (builder) =>
+      Object.getOwnPropertyNames(Object.getPrototypeOf(builder)).filter(
+        (name) => /^with[A-Z0-9]/.test(name) && name !== 'withFactory'
+      );
+    assert.deepEqual(setters(only), []);
+    assert.deepEqual(setters(rows).sort(), ['withId', 'withStatus', 'withValue']);
+  });
+  it('validates field lists as data without invoking accessors', () => {
+    const base = createBuilder(() => ({ name: '' }));
+    const fields = schemaFields(['name']);
+    assert.equal(Array.isArray(fields), true);
+    assert.equal(Object.isFrozen(fields), true);
+    assert.equal(JSON.stringify(fields), '["name"]');
+    assert.equal(fluent(base, fields).withName('Ada').build().name, 'Ada');
+    const thousand = Array.from({ length: 1000 }, (_, index) => `field${index}`);
+    assert.equal(typeof fluent(base, schemaFields(thousand)).withField999, 'function');
+    // Lists stay structural, so a list from another copy of the package still works.
+    const copied = Object.freeze(
+      Object.defineProperty(['name'], '~schemaFields', { value: { version: 1 } })
+    );
+    assert.equal(fluent(base, copied).withName('Grace').build().name, 'Grace');
+    let reads = 0;
+    const accessor = Object.defineProperty(['name'], 0, {
+      get() {
+        reads++;
+        return 'name';
+      },
+    });
+    for (const names of [
+      null,
+      'name',
+      [1],
+      ['name', 'name'],
+      new Array(1),
+      accessor,
+      [...thousand, 'more'],
+    ])
+      assert.throws(() => schemaFields(names), TypeError);
+    const forged = (names, marker, frozen = true) => {
+      const list = Object.defineProperty([...names], '~schemaFields', { value: marker });
+      return frozen ? Object.freeze(list) : list;
+    };
+    for (const selection of [
+      schemaFields([]),
+      forged(['name'], { version: 1 }, false),
+      forged(['name'], { version: 2 }),
+      forged(['name'], {
+        get version() {
+          reads++;
+          return 1;
+        },
+      }),
+      forged(['name', 'name'], { version: 1 }),
+      forged([1], { version: 1 }),
+      forged(['name'], true),
+      Object.freeze(Object.assign(forged(['name'], { version: 1 }, false), { extra: true })),
+      forged([...thousand, 'more'], { version: 1 }),
+    ])
+      assert.throws(() => fluent(base, selection), TypeError);
+    assert.equal(reads, 0);
   });
 });

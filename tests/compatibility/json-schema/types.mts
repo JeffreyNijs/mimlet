@@ -41,3 +41,22 @@ jsonSchemaAdapter(document, {
 fromJsonSchema(document, { profile: 'unsafe' });
 // @ts-expect-error Asynchronous format checks are not accepted.
 jsonSchemaAdapter(document, { formats: { x: { validate: async () => true, generate: () => '' } } });
+
+// A setter per field of the typed input, also from a generic helper.
+import { fluent } from '@mimlet/core';
+import { standardJsonSchemaFields } from '@mimlet/json-schema';
+type Typed<I, O> = StandardSchemaV1<I, O> & StandardJSONSchemaV1<I, O>;
+function rows<S extends Typed<object, unknown>>(standard: S) {
+  return fluent(fromStandardJsonSchema(standard), standardJsonSchemaFields(standard));
+}
+declare const person: Typed<{ name: string; age: string; nick?: string }, { age: number }>;
+const people = rows(person);
+expectType<{ age: number }>(people.withName('Ada').withAge('42').withNick('A').buildValidated());
+// @ts-expect-error Setters take input, not validated output.
+people.withAge(42);
+// @ts-expect-error An exact optional key is omitted, never set to undefined.
+people.withNick(undefined);
+// @ts-expect-error Only object inputs list fields.
+standardJsonSchemaFields({} as Typed<string, string>);
+// @ts-expect-error Raw JSON Schema has no typed input to name setters after.
+standardJsonSchemaFields(document);

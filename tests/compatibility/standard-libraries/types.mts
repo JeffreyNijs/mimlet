@@ -42,3 +42,37 @@ expectType<Promise<string>>(asyncBuilder.buildValidatedAsync());
 asyncBuilder.build();
 // @ts-expect-error Native asynchronous schemas are not advertised as synchronously convertible.
 fromValibot(asyncSchema);
+
+// A setter per schema entry, also from a generic helper.
+import { fluent } from '@mimlet/core';
+import { valibotFields } from '@mimlet/valibot';
+function rows<S extends v.ObjectSchema<v.ObjectEntries, undefined>>(schema: S) {
+  return fluent(fromValibot(schema), valibotFields(schema));
+}
+const Order = v.object({
+  id: v.string(),
+  total: v.pipe(v.string(), v.transform(Number)),
+  note: v.exactOptional(v.string()),
+  hint: v.optional(v.string()),
+});
+const orders = rows(Order);
+expectType<number>(orders.withId('o').withTotal('3').withNote('n').buildValidated().total);
+orders.withHint(undefined);
+// @ts-expect-error Setters take input, not transformed output.
+orders.withTotal(3);
+// @ts-expect-error An exact optional entry is omitted, never set to undefined.
+orders.withNote(undefined);
+// @ts-expect-error Entries that are not in the schema have no setter.
+orders.withOther(1);
+const piped = v.pipe(
+  Order,
+  v.transform((value) => ({ ...value, paid: true }))
+);
+expectType<boolean>(
+  fluent(fromValibot(piped), valibotFields(piped)).withId('o').buildValidated().paid
+);
+const loose = v.looseObject({ id: v.string() });
+// @ts-expect-error Index signatures require complete patches, so there is no setter.
+fluent(fromValibot(loose), valibotFields(loose)).withId('o');
+// @ts-expect-error Only object schemas list entries.
+valibotFields(v.string());

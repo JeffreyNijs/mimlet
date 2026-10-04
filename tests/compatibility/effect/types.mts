@@ -38,3 +38,27 @@ fromEffect(decodingService);
 declare const encodingService: S.Codec<string, string, never, { readonly service: unique symbol }>;
 // @ts-expect-error Effect encoding requirements must be provided explicitly, not ignored.
 fromEffect(encodingService);
+
+// A setter per encoded struct key, also from a generic helper.
+import { fluent } from '@mimlet/core';
+import { effectFields } from '@mimlet/effect';
+function rows<A, I extends object>(source: S.Codec<A, I>) {
+  return fluent(fromEffect(source), effectFields(source));
+}
+const Invoice = S.Struct({
+  customerId: S.String,
+  total: S.NumberFromString,
+  note: S.optionalKey(S.String),
+}).pipe(S.encodeKeys({ customerId: 'customer_id' }));
+const invoices = rows(Invoice);
+expectType<number>(invoices.withCustomerId('c').withTotal('3').buildValidated(session).total);
+// @ts-expect-error Setters take encoded input, not decoded output.
+invoices.withTotal(3);
+// @ts-expect-error An exact optional key is omitted, never set to undefined.
+invoices.withNote(undefined);
+// @ts-expect-error Renamed keys are set by their encoded name.
+invoices.with({ customerId: 'c' });
+// @ts-expect-error Only struct schemas list fields.
+effectFields(S.String);
+// @ts-expect-error A nullable root has no single field list.
+effectFields(S.NullOr(Invoice));

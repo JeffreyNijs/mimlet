@@ -1,11 +1,13 @@
 import type { BaseType } from 'arktype';
-import { createSchemaBuilder } from '@mimlet/core';
+import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   GenerationSession,
   SchemaBuilder,
   SchemaBuilderFor,
+  SchemaFields,
   SchemaInput,
   SchemaOutput,
+  StandardSchemaV1,
 } from '@mimlet/core';
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
 import type { JsonSchema, JsonSchemaOptions } from '@mimlet/json-schema';
@@ -70,4 +72,28 @@ export function fromArkTypeFactory<
   F extends (...args: never[]) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
 >(source: S, factory: F, options: ArkTypeOptions = {}): SchemaBuilderFor<S, F> {
   return createSchemaBuilder(arkTypeAdapter(source, options).standard, factory, options);
+}
+
+/**
+ * The object type's top-level input property names, for a setter per field:
+ * `fluent(fromArkType(schema), arkTypeFields(schema))`. Reads the native `schema.in.props`,
+ * so a morph such as `.pipe()` lists the keys of the input it receives. Symbol keys are skipped.
+ */
+export function arkTypeFields<S extends ArkTypeSchema & StandardSchemaV1<object, unknown>>(
+  schema: S
+): SchemaFields<Extract<keyof SchemaInput<S>, string>> {
+  let props: unknown;
+  try {
+    props = (schema as unknown as { readonly in: { readonly props: unknown } }).in.props;
+  } catch (cause) {
+    // ArkType refuses to list props of unions and non-object types.
+    throw new TypeError('Expected an ArkType object type', { cause });
+  }
+  if (!Array.isArray(props)) {
+    throw new TypeError('Expected an ArkType object type');
+  }
+  const keys = props
+    .map((prop: { readonly key?: unknown }) => prop?.key)
+    .filter((key): key is string => typeof key === 'string');
+  return schemaFields(keys as Extract<keyof SchemaInput<S>, string>[]);
 }

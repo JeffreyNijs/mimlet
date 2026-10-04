@@ -3,11 +3,12 @@ import { Ajv2019 } from 'ajv/dist/2019.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
 import { generateSync, type JsonSchema as ProviderSchema } from 'json-schema-faker';
-import { createSchemaBuilder, createSession, SessionBudgetError } from '@mimlet/core';
+import { createSchemaBuilder, createSession, schemaFields, SessionBudgetError } from '@mimlet/core';
 import type {
   GenerationSession,
   SchemaBuilder,
   SchemaBuilderConfig,
+  SchemaFields,
   SchemaInput,
   SchemaOutput,
   SessionKey,
@@ -547,4 +548,29 @@ export function fromStandardJsonSchema<S extends StandardJSONSchemaV1 & Standard
     (session?: GenerationSession) => adapter.create(session) as SchemaInput<S>,
     { ...options, defaultSession: adapter.session }
   ) as unknown as SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]>;
+}
+/**
+ * The top-level `properties` names of the schema's input JSON Schema, for a setter per field:
+ * `fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema))`. Converts the
+ * input projection with the same dialect as `fromStandardJsonSchema()`; nothing is generated.
+ */
+export function standardJsonSchemaFields<
+  S extends StandardJSONSchemaV1<object, unknown> & StandardSchemaV1<object, unknown>,
+>(
+  schema: S,
+  options: Pick<JsonSchemaOptions, 'dialect'> = {}
+): SchemaFields<Extract<keyof SchemaInput<S>, string>> {
+  const converter = schema?.['~standard']?.jsonSchema;
+  if (typeof converter?.input !== 'function') {
+    throw new TypeError('Expected Standard JSON Schema v1 capabilities');
+  }
+  const input = converter.input({ target: options.dialect ?? 'draft-2020-12' });
+  const properties: unknown =
+    input && typeof input === 'object'
+      ? Object.getOwnPropertyDescriptor(input, 'properties')?.value
+      : undefined;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    throw new TypeError('Expected an input JSON Schema with top-level properties');
+  }
+  return schemaFields(Object.keys(properties) as Extract<keyof SchemaInput<S>, string>[]);
 }

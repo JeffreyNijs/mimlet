@@ -4,11 +4,13 @@ import {
   fromJsonSchema,
   fromStandardJsonSchema,
   jsonSchemaAdapter,
+  standardJsonSchemaFields,
   SchemaGenerationError,
   SchemaPreparationError,
 } from '@mimlet/json-schema';
 import {
   createSession,
+  fluent,
   restoreSession,
   BuilderValidationError,
   SessionBudgetError,
@@ -448,6 +450,43 @@ describe('Standard JSON Schema interoperability', () => {
       { '~standard': { version: 1, validate() {} } },
     ])
       assert.throws(() => fromStandardJsonSchema(s), TypeError);
+  });
+  it('lists the input projection properties for a setter per field', () => {
+    const targets = [];
+    const standard = (input) => ({
+      '~standard': {
+        version: 1,
+        vendor: 'custom',
+        jsonSchema: {
+          input(options) {
+            targets.push(options.target);
+            return input;
+          },
+          output: () => assert.fail('output conversion must not run'),
+        },
+        validate: (value) => ({ value: { ...value, age: Number(value.age) } }),
+      },
+    });
+    const schema = standard({
+      type: 'object',
+      properties: {
+        name: { type: 'string', const: 'Ada' },
+        age: { type: 'string', const: '42' },
+      },
+      required: ['name', 'age'],
+    });
+    assert.deepEqual([...standardJsonSchemaFields(schema)], ['name', 'age']);
+    assert.deepEqual(
+      [...standardJsonSchemaFields(schema, { dialect: 'draft-07' })],
+      ['name', 'age']
+    );
+    assert.deepEqual(targets, ['draft-2020-12', 'draft-07']);
+    const users = fluent(fromStandardJsonSchema(schema), standardJsonSchemaFields(schema));
+    assert.deepEqual(users.withAge('7').buildValidated(), { name: 'Ada', age: 7 });
+    for (const s of [null, {}, { '~standard': { version: 1, validate() {} } }])
+      assert.throws(() => standardJsonSchemaFields(s), /Standard JSON Schema/);
+    for (const input of [{ type: 'string' }, { properties: [] }, null, true])
+      assert.throws(() => standardJsonSchemaFields(standard(input)), /top-level properties/);
   });
 });
 

@@ -93,7 +93,11 @@ This generic path is deliberately conservative; native TypeBox adapters addition
 
 ## Fresh nested values and derived values
 
-Direct builders can opt into named setters with `fluent(builder, ['name'])`.
+Direct builders can opt into named setters with `fluent(builder, ['name'])`. To add a
+setter for every field of an object schema, pass the adapter's field list instead, for
+example `fluent(fromTypeBox(schema), typeBoxFields(schema))`; this also works in generic
+helpers. `schemaFields(names)` creates such a list for adapter authors, and the
+`FluentBuilder` and `FluentFieldsBuilder` types name the results.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing and
 release availability. Generated ordinary-record facades already have these methods.
 
