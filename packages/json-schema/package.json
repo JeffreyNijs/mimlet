@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/json-schema",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "private": false,
   "description": "Offline, validated, reproducible JSON Schema fixture generation with Standard Schema interoperability.",
   "type": "module",
@@ -34,7 +34,7 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-json-schema.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.1",
+    "@mimlet/core": "0.1.0-beta.2",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "json-schema-faker": "0.6.3"

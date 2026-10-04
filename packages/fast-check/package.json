@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/fast-check",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "private": false,
   "description": "Shrink-aware fixture mapping, correlated scenarios, and replay with fast-check.",
   "type": "module",
@@ -58,6 +58,6 @@
     "fast-check": "4.10.2"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.1"
+    "@mimlet/core": "0.1.0-beta.2"
   }
 }

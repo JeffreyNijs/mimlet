@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.0-beta.2
+
+### Minor Changes
+
+- 1145c96: Export named builder types for generic helpers that need an explicit return type,
+  for example under `@typescript-eslint/explicit-function-return-type`.
+  `TypeBoxBuilder<S>`, `TypeBoxFactoryBuilder<S, F>` and `TypeBoxVariantBuilder<S, I>`
+  (with an optional context type in `@mimlet/typebox`), `ZodBuilder<S>` and
+  `ZodFactoryBuilder<S, F>`, and `EffectBuilder<A, I>` and `EffectFactoryBuilder<A, I, F>`
+  are exactly what `fromTypeBox()`, `fromTypeBoxFactory()`, `fromTypeBoxVariant()`,
+  `fromZod()`, `fromZodFactory()`, `fromEffect()` and `fromEffectFactory()` return,
+  also for a schema type parameter. A factory builder still gets its sync or async
+  methods where the helper is called. This replaces the advice to leave such return
+  types inferred or to write `ReturnType<typeof fromTypeBoxFactory<...>>`.
+- a998d86: Add a `fill.nullable` option for unions with a `Null` member. The fill creates a union
+  from the first member whose value passes it, so `Type.Union([x, Type.Null()])` and
+  Elysia's `t.Nullable(x)`, which put `Null` last, are created as `x`'s value: `''`, `0`, a
+  date or a whole object. Prismabox schemas put `Null` first and get `null`. With
+  `fill: { nullable: 'null' }`, every union with a `Null` member is created as `null`, as if
+  `Null` came first: in properties, array items, tuples, records with fixed keys,
+  intersections, nested unions and referenced, cyclic or recursive schemas. A union's own
+  `default` still wins, optional properties stay absent, and `fromTypeBoxVariant()` still
+  builds the selected member. Validation uses the original schema.
+
+  The default, `'value'`, keeps the current values and replay identities. `'null'` is part
+  of the adapter's replay identity, so a session recorded with one setting does not replay
+  with the other.
+
+### Patch Changes
+
+- Updated dependencies [f430f44]
+  - @mimlet/core@0.1.0-beta.2
+
 ## 0.1.0-beta.1
 
 ### Minor Changes
