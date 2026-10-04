@@ -37,6 +37,13 @@ Module specifiers are relative to the generated files, not the configuration.
 Selection defines the desired generated file set. Native schema fields can be
 specified explicitly; existing typed `.with()` works without property helpers.
 
+Each generated `withX()` helper accepts exactly what `.with()` accepts for that
+property, like core `fluent()` setters. With `exactOptionalPropertyTypes`, an optional
+property such as `couponCode?: string` rejects `withCouponCode(undefined)`: leave it
+out or call `omit('couponCode')` instead. A property declared as
+`note?: string | undefined` still accepts `undefined`. A generated file with helpers
+declares one local, unexported `BuilderSetterValue` type for them.
+
 Self-contained mode copies the installed canonical core's JavaScript,
 declarations and attribution, not a second runtime implementation. It removes
 the core dependency for factory-only output. Native adapters and external factory
@@ -49,6 +56,11 @@ not a multi-file filesystem transaction. Generation assumes exclusive access to
 the output directory; concurrent writers and hostile filesystem races are not
 supported. Paths are bounded, relative and checked for symlinks. Do not edit the
 manifest to bypass ownership protection.
+
+An upgrade of `@mimlet/codegen` can change the emitted code. `--check` then reports
+`GENERATED_FILES_OUTDATED` until you run the same command once without `--check`. That
+run rewrites the generated files it owns that you have not edited; commit the result.
+It still refuses to overwrite a hand-edited generated file.
 
 Individual package manifests are versioned with the coordinated release train; publication is a separate operation.
 

@@ -73,6 +73,8 @@ Branch on these codes, not on message text. New codes may be added. Errors throw
 | `CLI_USAGE_ERROR`             | any        | error    | Invalid arguments or input prevented the command from running (exit 2).        |
 | `COMMAND_FAILED`              | any        | error    | The requested operation failed for another reason.                             |
 
-`generate --check` never changes generated output. `diagnoseProject` and
+`generate --check` never changes generated output. A Mimlet upgrade that changes
+the emitted code is also reported as `GENERATED_FILES_OUTDATED`: run `generate` once
+without `--check` to rewrite the owned files you have not edited. `diagnoseProject` and
 `inspectSchema` are also exported from `@mimlet/codegen` for Node tooling. The
 dependency-free core does not import the CLI or its filesystem/versioning helpers.
