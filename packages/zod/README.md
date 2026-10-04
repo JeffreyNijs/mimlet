@@ -41,6 +41,44 @@ Async variants expose `.buildAsync()` and `.buildValidatedAsync()`. All ordinary
 Mimlet patches, replacement, list budgets, cloning and transforms remain available.
 Switch object-union variants with a complete `.replace()` value.
 
+## Generic helpers
+
+A helper's return type can stay inferred. When a lint rule such as
+`@typescript-eslint/explicit-function-return-type` requires one, name the builder:
+`fromZod(schema)` returns `ZodBuilder<S>` and `fromZodFactory(schema, factory)`
+returns `ZodFactoryBuilder<S, F>`, where `F` is the factory's type. `fromZodAsync()`
+and `fromZodFactoryAsync()` return `AsyncSchemaBuilder<z.input<S>, z.output<S>, Args>`
+from `@mimlet/core`, with `[session?: GenerationSession]` or the factory's parameters
+as `Args`. Each type is exactly what its function returns, also for a schema type
+parameter:
+
+```ts
+import type { BuilderPatch } from '@mimlet/core';
+import { z } from 'zod';
+import { fromZod, fromZodFactory } from '@mimlet/zod';
+import type { ZodBuilder, ZodFactoryBuilder } from '@mimlet/zod';
+
+function rows<S extends z.ZodObject>(
+  schema: S,
+  defaults: () => BuilderPatch<z.input<S>>
+): ZodBuilder<S> {
+  return fromZod(schema).withFactory(defaults);
+}
+
+function dtos<S extends z.ZodType>(
+  schema: S,
+  create: () => z.input<S>
+): ZodFactoryBuilder<S, () => z.input<S>> {
+  return fromZodFactory(schema, create);
+}
+dtos(User, () => ({ age: '42' })).buildValidated();
+```
+
+While `S` is unresolved, TypeScript cannot tell whether a factory typed
+`() => z.input<S>` returns a promise, so a factory builder gets its sync or async
+methods where the helper is called. Call `.with()` and `.withFactory()` on the
+helper's result rather than inside the helper; `fluent()` works in both places.
+
 ## Named setters for every field
 
 `zodFields(schema)` lists an object schema's top-level input keys. Pass it to

@@ -90,21 +90,44 @@ TypeScript types the callback's session as optional, but the builder always pass
 
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
+
+A helper's return type can stay inferred. When a lint rule such as `@typescript-eslint/explicit-function-return-type` requires one, name the builder the helper returns. Each type is exactly what its function returns, also for a schema type parameter:
+
+| Entry point                                    | Builder type                     |
+| ---------------------------------------------- | -------------------------------- |
+| `fromTypeBox(schema, options)`                 | `TypeBoxBuilder<S, C>`           |
+| `fromTypeBoxFactory(schema, factory, options)` | `TypeBoxFactoryBuilder<S, F, C>` |
+| `fromTypeBoxVariant(union, index, options)`    | `TypeBoxVariantBuilder<S, I, C>` |
+
+`F` is the factory's type and `C` the `context` type, which you can leave out when you pass no `context`.
 
 ```ts
 import type { BuilderPatch } from '@mimlet/core';
-import type { StaticEncode, TObject } from 'typebox';
-import { fromTypeBox } from '@mimlet/typebox';
+import type { StaticEncode, TObject, TSchema } from 'typebox';
+import { fromTypeBox, fromTypeBoxFactory } from '@mimlet/typebox';
+import type { TypeBoxBuilder, TypeBoxFactoryBuilder } from '@mimlet/typebox';
 
-function rows<S extends TObject>(schema: S, defaults: () => BuilderPatch<StaticEncode<S>>) {
+function rows<S extends TObject>(
+  schema: S,
+  defaults: () => BuilderPatch<StaticEncode<S>>
+): TypeBoxBuilder<S> {
   return fromTypeBox(schema).withFactory(defaults);
 }
-const events = rows(Event, () => ({ id: 'event-2' }));
-events.buildValidatedList(2);
+rows(Event, () => ({ id: 'event-2' })).buildValidatedList(2);
+
+function dtos<S extends TSchema>(
+  schema: S,
+  create: () => StaticEncode<S>
+): TypeBoxFactoryBuilder<S, () => StaticEncode<S>> {
+  return fromTypeBoxFactory(schema, create);
+}
+dtos(Event, () => ({ id: 'event-3', timestamp: 3 }))
+  .with({ timestamp: 4 })
+  .buildValidated();
 ```
 
-TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred; the `fromTypeBox()` type does not describe a custom-factory builder.
+TypeScript cannot tell whether a factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so a factory builder gets its sync or async methods where the helper is called. There, `dtos(Event, ...)` has `build()` and `buildValidated()`, and a helper typed `TypeBoxFactoryBuilder<S, () => Promise<StaticEncode<S>>>` has only the async methods. `F` also carries the factory's arguments: a builder typed `TypeBoxFactoryBuilder<S, (id: string) => StaticEncode<S>>` builds with `build(id)`. Inside the helper these methods are not known yet, so call `.with()` and `.withFactory()` on the helper's result, or put the defaults in the factory. `fluent()` also works inside the helper. `TypeBoxBuilder` does not describe a factory builder.
 
 ### Named setters for every field
 
@@ -121,7 +144,7 @@ function rows<S extends TObject>(schema: S) {
 rows(Order).withStatus('PAID').buildValidated();
 ```
 
-For a selected union branch, pass that branch: `fluent(fromTypeBoxVariant(Pet, 1), typeBoxFields(Pet.anyOf[1]))`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+With an explicit return type, that helper returns `FluentFieldsBuilder<TypeBoxBuilder<S>, Extract<keyof S['properties'], string>>`, using `FluentFieldsBuilder` from `@mimlet/core`. For a selected union branch, pass that branch: `fluent(fromTypeBoxVariant(Pet, 1), typeBoxFields(Pet.anyOf[1]))`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
 
 ## Strict checking, codecs and references
 
