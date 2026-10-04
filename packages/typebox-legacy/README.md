@@ -34,7 +34,7 @@ When a value still cannot be created, `BuilderGenerationError` names its locatio
 import type { GenerationSession } from '@mimlet/core';
 
 const users = fromTypeBox(Type.Object({ id: Type.Number() })).withFactory(
-  (session?: GenerationSession) => ({ id: session?.sequence('user', 1) })
+  (session?: GenerationSession) => ({ id: session?.sequence('user', 1) ?? 0 })
 );
 users.buildValidatedList(3); // ids 1, 2 and 3, the same on every run
 ```
