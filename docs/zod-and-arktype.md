@@ -7,15 +7,15 @@ or open the tested recipe source links below.
 <!-- /github-only -->
 
 The dedicated `@mimlet/zod` and `@mimlet/arktype` packages are published in
-`0.1.0-beta.1` on npm's `latest` tag. Existing Standard Schema and Standard JSON
+`0.1.0-beta.2` on npm's `latest` tag. Existing Standard Schema and Standard JSON
 Schema entry points remain supported. Install the adapter you use, with its tested peer:
 
 ```sh
 # Zod, including Zod Mini
-npm install --save-dev @mimlet/zod@0.1.0-beta.1 zod@4.6.5
+npm install --save-dev @mimlet/zod@0.1.0-beta.2 zod@4.6.5
 
 # ArkType
-npm install --save-dev @mimlet/arktype@0.1.0-beta.1 arktype@2.2.7
+npm install --save-dev @mimlet/arktype@0.1.0-beta.2 arktype@2.2.7
 ```
 
 ## Zod: typed input, native output

@@ -3,7 +3,7 @@ export const identity = {
   tagline: 'Test data, with character.',
   description: 'Typed fixtures. Coherent scenarios. Failures you can replay.',
   releaseStatus: 'Published beta',
-  releaseVersion: '0.1.0-beta.1',
+  releaseVersion: '0.1.0-beta.2',
   introduction:
     'Give your tests a little life. Build fixtures that fit your schemas, keep related data connected, and bring a failing case back on cue.',
 };
