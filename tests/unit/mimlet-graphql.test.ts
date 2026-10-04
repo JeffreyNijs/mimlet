@@ -25,3 +25,13 @@ it('shares one default session across session-less variable and response lists',
     expect(builder.build()).toEqual(list[0]);
   }
 });
+
+it('names a missing custom scalar and keeps operation validation messages', () => {
+  const sdl = 'scalar DateTime type Shipment { at: DateTime! } type Query { shipment: Shipment }';
+  expect(() => graphqlAdapter(sdl, '{ shipment { at } }')).toThrow(
+    /add options\.scalars for DateTime$/
+  );
+  expect(() => graphqlAdapter('type Query { count: Int }', '{ nope }')).toThrow(
+    'GraphQL operation validation failed: Cannot query field "nope" on type "Query".'
+  );
+});

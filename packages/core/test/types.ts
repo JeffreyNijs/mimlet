@@ -1,4 +1,11 @@
-import { createBuilder, createSchemaBuilder, type StandardSchemaV1 } from '../src/index.js';
+import {
+  type BuilderValidationError,
+  createBuilder,
+  createSchemaBuilder,
+  formatValidationIssues,
+  type StandardSchemaV1,
+  type ValidationIssueFormatOptions,
+} from '../src/index.js';
 
 declare function expectType<T>(value: T): void;
 declare const schema: StandardSchemaV1<{ age: string }, { age: number }>;
@@ -121,3 +128,13 @@ dictionary.with({ y: undefined });
 const unknownFactory = createBuilder((): unknown => 1);
 // @ts-expect-error An unknown result might be asynchronous.
 unknownFactory.build();
+
+declare const failure: BuilderValidationError;
+expectType<string>(formatValidationIssues(failure));
+expectType<string>(formatValidationIssues(failure.issues, { limit: 5, messages: true }));
+const formatOptions: ValidationIssueFormatOptions = { messages: false };
+expectType<string>(formatValidationIssues([{ message: 'x', path: [{ key: 'a' }] }], formatOptions));
+// @ts-expect-error Only validation issues or an error carrying them can be formatted.
+formatValidationIssues('Schema validation failed');
+// @ts-expect-error The message switch is a boolean.
+formatValidationIssues(failure, { messages: 'yes' });

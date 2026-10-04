@@ -1,3 +1,4 @@
+import { summarizeValidationIssues } from './issues.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
   BuilderConfig,
@@ -12,8 +13,9 @@ export class BuilderValidationError extends Error {
   declare readonly issues: ReadonlyArray<ValidationIssue>;
   constructor(issues: ReadonlyArray<ValidationIssue>) {
     // Native issue messages and extension fields can contain the fixture itself.
-    // Preserve the original issues for deliberate inspection, not default logging.
-    super('Schema validation failed');
+    // The message names only the issue count and paths; the original issues stay
+    // available for deliberate inspection, not default logging.
+    super(summarizeValidationIssues(issues));
     this.name = 'BuilderValidationError';
     Object.defineProperty(this, 'issues', { value: issues, enumerable: false });
   }

@@ -1,4 +1,4 @@
-import { Ajv, type ErrorObject } from 'ajv';
+import { Ajv, MissingRefError, type ErrorObject } from 'ajv';
 import { Ajv2019 } from 'ajv/dist/2019.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
@@ -16,12 +16,16 @@ import type {
   ValidationIssue,
 } from '@mimlet/core';
 import {
+  clipUri,
   copyJson,
   draft7ValidationSchema,
   dialect,
   fingerprint,
+  inReference,
   limits,
+  locateReference,
   prepare,
+  resolveUri,
   SchemaGenerationError,
   SchemaPreparationError,
   unpointer,
@@ -30,7 +34,12 @@ import {
   type SchemaLimits,
 } from './schema.js';
 export { SchemaGenerationError, SchemaPreparationError } from './schema.js';
-export type { JsonSchema, SchemaDialect, SchemaLimits } from './schema.js';
+export type {
+  JsonSchema,
+  SchemaDialect,
+  SchemaLimits,
+  SchemaPreparationErrorOptions,
+} from './schema.js';
 export interface SampleRandom {
   next(): number;
   int(minimum: number, maximum: number): number;
@@ -236,6 +245,9 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
   const knownFormats = new Set(Object.keys(validator.formats));
   const sampling = prepare(source, selected, maximum, knownFormats, extensions);
   const normalizedReferences = new Map<string, JsonSchema>();
+  // A reference map often holds a whole component set. A reference that cannot be
+  // prepared is left out and reported only if the schema actually reaches it.
+  const unprepared = new Map<string, SchemaPreparationError>();
   for (const [uri, reference] of Object.entries(references)) {
     if (!uri || uri.includes('#')) {
       throw new SchemaPreparationError(
@@ -243,22 +255,49 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
         ''
       );
     }
-    const document = prepare(reference, selected, maximum, knownFormats, extensions);
-    normalizedReferences.set(uri, document);
     try {
-      validator.addSchema(
-        selected === 'draft-07' ? draft7ValidationSchema(reference) : reference,
-        uri
-      );
-    } catch (cause) {
-      throw new SchemaPreparationError('Invalid referenced schema', '', { cause });
+      const document = prepare(reference, selected, maximum, knownFormats, extensions);
+      const validation = selected === 'draft-07' ? draft7ValidationSchema(reference) : reference;
+      // Ajv registers a schema before rejecting it, so check it first to keep a
+      // rejected reference unresolvable instead of half-registered.
+      if (!validator.validateSchema(validation)) {
+        throw new Error(`schema is invalid: ${validator.errorsText(validator.errors)}`);
+      }
+      validator.addSchema(validation, uri);
+      normalizedReferences.set(uri, document);
+    } catch (error) {
+      const failure = inReference(error, uri);
+      unprepared.set(resolveUri(uri, ''), failure);
+      const id = reference && typeof reference === 'object' ? reference.$id : undefined;
+      if (typeof id === 'string') {
+        unprepared.set(resolveUri(id, uri), failure);
+      }
     }
   }
   let validate;
   try {
     validate = validator.compile(selected === 'draft-07' ? draft7ValidationSchema(source) : source);
   } catch (cause) {
-    throw new SchemaPreparationError('Schema compilation failed', '', { cause });
+    if (!(cause instanceof MissingRefError)) {
+      throw new SchemaPreparationError('Schema compilation failed', '', { cause });
+    }
+    const failure = unprepared.get(resolveUri(cause.missingSchema, ''));
+    if (failure) {
+      throw failure;
+    }
+    const location = locateReference(cause.missingRef, [
+      [undefined, source],
+      ...Object.entries(references).filter(([uri]) => normalizedReferences.has(uri)),
+    ]);
+    throw new SchemaPreparationError(
+      `Unresolved reference ${clipUri(cause.missingRef)}`,
+      location?.schemaPath ?? '',
+      {
+        cause,
+        missingReference: cause.missingRef,
+        ...(location?.reference === undefined ? {} : { reference: location.reference }),
+      }
+    );
   }
   const compiled = validate;
   const identity = Object.freeze({

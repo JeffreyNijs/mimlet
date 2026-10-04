@@ -69,8 +69,13 @@ field-consumption coupling; cross-version output stability is not promised.
 
 Introspection and custom/incremental executable directives are rejected in this
 fixture path rather than partially emulated. Use explicit execution integrations
-for their transport semantics. Default issues preserve locations/response paths
-without echoing variable contents or custom exception messages. Parsing errors
+for their transport semantics. Schema and operation validation failures describe only
+SDL and operation text, so their issues keep GraphQL's message (up to 300 characters)
+and locations, and the error message repeats the first one, for example
+`GraphQL operation validation failed: Cannot query field "nope" on type "Q".`.
+Variable and response issues preserve locations/response paths without echoing
+variable contents or custom exception messages. A schema with a custom scalar but no
+`scalars` entry fails with a message that names each missing scalar. Parsing errors
 retain their cause for deliberate diagnostics.
 
 The compatibility suite installs built tarballs in an isolated consumer, checks

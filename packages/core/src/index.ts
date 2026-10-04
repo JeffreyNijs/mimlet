@@ -13,6 +13,8 @@ import { initializeRuntime } from './runtime.js';
 export type * from './types.js';
 export type * from './standard-schema.js';
 export { BuilderGenerationError, BuilderValidationError } from './runtime.js';
+export { formatValidationIssues } from './issues.js';
+export type { ValidationIssueFormatOptions } from './issues.js';
 
 /** Sync and async factories retain their argument tuples and distinct build capabilities. */
 export function createBuilder<F extends AnyFactory>(

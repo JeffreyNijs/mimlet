@@ -90,3 +90,37 @@ it('exports reportStatus as the value that sets a report status', () => {
   expect(reportStatus(failed.diagnostics)).toBe(false);
   expect(reportStatus(failed.diagnostics)).toBe(failed.ok);
 });
+
+it('inspects only reachable references and names the one that fails', () => {
+  const shop = 'https://shop.example.test/';
+  const references = {
+    [`${shop}NewProduct.json`]: { type: 'object', properties: { name: { type: 'string' } } },
+    [`${shop}PaymentMethod.json`]: { oneOf: [true], discriminator: { propertyName: 'type' } },
+  };
+  // An unrelated reference with an OpenAPI-only keyword no longer fails the schema.
+  expect(inspectSchema({ allOf: [{ $ref: `${shop}NewProduct.json` }] }, { references }).ok).toBe(
+    true
+  );
+  expect(
+    inspectSchema(
+      { properties: { payment: { $ref: `${shop}PaymentMethod.json` } } },
+      { references }
+    ).diagnostics
+  ).toEqual([
+    expect.objectContaining({
+      code: 'SCHEMA_PREPARATION_FAILED',
+      schemaPath: '/discriminator',
+      reference: `${shop}PaymentMethod.json`,
+    }),
+  ]);
+  expect(
+    inspectSchema({ properties: { customer: { $ref: `${shop}Customer.json` } } }).diagnostics
+  ).toEqual([
+    expect.objectContaining({
+      code: 'SCHEMA_PREPARATION_FAILED',
+      message: `Unresolved reference ${shop}Customer.json at /properties/customer/$ref`,
+      schemaPath: '/properties/customer/$ref',
+      missingReference: `${shop}Customer.json`,
+    }),
+  ]);
+});

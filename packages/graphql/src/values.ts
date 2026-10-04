@@ -55,6 +55,25 @@ export function same(left: unknown, right: unknown): boolean {
     )
   );
 }
+const clip = (text: string): string => (text.length > 300 ? `${text.slice(0, 297)}...` : text);
+/**
+ * Schema and operation validation only describe the SDL and operation text, never
+ * variables or response data, so their native messages are kept (bounded).
+ */
+export function describe(errors: readonly GraphQLError[]): GraphQLFixtureIssue[] {
+  return errors.map((error) => ({
+    message: clip(error.message),
+    ...(error.locations ? { locations: error.locations.map((location) => ({ ...location })) } : {}),
+  }));
+}
+/** Name the first issue in the error message, so test output shows it without `issues`. */
+export function summarize(message: string, issues: readonly GraphQLFixtureIssue[]): string {
+  const [first] = issues;
+  return first === undefined
+    ? message
+    : `${message}: ${first.message}${issues.length > 1 ? ` (and ${issues.length - 1} more)` : ''}`;
+}
+/** Execution and variable errors can repeat fixture values; keep only their locations. */
 export function redact(errors: readonly GraphQLError[]): GraphQLFixtureIssue[] {
   return errors.map((error) => ({
     message: 'GraphQL validation or execution failed',

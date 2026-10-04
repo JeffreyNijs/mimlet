@@ -8,6 +8,10 @@ export interface Diagnostic {
   readonly expected?: string;
   readonly actual?: string;
   readonly schemaPath?: string;
+  /** `inspect`: the supplied reference that `schemaPath` points into. */
+  readonly reference?: string;
+  /** `inspect`: a `$ref` target that was not supplied; `schemaPath` points at the `$ref`. */
+  readonly missingReference?: string;
 }
 
 export interface DiagnosticReport {
