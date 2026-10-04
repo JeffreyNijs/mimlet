@@ -126,3 +126,33 @@ legacyDogs.with({ kind: 'cat' });
 legacyVariant(LegacyPet, -1);
 // @ts-expect-error Inputs do not degrade to any/never.
 legacyDogs.build().bark.toFixed();
+
+// Generic helpers over an unresolved schema keep the synchronous builder type.
+import type { BuilderPatch } from '@mimlet/core';
+import type { StaticEncode, TObject } from 'typebox';
+import type { StaticEncode as LegacyEncode, TObject as LegacyObject } from '@sinclair/typebox';
+function rows<S extends TObject>(schema: S, defaults: () => BuilderPatch<StaticEncode<S>>) {
+  const builder = fromTypeBox(schema).withFactory(defaults);
+  builder.buildList(2);
+  return builder;
+}
+const generic = rows(Event, () => ({ id: 'event-1' }));
+expectType<{ id: string; timestamp: number; note?: string }>(generic.build());
+expectType<{ id: string; timestamp: Date; note?: string }>(generic.buildValidated());
+// @ts-expect-error The helper's patch factory stays schema-typed.
+rows(Event, () => ({ id: 1 }));
+function legacyRows<S extends LegacyObject>(
+  schema: S,
+  defaults: () => BuilderPatch<LegacyEncode<S>>
+) {
+  const builder = fromLegacy(schema)
+    .withFactory(defaults)
+    .with({} as BuilderPatch<LegacyEncode<S>>);
+  builder.buildValidatedList(2);
+  return builder;
+}
+const legacyGeneric = legacyRows(OldEvent, () => ({ id: 'event-1' }));
+expectType<{ id: string; timestamp: number }>(legacyGeneric.build());
+expectType<{ id: string; timestamp: Date }>(legacyGeneric.buildValidated());
+// @ts-expect-error Legacy helper patches stay schema-typed too.
+legacyRows(OldEvent, () => ({ timestamp: new Date() }));

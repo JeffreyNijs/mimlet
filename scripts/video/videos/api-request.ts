@@ -38,10 +38,10 @@ import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
  * The fixture, transport and rejection in the video are this program's output with
- * @mimlet/api 0.1.0-alpha.2. Re-run it with `node scripts/video/verify.ts api-request`.
+ * @mimlet/api 0.1.0-beta.0. Re-run it with `node scripts/video/verify.ts api-request`.
  */
 export const facts = {
-  packages: { '@mimlet/core': '0.1.0-alpha.2', '@mimlet/api': '0.1.0-alpha.2' },
+  packages: { '@mimlet/core': '0.1.0-beta.0', '@mimlet/api': '0.1.0-beta.0' },
   program: `import { openApi } from '@mimlet/api';
 
 const spec = {
@@ -651,7 +651,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, '@mimlet/api · OpenAPI 3.0 to 3.2 · alpha', {
+      text(960, 832, '@mimlet/api · OpenAPI 3.0 to 3.2 · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

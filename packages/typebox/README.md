@@ -43,11 +43,29 @@ const code = codes.buildValidated(42);
 
 Custom factory arguments are preserved, including required and multiple arguments. An asynchronous factory returns an async-only builder. Both native and custom-factory builders share the core runtime.
 
+## Generic helpers
+
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+
+```ts
+import type { BuilderPatch } from '@mimlet/core';
+import type { StaticEncode, TObject } from 'typebox';
+import { fromTypeBox } from '@mimlet/typebox';
+
+function rows<S extends TObject>(schema: S, defaults: () => BuilderPatch<StaticEncode<S>>) {
+  return fromTypeBox(schema).withFactory(defaults);
+}
+const events = rows(Event, () => ({ id: 'event-2' }));
+events.buildValidatedList(2);
+```
+
+TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred; the `fromTypeBox()` type does not describe a custom-factory builder.
+
 ## Strict checking, codecs and references
 
 `typeBoxAdapter(schema, options)` exposes the original `source`, a Standard Schema `standard` wrapper, and `check`, `issues`, `create`, `decode`, and `encode` operations. `check` does not coerce or decode. The Standard Schema wrapper first checks the encoded input and then executes decode callbacks on a clone. It deliberately does not invoke the modern `Value.Decode` default/convert/clean pipeline.
 
-`build()` produces encoded input without applying codecs. `buildValidated()` returns decoded output. Patches remain encoded-input typed. Codec callbacks execute once per successful validated build; exceptions propagate and are not treated as permission to regenerate the fixture. Encoding executes the native encode callbacks and checks the resulting encoded value. An absent or invalid inverse codec is not synthesized.
+`build()` produces encoded input without applying codecs. `buildValidated()` returns decoded output. Patches remain encoded-input typed. Because decoding runs on a clone, `build()` returns objects passed to `with()` or `replace()` as they are, while `buildValidated()` returns copies: compare validated output by value. Codec callbacks execute once per successful validated build; exceptions propagate and are not treated as permission to regenerate the fixture. Encoding executes the native encode callbacks and checks the resulting encoded value. An absent or invalid inverse codec is not synthesized.
 
 Native named references use `context`:
 

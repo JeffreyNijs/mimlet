@@ -30,6 +30,19 @@ for (const [name, T, api, Value] of [
       first.values.push('changed');
       assert.deepEqual(api.fromTypeBox(S).build().values, ['a']);
     });
+    it('shares patched objects in build() but returns a decoded copy from buildValidated()', () => {
+      const S = T.Object({ tags: T.Array(T.String()), owner: T.Object({ id: T.String() }) });
+      const tags = ['a'];
+      const owner = { id: 'user-1' };
+      const builder = api.fromTypeBox(S).with({ tags, owner });
+      const input = builder.build();
+      assert.equal(input.tags, tags);
+      assert.equal(input.owner, owner);
+      const output = builder.buildValidated();
+      assert.deepEqual(output, { tags: ['a'], owner: { id: 'user-1' } });
+      assert.notEqual(output.tags, tags);
+      assert.notEqual(output.owner, owner);
+    });
     it('supports scalar, array, tuple, literal, nullable, union, intersection and record schemas', () => {
       const candidates = [
         T.String(),

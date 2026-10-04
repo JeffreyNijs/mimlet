@@ -74,6 +74,8 @@ The options are passed to the selected validator, which decides their meaning. T
 
 All methods return a new builder. All configured operations run in registration order before all transforms, even when fluent calls are interleaved. This preserves the original patch-before-transform contract.
 
+For typing helpers, the package exports `BuilderPatch<T>` (what `with()` accepts and a `withFactory()` callback returns) and the `Builder`, `AsyncBuilder`, `SchemaBuilder` and `AsyncSchemaBuilder` interfaces as types.
+
 `with(patch)` shallow-merges plain records. Nested objects and arrays are replaced, not deep-merged. Atomic values such as Date, Map, Set, RegExp, and typed arrays are replaced without spreading away their prototypes. `replace(value)` explicitly replaces a complete value, including a whole plain record.
 
 Object unions, including nullable objects, do not accept partial patches at the type level. Use complete replacement to select a new variant:
@@ -95,7 +97,7 @@ Direct builders can opt into named setters with `fluent(builder, ['name'])`.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing and
 release availability. Generated ordinary-record facades already have these methods.
 
-Builder configuration is immutable, but user data is not deep-cloned or frozen. A shared object supplied to `with()` or `replace()` stays shared. Use per-build factories when fixture isolation is needed:
+Builder configuration is immutable, but user data is not deep-cloned or frozen. A shared object supplied to `with()` or `replace()` stays shared in `build()` output. Validated builds return whatever the validator outputs, so identity depends on the adapter: the TypeBox adapters decode a deep clone, so `buildValidated()` output never shares objects with patches; Zod and Valibot rebuild the objects and arrays they parse; ArkType returns the input itself. Compare validated output by value, not identity. Use per-build factories when fixture isolation is needed:
 
 ```ts
 const isolated = users.withFactory(() => ({ notes: [] }));

@@ -39,13 +39,13 @@ import { blinkAt, hopAt, mascot, type Mouth } from '../mascot.ts';
 
 /**
  * Every order, total and replay field in the video comes from the repository's checkout recipe
- * (`examples/recipes/checkout.ts`) with @mimlet/core and @mimlet/fast-check 0.1.0-alpha.2 and
+ * (`examples/recipes/checkout.ts`) with @mimlet/core and @mimlet/fast-check 0.1.0-beta.0 and
  * fast-check 4.10.2. Re-run it with `node scripts/video/verify.ts checkout`.
  */
 export const facts = {
   packages: {
-    '@mimlet/core': '0.1.0-alpha.2',
-    '@mimlet/fast-check': '0.1.0-alpha.2',
+    '@mimlet/core': '0.1.0-beta.0',
+    '@mimlet/fast-check': '0.1.0-beta.0',
     'fast-check': '4.10.2',
   },
   files: {
@@ -722,7 +722,7 @@ function endCard(t: number) {
     wordmark(960 - 150.5 * 1.8, 392, 1.8) +
       text(960, 630, 'jeffreynijs.github.io/mimlet', { size: 44, weight: 700, anchor: 'middle' }) +
       installPill.svg +
-      text(960, 832, 'Generation and shrinking by fast-check · alpha', {
+      text(960, 832, 'Generation and shrinking by fast-check · beta', {
         size: 28,
         fill: color.muted,
         anchor: 'middle',

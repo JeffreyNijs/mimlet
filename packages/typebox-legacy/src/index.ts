@@ -3,6 +3,7 @@ import { Errors } from '@sinclair/typebox/errors';
 import * as Value from '@sinclair/typebox/value';
 import { BuilderGenerationError, BuilderValidationError, createSchemaBuilder } from '@mimlet/core';
 import type {
+  SchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
   StandardSchemaV1,
@@ -82,12 +83,19 @@ export function typeBoxAdapter<S extends TSchema>(source: S, options: TypeBoxOpt
     },
   });
 }
+/**
+ * Native creation is synchronous, so the builder type is concrete: generic helpers over an
+ * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
+ */
 export function fromTypeBox<S extends TSchema>(
   schema: S,
   options: TypeBoxOptions = {}
-): SchemaBuilderFor<StandardSchemaV1<StaticEncode<S>, StaticDecode<S>>, () => StaticEncode<S>> {
+): SchemaBuilder<StaticEncode<S>, StaticDecode<S>> {
   const adapter = typeBoxAdapter(schema, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options);
+  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
+    StaticEncode<S>,
+    StaticDecode<S>
+  >;
 }
 export function fromTypeBoxFactory<
   S extends TSchema,
@@ -194,10 +202,10 @@ export function fromTypeBoxVariant<
   source: S,
   index: I,
   options: TypeBoxOptions = {}
-): SchemaBuilderFor<
-  StandardSchemaV1<StaticEncode<S['anyOf'][I]>, StaticDecode<S>>,
-  () => StaticEncode<S['anyOf'][I]>
-> {
+): SchemaBuilder<StaticEncode<S['anyOf'][I]>, StaticDecode<S>> {
   const adapter = typeBoxVariantAdapter(source, index, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options);
+  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
+    StaticEncode<S['anyOf'][I]>,
+    StaticDecode<S>
+  >;
 }

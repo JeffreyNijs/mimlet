@@ -22,7 +22,25 @@ The exported functions are `fromTypeBox`, `fromTypeBoxFactory`, and `typeBoxAdap
 
 Automatic creation delegates to native `Value.Create`, clones its result, and checks it. This constructs native defaults/minimal examples, not random data. Unsupported creation raises `BuilderGenerationError` with a cause; `fromTypeBoxFactory(schema, factory, options)` supplies application-specific data instead. There is no unbounded retry loop, no assertion that every satisfiable schema can be generated, and no silent repair of invalid overrides.
 
-The adapter's `check` uses native checking without coercion. Successful validation calls native `Value.Decode` on a clone. In this package line, Decode checks the encoded value and executes Transform callbacks without the modern default/convert/clean pipeline. A codec executes once per validated build, although the legacy implementation may perform more than one native check. `encode` calls the native encoder, which checks the encoded result. Native callback failures are preserved.
+The adapter's `check` uses native checking without coercion. Successful validation calls native `Value.Decode` on a clone. As a result, `build()` returns objects passed to `with()` or `replace()` as they are, while `buildValidated()` returns copies: compare validated output by value. In this package line, Decode checks the encoded value and executes Transform callbacks without the modern default/convert/clean pipeline. A codec executes once per validated build, although the legacy implementation may perform more than one native check. `encode` calls the native encoder, which checks the encoded result. Native callback failures are preserved.
+
+## Generic helpers
+
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+
+```ts
+import type { BuilderPatch } from '@mimlet/core';
+import type { StaticEncode, TObject } from '@sinclair/typebox';
+import { fromTypeBox } from '@mimlet/typebox-legacy';
+
+function rows<S extends TObject>(schema: S, defaults: () => BuilderPatch<StaticEncode<S>>) {
+  return fromTypeBox(schema).withFactory(defaults);
+}
+const users = rows(User, () => ({ id: 'user-1' }));
+users.buildValidatedList(2);
+```
+
+TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred, or name it `ReturnType<typeof fromTypeBoxFactory<S, () => StaticEncode<S>>>`. The `fromTypeBox()` type does not describe a custom-factory builder.
 
 ## References and native values
 

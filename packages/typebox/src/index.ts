@@ -2,6 +2,7 @@ import type { StaticDecode, StaticEncode, TProperties, TSchema } from 'typebox';
 import * as Value from 'typebox/value';
 import { BuilderGenerationError, BuilderValidationError, createSchemaBuilder } from '@mimlet/core';
 import type {
+  SchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
   StandardSchemaV1,
@@ -91,16 +92,20 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
   });
 }
 
-/** Generate native TypeBox defaults. This is deterministic creation, not random sampling. */
+/**
+ * Generate native TypeBox defaults. This is deterministic creation, not random sampling.
+ * Native creation is synchronous, so the builder type is concrete: generic helpers over an
+ * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
+ */
 export function fromTypeBox<S extends TSchema, C extends TProperties = Record<never, never>>(
   schema: S,
   options: TypeBoxOptions<C> = {}
-): SchemaBuilderFor<
-  StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>,
-  () => StaticEncode<S, C>
-> {
+): SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>> {
   const adapter = typeBoxAdapter(schema, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options);
+  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
+    StaticEncode<S, C>,
+    StaticDecode<S, C>
+  >;
 }
 
 /** Use a custom sync/async factory without losing encoded/decoded types or arguments. */
@@ -213,10 +218,10 @@ export function fromTypeBoxVariant<
   source: S,
   index: I,
   options: TypeBoxOptions<C> = {}
-): SchemaBuilderFor<
-  StandardSchemaV1<StaticEncode<S['anyOf'][I], C>, StaticDecode<S, C>>,
-  () => StaticEncode<S['anyOf'][I], C>
-> {
+): SchemaBuilder<StaticEncode<S['anyOf'][I], C>, StaticDecode<S, C>> {
   const adapter = typeBoxVariantAdapter(source, index, options);
-  return createSchemaBuilder(adapter.standard, () => adapter.create(), options);
+  return createSchemaBuilder(adapter.standard, () => adapter.create(), options) as SchemaBuilder<
+    StaticEncode<S['anyOf'][I], C>,
+    StaticDecode<S, C>
+  >;
 }

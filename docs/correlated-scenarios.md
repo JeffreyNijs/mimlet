@@ -80,3 +80,26 @@ Node and list budgets default to 1000 and are checked before execution. Names
 are nonempty strings of at most 1024 characters. The name `then` is reserved to
 prevent the result container from accidentally becoming a thenable. Other
 prototype-like names are stored with safe own-property definitions.
+
+## Rows with loaded relations
+
+A builder for a database row covers the model's own columns. When the code under
+test loads a relation (an ORM `include` or `select`), you don't need a scenario:
+build the related row with its own builder, take its key from the parent row, and
+combine both in a small function:
+
+```ts
+const orderWithUser = (order = orders.buildValidated()) => ({
+  ...order,
+  user: users.with({ id: order.userId }).buildValidated(),
+});
+
+ordersRepository.findUnique.mockResolvedValue(orderWithUser());
+```
+
+Leave the function's return type inferred. TypeScript checks for excess
+properties only on an object literal written directly where a narrower type is
+expected, so `mockResolvedValue({ ...order, user })` fails with TS2353 or TS2561
+against a row type without `user`, while a value returned from a function or held
+in a `const` is checked structurally and passes. Use a scenario when several
+relations must share generated keys or a session.
