@@ -97,9 +97,14 @@ Direct builders can opt into named setters with `fluent(builder, ['name'])`. To 
 setter for every field of an object schema, pass the adapter's field list instead, for
 example `fluent(fromTypeBox(schema), typeBoxFields(schema))`; this also works in generic
 helpers. `schemaFields(names)` creates such a list for adapter authors, and the
-`FluentBuilder` and `FluentFieldsBuilder` types name the results.
-See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing and
-release availability. Generated ordinary-record facades already have these methods.
+`FluentBuilder` and `FluentFieldsBuilder` types name the results. Nesting combines
+setters: `fluent(fluent(builder, typeBoxFields(schema)), { withKey: 'id' })` keeps every
+setter of the inner call and adds the outer ones. Repeating an inner setter for the same
+field is allowed; an explicit name that the inner call uses for another field throws a
+`TypeError`, and a field list skips it.
+See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing,
+conflict rules and release availability. Generated ordinary-record facades already have
+these methods, and `fluent()` keeps them too; an explicit name that matches one replaces it.
 
 Builder configuration is immutable, but user data is not deep-cloned or frozen. A shared object supplied to `with()` or `replace()` stays shared in `build()` output. Validated builds return whatever the validator outputs, so identity depends on the adapter: the TypeBox adapters decode a deep clone, so `buildValidated()` output never shares objects with patches; Zod and Valibot rebuild the objects and arrays they parse; ArkType returns the input itself. Compare validated output by value, not identity. Use per-build factories when fixture isolation is needed:
 

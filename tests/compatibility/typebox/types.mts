@@ -477,3 +477,36 @@ function legacyBothWays<S extends LegacyObject>(schema: S, create: () => LegacyE
 void legacyBothWays;
 exact<Equal<typeof oldEvents, LegacyBuilder<typeof OldEvent>>>();
 exact<Equal<typeof legacyDogs, LegacyVariantBuilder<typeof LegacyPet, 1>>>();
+
+// Nesting combines setters: a helper's setter per field plus per-builder tuples and aliases.
+const keyedEvents = fluent(namedRows(Event), { withKey: 'id', withAt: 'timestamp' });
+expectType<{ id: string; timestamp: Date; note?: string }>(
+  keyedEvents.withKey('event-1').withAt(1).withNote('n').withTimestamp(2).buildValidated()
+);
+// @ts-expect-error Kept setters take encoded input.
+keyedEvents.withTimestamp(new Date());
+// @ts-expect-error Outer setters take encoded input too.
+keyedEvents.withAt(new Date());
+// @ts-expect-error Kept setters omit an exact optional key, never set it to undefined.
+keyedEvents.withNote(undefined);
+// @ts-expect-error Kept setters return the outer builder, not any.
+keyedEvents.withNote('n').withMissing();
+fluent(namedRows(Event), ['id']).withId('event-2').withNote('n').buildValidated();
+const keyedEventsAsync = keyedEvents
+  .transformAsync(async (value) => value)
+  .withNote('n')
+  .withKey('e');
+keyedEventsAsync.buildValidatedAsync();
+// @ts-expect-error Nested setters do not restore synchronous build methods.
+keyedEventsAsync.buildValidated();
+// A generic helper can nest schema field lists.
+function nestedRows<S extends TObject>(schema: S) {
+  return fluent(fluent(fromTypeBox(schema), typeBoxFields(schema)), typeBoxFields(schema));
+}
+nestedRows(Event).withId('event-3').withTimestamp(3).buildValidated();
+// @ts-expect-error The nested helper's setters keep the input type.
+nestedRows(Event).withTimestamp(new Date());
+const nestedDogs = fluent(fluent(dogs, typeBoxFields(Pet.anyOf[1])), { withWoof: 'bark' });
+nestedDogs.withBark(true).withWoof(false).buildValidated();
+// @ts-expect-error Variant setters keep the branch's input type.
+nestedDogs.withWoof('loud');

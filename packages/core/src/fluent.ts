@@ -1,4 +1,4 @@
-import { builderClass } from './facade.js';
+import { facadeClass, facadeMethods } from './facade-class.js';
 import type { FacadeFor } from './facade.js';
 import type { AnyFactory, BuilderDescription, BuilderPatch } from './types.js';
 
@@ -84,8 +84,60 @@ type LiteralSelection<S> = S extends readonly string[]
 type SetterValue<T, K extends keyof T> =
   { [P in K]: undefined } extends Pick<T, K> ? T[K] : Exclude<T[K], undefined>;
 
-/** Named input setters over the same immutable runtime and native validation contract. */
+/** Names fluent() never adds as a setter or carries over from the builder it wraps. */
+type Capability =
+  | 'with'
+  | 'replace'
+  | 'withFactory'
+  | 'replaceFactory'
+  | 'omit'
+  | 'transform'
+  | 'transformAsync'
+  | 'usingValidation'
+  | 'build'
+  | 'buildAsync'
+  | 'buildList'
+  | 'buildListAsync'
+  | 'describe'
+  | 'buildValidated'
+  | 'buildValidatedAsync'
+  | 'buildValidatedList'
+  | 'buildValidatedListAsync'
+  | 'constructor'
+  | 'then'
+  | 'toJSON';
+/**
+ * The methods a builder has beyond its capabilities, such as the setters of an inner fluent()
+ * call or the methods of a generated class. fluent() keeps them.
+ */
+type Kept<B> = {
+  [
+    K in Extract<keyof B, string> as K extends Capability
+      ? never
+      : B[K] extends (...args: never[]) => unknown
+        ? K
+        : never
+  ]: B[K];
+};
+/** A kept method returns the outer builder wherever the wrapped one returned itself. */
+type Forwarded<F, B, Self> = F extends (...args: infer A) => infer R
+  ? (...args: A) => R extends B ? Self : R
+  : never;
+
+/**
+ * Named input setters over the same immutable runtime and native validation contract.
+ * Methods of the wrapped builder, such as the setters of an inner fluent() call, are kept.
+ * Where a selected name matches a kept method, the selected setter's type is the one that
+ * applies: it repeats an inner setter for the same field or replaces a class method (another
+ * field throws at runtime).
+ */
 export type FluentBuilder<B extends Source, S extends Selection<Input<B>>> = FacadeFor<B> & {
+  [M in keyof Kept<B> as M extends keyof FieldMap<S> ? never : M]: Forwarded<
+    Kept<B>[M],
+    B,
+    FluentBuilder<B, S>
+  >;
+} & {
   [M in keyof FieldMap<S>]: (
     value: SetterValue<Input<B>, FieldMap<S>[M] & keyof Input<B>>
   ) => FluentBuilder<B, S>;
@@ -109,12 +161,13 @@ const marker = Object.freeze({ version: 1 as const });
 type AutoMethod<K extends string> = [Pascal<K>] extends [never] ? never : Method<K>;
 type AutoFieldMap<K extends string> = { [P in K as AutoMethod<P>]: P };
 /**
- * Mirrors the runtime skip rules: names shared by several fields, names of builder methods and
- * fields that cannot be patched individually (index signatures, unions, arrays) get no setter.
+ * Mirrors the runtime skip rules: names shared by several fields, names of builder methods
+ * (including the kept setters of an inner fluent() call) and fields that cannot be patched
+ * individually (index signatures, unions, arrays) get no setter.
  */
 type SchemaFieldMap<B extends Source, K extends string, M = AutoFieldMap<K>> = {
   [
-    N in keyof M as N extends keyof FacadeFor<B>
+    N in keyof M as N extends Capability | keyof FacadeFor<B> | keyof Kept<B>
       ? never
       : true extends IsUnion<M[N]>
         ? never
@@ -124,8 +177,13 @@ type SchemaFieldMap<B extends Source, K extends string, M = AutoFieldMap<K>> = {
   ]: M[N];
 };
 
-/** Named setters for every field a schema lists, minus the names `fluent()` skips. */
+/**
+ * Named setters for every field a schema lists, minus the names `fluent()` skips. Methods of
+ * the wrapped builder, such as the setters of an inner fluent() call, are kept.
+ */
 export type FluentFieldsBuilder<B extends Source, K extends string> = FacadeFor<B> & {
+  [M in keyof Kept<B>]: Forwarded<Kept<B>[M], B, FluentFieldsBuilder<B, K>>;
+} & {
   [M in keyof SchemaFieldMap<B, K>]: (
     value: SetterValue<Input<B>, SchemaFieldMap<B, K>[M] & keyof Input<B>>
   ) => FluentFieldsBuilder<B, K>;
@@ -232,10 +290,44 @@ function entries(selection: unknown): [string, string][] {
   });
 }
 
+/** The field behind each setter of a fluent() builder, by the builder's prototype. */
+const setterFields = new WeakMap<object, ReadonlyMap<string, string>>();
+const notKept = new Set([...facadeMethods, 'constructor', 'then', 'toJSON']);
+
+/**
+ * The methods a builder has beyond its capabilities, such as the setters of an inner fluent()
+ * call or the methods of a generated class. Reads descriptors only, so no accessor runs. The
+ * root of a prototype chain (Object.prototype in any realm) is not read.
+ */
+function keptMethods(builder: unknown): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let target: unknown = builder;
+  for (let depth = 0; typeof target === 'object' && target !== null; depth++) {
+    const parent: unknown = Object.getPrototypeOf(target);
+    if (parent === null && target !== builder) {
+      break;
+    }
+    if (depth >= 64) {
+      throw new TypeError('Expected a builder with at most 64 prototypes');
+    }
+    for (const name of Object.getOwnPropertyNames(target)) {
+      const descriptor = seen.has(name) ? undefined : Object.getOwnPropertyDescriptor(target, name);
+      seen.add(name);
+      if (descriptor && typeof descriptor.value === 'function' && !notKept.has(name)) {
+        names.push(name);
+      }
+    }
+    target = parent;
+  }
+  return names;
+}
+
 /**
  * Add a setter for every field of a schema field list, such as `typeBoxFields(schema)`.
  * Names that two fields share, names of builder methods and fields longer than 64
  * characters are skipped, and the setter types leave them out too. Works in generic helpers.
+ * Wrapping a fluent() builder keeps its setters; a field whose name it already has is skipped.
  */
 export function fluent<B extends Source, K extends string>(
   builder: B,
@@ -245,6 +337,9 @@ export function fluent<B extends Source, K extends string>(
  * Opt into named methods without executing a factory or inspecting a native schema.
  * Use a literal field tuple, or a map such as { withUserName: 'user_name' }.
  * Ambiguous/default collisions require explicit aliases; core methods are never replaced.
+ * Wrapping a fluent() builder keeps its setters. Repeating one of them for the same field is
+ * allowed; reusing its name for another field throws. A name that matches another kept method,
+ * such as a generated class method, replaces that method.
  */
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fluent<B extends Source, const S extends Selection<Input<B>>>(
@@ -255,7 +350,20 @@ export function fluent<B extends Source, const S extends Selection<Input<B>>>(
 export function fluent(builder: Source, selection: unknown): unknown {
   const listed = listedFields(selection);
   let fields = listed ? [] : entries(selection);
-  const Base = builderClass(() => builder);
+  // Keep what the builder already has, such as the setters of an inner fluent() call.
+  const kept = keptMethods(builder);
+  const Base = facadeClass(() => builder, kept);
+  const known =
+    typeof builder === 'object' && builder !== null
+      ? setterFields.get(Object.getPrototypeOf(builder) as object)
+      : undefined;
+  const setters = new Map<string, string>();
+  for (const method of kept) {
+    const property = known?.get(method);
+    if (property !== undefined) {
+      setters.set(method, property);
+    }
+  }
   const capability = (method: string) =>
     method in Base.prototype || method === 'then' || method === 'toJSON';
   if (listed) {
@@ -269,19 +377,32 @@ export function fluent(builder: Source, selection: unknown): unknown {
     }
     fields = candidates.filter(([method]) => counts.get(method) === 1 && !capability(method));
   }
+  const forwarded = new Set(kept);
   const used = new Set<string>();
   for (const [method, property] of fields) {
-    if (capability(method) || used.has(property)) {
+    const field = setters.get(method);
+    // A kept setter for the same field already does what this one would.
+    const repeated = field === property && !used.has(property);
+    // A kept method whose field is unknown, such as a generated class method, is replaced by the
+    // explicit setter, as before nesting kept methods. Lists never get here: they skip kept names.
+    const replaced = field === undefined && forwarded.has(method) && !used.has(property);
+    if (!repeated && !replaced && (capability(method) || used.has(property))) {
       throw new TypeError(
         'Fluent methods must be unique and cannot replace builder capabilities; choose an explicit alias'
       );
     }
     used.add(property);
+    if (repeated) {
+      continue;
+    }
+    setters.set(method, property);
     Object.defineProperty(Base.prototype, method, {
+      configurable: false,
       value(this: object, value: unknown) {
         return Reflect.apply(Base.prototype.with, this, [{ [property]: value }]);
       },
     });
   }
+  setterFields.set(Base.prototype as object, setters);
   return new Base();
 }
