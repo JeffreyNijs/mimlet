@@ -19,6 +19,7 @@ video names into a temporary project, so it needs network access.
 | `named-setters` | A hand-written builder falls behind its schema; `fluent()` replaces it |
 | `arktype-rules` | ArkType rejects a hand-written fixture; generated ones satisfy rules   |
 | `doctor`        | npm installs an unsupported peer; `mimlet doctor` names the cause      |
+| `beta`          | The alpha badge turns beta; fixtures show the beta's generation fixes  |
 
 ## How it fits together
 
