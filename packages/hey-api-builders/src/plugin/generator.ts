@@ -9,6 +9,7 @@ type SymbolRef = NonNullable<ReturnType<PluginInstance['querySymbol']>>;
 export interface RuntimeSymbols {
   builderOptions: SymbolRef;
   builderPatch: SymbolRef;
+  builderSetterValue: SymbolRef;
   builderTransform: SymbolRef;
   createBuilderClass: SymbolRef;
 }
@@ -67,7 +68,32 @@ export function emitRuntime(plugin: PluginInstance): RuntimeSymbols {
   plugin.node(
     $.type.alias(builderTransform).export().generic('T').type($.type(transform).generic('T'))
   );
-  return { builderOptions, builderPatch, builderTransform, createBuilderClass };
+  // What a `withX()` helper accepts: never for object unions, which need a whole `replace()`.
+  // Otherwise exactly what `with()` accepts for that key, as in core `fluent()`: indexed
+  // access adds `undefined` to every optional key, so keep it only where the property
+  // accepts it (respecting `exactOptionalPropertyTypes`). Not exported: no new public name.
+  const builderSetterValue = utility('BuilderSetterValue');
+  const property = () => $.type.idx('T', 'K');
+  plugin.node(
+    $.type
+      .alias(builderSetterValue)
+      .generic('T')
+      .generic('K', (p) => p.extends($.type.operator().keyof('T')))
+      .type(
+        $.type
+          .ternary($.type(builderPatch).generic('T'))
+          .extends('never')
+          .do('never')
+          .otherwise(
+            $.type
+              .ternary($.type.mapped('P').key('K').type('undefined'))
+              .extends($.type('Pick').generics('T', 'K'))
+              .do(property())
+              .otherwise($.type('Exclude').generics(property(), 'undefined'))
+          )
+      )
+  );
+  return { builderOptions, builderPatch, builderSetterValue, builderTransform, createBuilderClass };
 }
 
 /** Emit a builder for a reusable OpenAPI schema. */
@@ -372,11 +398,10 @@ function emitBuilder({
   const classNode = $.class(builderSymbol).export().extends(base);
   for (const { methodName, propertyName } of propertyMethods(target.properties ?? [])) {
     // Object unions require complete replacement, even through generated convenience methods.
-    const fieldType = $.type
-      .ternary(patchType())
-      .extends('never')
-      .do('never')
-      .otherwise($.type(target.modelSymbol).idx($.type.literal(propertyName)));
+    const fieldType = $.type(runtime.builderSetterValue).generics(
+      target.modelSymbol,
+      $.type.literal(propertyName)
+    );
     classNode.method(methodName, (method) =>
       method
         .param('value', (parameter) => parameter.type(fieldType))
