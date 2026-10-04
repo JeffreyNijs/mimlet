@@ -82,7 +82,7 @@ export default defineConfig({
     nav: [
       { text: 'Get started', link: '/guide/getting-started' },
       { text: 'The toolkit', link: '/guide/adapters' },
-      { text: 'Try it', link: '/guide/scenario-demo' },
+      { text: 'Try it', link: '/guide/try-it' },
       { text: 'For agents', link: '/guide/agents' },
     ],
     socialLinks: [{ icon: 'github', link: `https://github.com/${repository}` }],
@@ -92,6 +92,7 @@ export default defineConfig({
         text: 'Start here',
         items: [
           { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'Try it in your browser', link: '/guide/try-it' },
           { text: 'Interactive demo', link: '/guide/scenario-demo' },
           { text: 'Find a checkout bug', link: '/guide/checkout-example' },
           { text: 'Compare fixture approaches', link: '/guide/checkout-comparison' },

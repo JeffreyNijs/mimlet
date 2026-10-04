@@ -60,6 +60,13 @@ try {
   await page.goto(url);
   await expect(page.getByRole('switch', { name: /Switch to/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Test data, with character.' })).toBeVisible();
+  // The sandbox runtime is built before the dev server starts and served from public/.
+  await page.goto(`${url}guide/try-it.html`);
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.mimlet-sandbox').getByRole('status')).toHaveText(
+    /^The program threw BuilderValidationError after \d+ ms\.$/,
+    { timeout: 30_000 }
+  );
   await writeFile(source, '# Mimlet watcher probe\n\nFirst value.\n', { flag: 'wx' });
   created = true;
   await until(() =>
@@ -81,7 +88,9 @@ try {
       () => true
     )
   );
-  console.log('Development mode passed: hydrated page, source creation, live edits and deletion.');
+  console.log(
+    'Development mode passed: hydrated page, sandbox run, source creation, live edits and deletion.'
+  );
 } finally {
   if (created) {
     await rm(source);

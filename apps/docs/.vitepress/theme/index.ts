@@ -14,5 +14,10 @@ export default {
       'ScenarioDemo',
       defineAsyncComponent(() => import('./ScenarioDemo.vue'))
     );
+    // Loaded only on the page that uses it. Its runtime is fetched on the first run.
+    app.component(
+      'MimletSandbox',
+      defineAsyncComponent(() => import('./MimletSandbox.vue'))
+    );
   },
 } satisfies Theme;
