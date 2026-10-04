@@ -200,11 +200,12 @@ const fill: TypeBoxFill = {
   now: '2026-01-01T00:00:00.000Z',
   formats: { 'x-sku': 'SKU-0001' },
   patterns: ['APP-1'],
+  nullable: 'null',
 };
 fromTypeBox(Event, { fill });
 fromTypeBox(Event, { fill: false });
 fromTypeBoxVariant(Pet, 1, { fill: { patterns: [] } });
-const legacyFill: LegacyFill = { patterns: ['APP-1'] };
+const legacyFill: LegacyFill = { patterns: ['APP-1'], nullable: 'value' };
 fromLegacy(OldEvent, { fill: legacyFill });
 legacyVariant(LegacyPet, 0, { fill: false });
 // @ts-expect-error Fill takes options or false.
@@ -213,6 +214,10 @@ fromTypeBox(Event, { fill: true });
 fromTypeBox(Event, { fill: { formats: { uuid: 1 } } });
 // @ts-expect-error Pattern candidates are strings.
 fromLegacy(OldEvent, { fill: { patterns: [/APP/] } });
+// @ts-expect-error Nullable unions are created as 'value' or 'null', not a boolean.
+fromTypeBox(Event, { fill: { nullable: true } });
+// @ts-expect-error Nullable unions are created as 'value' or 'null'.
+fromLegacy(OldEvent, { fill: { nullable: 'first' } });
 
 // A setter per schema field, from a generic helper, with no field list and no casts.
 import { fluent } from '@mimlet/core';

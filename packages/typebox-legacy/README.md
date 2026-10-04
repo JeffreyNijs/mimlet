@@ -24,6 +24,20 @@ Automatic creation delegates to native `Value.Create`, clones its result, and ch
 
 In this package line the fill also creates `Type.Date()` at the session's reference time, `2000-01-01T00:00:00.000Z` by default, instead of reading the clock. A schema with `minimumTimestamp` keeps that native value. Other date bounds are respected. Legacy TypeBox ships no string formats, so a built-in format sample is only used after you register the format with `FormatRegistry` and the sample passes it. Elysia's `t.Date()` is a union led by `Type.Date()`, so it gets the same instant. Elysia's `t.Uint8Array()` is a union led by a custom `ArrayBuffer` kind whose `[1, 2, 3]` default the union rejects, so the union fallback uses its `Uint8Array` member.
 
+### Nullable fields and Elysia's `t.Nullable()`
+
+Elysia's `t.Nullable(x)` is `Type.Union([x, Type.Null()])`, with `Null` last. Union members are tried in order, so by default a nullable field is created as `x`'s value: `''`, `0`, the reference date or a whole object. A user with a nullable `verifiedAt` comes out verified. Prismabox schemas put `Null` first, so their nullable fields are already `null`. Set `fill.nullable` to `'null'` to create every union with a `Null` member as `null`, as if `Null` came first:
+
+```ts
+import { t } from 'elysia';
+
+const User = t.Object({ name: t.String(), verifiedAt: t.Nullable(t.Date()) });
+fromTypeBox(User).build(); // { name: '', verifiedAt: Date 2000-01-01T00:00:00.000Z }
+fromTypeBox(User, { fill: { nullable: 'null' } }).build(); // { name: '', verifiedAt: null }
+```
+
+This applies at any depth: properties, array items, tuples, records with fixed keys, intersections, nested unions, `references`, modules and recursive schemas. A union with its own `default` keeps it; a `default` on `x` does not count. `t.Optional(t.Nullable(x))` properties stay absent, because native creation leaves out optional properties. `fromTypeBoxVariant(union, index)` still builds the member you select. The default, `'value'`, keeps the member order, and the setting is part of the replay identity. See [Nullable fields](https://jeffreynijs.github.io/mimlet/packages/typebox.html#nullable-fields) in the modern adapter's README.
+
 When a value still cannot be created, `BuilderGenerationError` names its location and keeps the native error as its `cause`; `fromTypeBoxFactory(schema, factory, options)` supplies application-specific data instead. There is no unbounded retry loop and no assertion that every satisfiable schema can be generated. `fill: false` restores plain native creation.
 
 ## Sessions

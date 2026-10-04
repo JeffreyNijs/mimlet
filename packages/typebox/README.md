@@ -39,6 +39,7 @@ const output = events.with({ timestamp: 1000 }).buildValidated();
 - **Patterns.** There is no regular expression solver. `fill.patterns` lists candidate strings, and a pattern string uses the first one that passes its own check (pattern, format and length).
 - **Unique arrays.** One item is always unique. For more, the items must be literals, an enum or booleans, and the array takes the first `minItems` distinct values.
 - **Unions.** Members are tried in order, once each. The first created value that passes the whole union is used.
+- **Nullable unions.** By default a union with a `Null` member follows the same order: `Type.Union([Type.String(), Type.Null()])` is created as `''` and `Type.Union([Type.Null(), Type.String()])` as `null`. `fill.nullable: 'null'` creates every union with a `Null` member as `null`, as if `Null` came first. See [Nullable fields](#nullable-fields).
 - **Bounds.** A number whose native value is outside its `exclusiveMinimum`, `exclusiveMaximum` or `maximum` gets a value inside them, such as `0.5` for `exclusiveMinimum: 0` and `exclusiveMaximum: 1`.
 
 Schemas in `context` are filled too. An unfillable one fails only when creation reaches it.
@@ -59,6 +60,29 @@ orders.buildValidated();
 ```
 
 `fill.now` sets a fixed instant instead of the session's reference time. `fill: false` turns the fill off and uses plain `Value.Create`.
+
+#### Nullable fields
+
+A nullable field written as `Type.Union([x, Type.Null()])` puts `Null` last, so it is created as `x`'s value: `''`, `0`, a date or a whole object. (Elysia's `t.Nullable(x)` builds the same shape with `@sinclair/typebox`; use `@mimlet/typebox-legacy` for it.) When fixtures should leave nullable fields empty, set `fill.nullable` to `'null'`:
+
+```ts
+const Profile = Type.Object({
+  name: Type.String(),
+  verifiedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+});
+fromTypeBox(Profile).build();
+// { name: '', verifiedAt: '2000-01-01T00:00:00.000Z' }
+fromTypeBox(Profile, { fill: { nullable: 'null' } }).build();
+// { name: '', verifiedAt: null }
+```
+
+With `'null'`, every union with a `Null` member is created as `null`: in properties, array items, tuples, records with fixed keys, intersections, schemas in `context` and cyclic definitions. A member that is itself a nullable union counts too, so `Type.Union([Type.String(), Type.Union([Type.Number(), Type.Null()])])` is `null`. Some cases keep their value:
+
+- A union with its own `default` keeps it. A `default` on the other member does not count.
+- Optional properties stay absent, because native creation leaves them out.
+- `fromTypeBoxVariant(union, index)` still builds the member you select.
+
+The default, `'value'`, keeps the member order described above. The setting is part of the adapter's replay identity, so a session recorded with one setting does not replay with the other.
 
 When a value still cannot be created, `BuilderGenerationError` names its location, such as `/lines/*/code` (`*` stands for any array item), keeps the native error as its `cause`, and recommends a fill option or a custom factory. The message never contains fixture values. This happens for a format without a sample, a pattern without a fitting candidate, and a unique array that needs more distinct values than its literals provide. A failure to create a value is not a proof that the schema is unsatisfiable.
 
