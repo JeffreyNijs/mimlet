@@ -1,6 +1,6 @@
 # Legacy TypeBox builders
 
-`@mimlet/typebox-legacy` is the native adapter for `@sinclair/typebox`. Prereleases use npm's `next` tag. The tested compatibility range is `@sinclair/typebox` 0.34.48 through 0.34.52; this does not claim compatibility with every 0.x release.
+`@mimlet/typebox-legacy` is the native adapter for `@sinclair/typebox`. Releases, including betas, are published on npm's `latest` tag. The tested compatibility range is `@sinclair/typebox` 0.34.48 through 0.34.52; this does not claim compatibility with every 0.x release.
 
 ```ts
 import { Type } from '@sinclair/typebox';

@@ -14,6 +14,18 @@ const fail = (message) => {
   throw new Error(`Workspace: ${message}`);
 };
 
+/**
+ * The npm dist-tag a package version must be published with: `latest` or `next`, nothing else.
+ * Stable versions use `latest`. During a prerelease train the `@mimlet/*` toolkit also uses
+ * `latest`, while `hey-api-builders` prereleases use `next` so its `latest` stays on the stable
+ * major. Release validation and the publish workflow (an exact, tested copy) apply this rule.
+ */
+export function releaseDistTag(name, version) {
+  if (typeof name !== 'string' || typeof version !== 'string')
+    throw new Error('Invalid package identity for the distribution tag');
+  return name === 'hey-api-builders' && version.includes('-') ? 'next' : 'latest';
+}
+
 export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.meta.url)), '..')) {
   const manifest = await json(join(root, 'package.json'));
   if (manifest.private !== true) fail('the repository root must be private');
@@ -35,8 +47,9 @@ export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.
       fail(`invalid publishing boundary for ${pkg.name}`);
     if (pkg.publishConfig?.access !== 'public' || pkg.publishConfig?.provenance !== true)
       fail(`missing provenance for ${pkg.name}`);
-    if (pkg.publishConfig?.tag !== (pkg.version.includes('-') ? 'next' : 'latest'))
-      fail(`incorrect distribution tag for ${pkg.name}`);
+    const distTag = releaseDistTag(pkg.name, pkg.version);
+    if (pkg.publishConfig?.tag !== distTag)
+      fail(`incorrect distribution tag for ${pkg.name}: publishConfig.tag must be ${distTag}`);
     if (
       pkg.repository?.url !== `git+https://github.com/${repository}.git` ||
       pkg.repository?.directory !== `packages/${entry.name}`

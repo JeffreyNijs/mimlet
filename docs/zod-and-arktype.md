@@ -7,7 +7,7 @@ or open the tested recipe source links below.
 <!-- /github-only -->
 
 The dedicated `@mimlet/zod` and `@mimlet/arktype` packages are published in
-`0.1.0-beta.1` on npm's `next` channel. Existing Standard Schema and Standard JSON
+`0.1.0-beta.1` on npm's `latest` tag. Existing Standard Schema and Standard JSON
 Schema entry points remain supported. Install the adapter you use, with its tested peer:
 
 ```sh

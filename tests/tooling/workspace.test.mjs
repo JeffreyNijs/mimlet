@@ -3,7 +3,7 @@ import { it } from 'node:test';
 import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readWorkspace } from '../../scripts/check-workspace.mjs';
+import { readWorkspace, releaseDistTag } from '../../scripts/check-workspace.mjs';
 const baseline = await readWorkspace();
 async function fixture(action) {
   const root = await mkdtemp(join(tmpdir(), 'toolkit-workspace-test-'));
@@ -89,7 +89,7 @@ it('rejects accidental root publication, package metadata drift, cycles and runt
     [
       'packages/core/package.json',
       (pkg) => {
-        pkg.publishConfig.tag = 'latest';
+        pkg.publishConfig.tag = 'next';
       },
       /distribution tag/,
     ],
@@ -154,6 +154,51 @@ it('rejects accidental root publication, package metadata drift, cycles and runt
     await fixture(async ({ root, change }) => {
       await change(path, edit);
       await assert.rejects(readWorkspace(root), pattern);
+    });
+});
+it('publishes prerelease toolkit packages to latest and Hey API prereleases to next', () => {
+  assert.equal(releaseDistTag('@mimlet/core', '0.1.0-beta.1'), 'latest');
+  assert.equal(releaseDistTag('@mimlet/zod', '0.1.0'), 'latest');
+  assert.equal(releaseDistTag('hey-api-builders', '3.0.0-beta.1'), 'next');
+  assert.equal(releaseDistTag('hey-api-builders', '3.0.0'), 'latest');
+  for (const [name, version] of [
+    [undefined, '0.1.0'],
+    ['@mimlet/core', undefined],
+  ])
+    assert.throws(() => releaseDistTag(name, version), /distribution tag/);
+});
+it('rejects every publishConfig.tag outside the channel policy', async () => {
+  const rejected = [
+    // A prerelease @mimlet package on next would leave latest behind and need a manual retag.
+    ['core', { tag: 'next' }],
+    // hey-api-builders prereleases must never move latest away from the stable major.
+    ['hey-api-builders', { tag: 'latest' }],
+    // Stable versions are only published to latest.
+    ['adapter', { version: '0.1.0', tag: 'next' }],
+    ['hey-api-builders', { version: '3.0.0', tag: 'next' }],
+    // Only latest and next exist; a missing tag would fall back to npm's default.
+    ['core', { tag: 'beta' }],
+    ['hey-api-builders', { tag: 'beta' }],
+    ['core', { tag: undefined }],
+  ];
+  for (const [directory, { version, tag }] of rejected)
+    await fixture(async ({ root, change }) => {
+      await change(`packages/${directory}/package.json`, (pkg) => {
+        if (version) pkg.version = version;
+        pkg.publishConfig.tag = tag;
+      });
+      await assert.rejects(readWorkspace(root), /incorrect distribution tag/);
+    });
+  for (const [directory, version] of [
+    ['adapter', '0.1.0'],
+    ['hey-api-builders', '3.0.0'],
+  ])
+    await fixture(async ({ root, change }) => {
+      await change(`packages/${directory}/package.json`, (pkg) => {
+        pkg.version = version;
+        pkg.publishConfig.tag = 'latest';
+      });
+      await assert.doesNotReject(readWorkspace(root));
     });
 });
 it('does not follow symbolic package manifests', () =>

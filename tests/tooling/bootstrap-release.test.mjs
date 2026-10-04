@@ -98,47 +98,54 @@ test('bootstrap preflight verifies actual tarballs and rejects tampering before 
   const root = await mkdtemp(join(tmpdir(), 'mimlet-bootstrap-'));
   const artifacts = join(root, 'release');
   await mkdir(artifacts);
-  try {
-    const packages = [];
-    for (const name of ['@mimlet/core', 'hey-api-builders']) {
-      const version = name === '@mimlet/core' ? '0.1.0-alpha.0' : '3.0.0-alpha.0';
-      const folder = join(root, name, 'package');
-      await mkdir(folder, { recursive: true });
-      await writeFile(
-        join(folder, 'package.json'),
-        JSON.stringify({
-          name,
-          version,
-          private: false,
-          repository: { url: 'git+https://github.com/JeffreyNijs/mimlet.git' },
-          publishConfig: { provenance: true },
-          dependencies: name === '@mimlet/core' ? {} : { '@mimlet/core': '0.1.0-alpha.0' },
-        })
-      );
-      const filename = `${name.replace('@', '').replace('/', '-')}-${version}.tgz`;
-      execFileSync('tar', ['-czf', join(artifacts, filename), '-C', join(root, name), 'package']);
-      const bytes = await readFile(join(artifacts, filename));
-      packages.push({
+  const pack = async (name, distTag, packedTag = distTag) => {
+    const version = name === '@mimlet/core' ? '0.1.0-alpha.0' : '3.0.0-alpha.0';
+    const folder = join(root, name, 'package');
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, 'package.json'),
+      JSON.stringify({
         name,
         version,
-        filename,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
-        integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
-      });
-    }
-    await writeFile(
+        private: false,
+        repository: { url: 'git+https://github.com/JeffreyNijs/mimlet.git' },
+        publishConfig: { provenance: true, tag: packedTag },
+        dependencies: name === '@mimlet/core' ? {} : { '@mimlet/core': '0.1.0-alpha.0' },
+      })
+    );
+    const filename = `${name.replace('@', '').replace('/', '-')}-${version}.tgz`;
+    execFileSync('tar', ['-czf', join(artifacts, filename), '-C', join(root, name), 'package']);
+    const bytes = await readFile(join(artifacts, filename));
+    return {
+      name,
+      version,
+      distTag,
+      filename,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+    };
+  };
+  const writeManifest = (packages) =>
+    writeFile(
       join(artifacts, 'manifest.json'),
       JSON.stringify({
-        format: 1,
+        format: 2,
         commit,
         coreVersion: '0.1.0-alpha.0',
         tag: 'toolkit-v0.1.0-alpha.0',
-        distTag: 'next',
+        prerelease: true,
         packages,
       })
     );
+  try {
+    const packages = [await pack('@mimlet/core', 'latest'), await pack('hey-api-builders', 'next')];
+    await writeManifest(packages);
     await writeFile(join(artifacts, 'SHA256SUMS'), '');
     assert.equal((await readBootstrapRelease(artifacts)).metadata.length, 2);
+    // Matching digests are not enough: the tarball's own publishConfig.tag must match too.
+    await writeManifest([packages[0], await pack('hey-api-builders', 'next', 'latest')]);
+    await assert.rejects(readBootstrapRelease(artifacts), /packed distribution tag differs/);
+    await writeManifest([packages[0], await pack('hey-api-builders', 'next')]);
     await writeFile(join(artifacts, packages[0].filename), 'tampered');
     await assert.rejects(readBootstrapRelease(artifacts), /digest mismatch/);
   } finally {

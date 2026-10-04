@@ -1,8 +1,8 @@
 # From Test Builders to Mimlet
 
 Mimlet is the same schema-independent toolkit under a new product identity.
-The core is `@mimlet/core`; the optional packages use `@mimlet/*`. The current alpha is
-`@mimlet/*@0.1.0-beta.1` and `hey-api-builders@3.0.0-beta.1` on npm's `next` channel.
+The core is `@mimlet/core`; the optional packages use `@mimlet/*`. The current beta is
+`@mimlet/*@0.1.0-beta.1` on npm's `latest` tag and `hey-api-builders@3.0.0-beta.1` on `next`.
 The Zod and ArkType packages first appear in this train.
 Use matching versions when updating imports and generated clients.
 

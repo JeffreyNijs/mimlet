@@ -1,8 +1,8 @@
 # Releases and recovery
 
 Preparing the repository, merging a PR and publishing packages are separate
-operations. The current published train is the second beta: toolkit `0.1.0-beta.1` and Hey
-API integration `3.0.0-beta.1`, available on npm's `next` channel. It includes all nineteen
+operations. The current published train is the second beta: toolkit `0.1.0-beta.1` on npm's
+`latest` tag and Hey API integration `3.0.0-beta.1` on `next`. It includes all nineteen
 packages, with direct named setters and schema field lists, local diagnostics and native
 Zod/ArkType adapters, targets Effect 4.0.0, accepts tested ArkType 2.2.5–2.2.7 and Faker
 10.5.0–10.6.0, and documents its error and diagnostic codes as contracts. The
@@ -29,10 +29,47 @@ across tags, so rename the first versions on the new tag to `.0` before
 `pnpm check:workspace`, as was done for `0.1.0-beta.0`.
 Review the
 version plan, generated changelogs, exact internal dependency versions and package
-`publishConfig.tag` fields. They must be `next` for prereleases and `latest` only
-for an explicitly reviewed stable train. Refresh `pnpm-lock.yaml` after versioning
-and run `pnpm check:workspace`. The guard intentionally fails rather than concealing
-an incomplete version transition. Leaving prerelease mode is a deliberate operation.
+`publishConfig.tag` fields (see [Distribution tags](#distribution-tags)). Refresh
+`pnpm-lock.yaml` after versioning and run `pnpm check:workspace`. The guard
+intentionally fails rather than concealing an incomplete version transition. Leaving
+prerelease mode is a deliberate operation.
+
+## Distribution tags
+
+Each package's `publishConfig.tag` decides the npm dist-tag it is published with.
+Only `latest` and `next` are allowed:
+
+| Train      | `@mimlet/*` packages | `hey-api-builders` |
+| ---------- | -------------------- | ------------------ |
+| Prerelease | `latest`             | `next`             |
+| Stable     | `latest`             | `latest`           |
+
+During the beta, `npm install @mimlet/core` installs the current beta. The examples
+still pin exact versions, so fixtures and generated clients stay reproducible.
+`hey-api-builders` prereleases stay on `next`, so its `latest` remains on the
+stable v2 line until a stable 3.x release. The `next` tag of the `@mimlet/*`
+packages stopped moving at `0.1.0-beta.1`; nothing updates it any more, so do not
+use it to find the current version.
+
+The rule is enforced in three places, and each fails closed:
+
+- `check-workspace.mjs` (run by `pnpm install`, `pnpm check:workspace` and CI)
+  rejects any `publishConfig.tag` that does not match the table.
+- `pnpm release:prepare` copies each package's tag into `manifest.json` as
+  `packages[].distTag`, checks it against the table, and checks that every packed
+  tarball's own `publishConfig.tag` is the same. The top-level `prerelease` flag
+  must match the core version.
+- The publish workflow checks the GitHub prerelease flag against the manifest,
+  repeats the table and tarball checks before any package is published, then runs
+  `npm publish --tag <packages[].distTag>` for each package.
+
+The workflow keeps its own inline copies of the policy and the tarball check;
+`tests/tooling` fails if they differ from the tested functions in `scripts/`.
+
+Still mark a beta's GitHub release as a prerelease: the flag must match the
+versions, but it no longer selects the npm tag. Trusted publishing sets the tag at
+publish time, so no retag is needed after a beta. When the workflow finishes,
+`latest` already points at the new `@mimlet/*` versions.
 
 ## Prepare without publishing
 
@@ -51,7 +88,8 @@ pnpm release:prepare
 worktree. `release:prepare` requires a clean committed tree, refuses to overwrite an
 existing `release` directory, and prepares that directory with all tarballs,
 `manifest.json` and `SHA256SUMS`. The manifest records the source commit, complete
-inventory, versions, distribution tag and SHA-256/SHA-512 digests. Package export
+inventory, versions, each package's distribution tag, the prerelease flag and
+SHA-256/SHA-512 digests. Package export
 and ESM declaration diagnostics run against each actual tarball. Internal dependency
 metadata is checked again after all packages have been packed. No publication
 occurs during these commands.
@@ -114,8 +152,11 @@ The publish job receives the verified artifact inventory rather than rebuilding
 source with publishing credentials. It verifies archive/file identities, sizes,
 digests, package metadata and the complete internal dependency graph before any
 publish. The configured npm CLI publishes the tarballs with lifecycle scripts
-disabled and provenance enabled. Prereleases use `next`; stable releases use `latest`.
-A non-matching tag or channel fails closed.
+disabled and provenance enabled, each with its own verified tag from
+[Distribution tags](#distribution-tags). A tag outside the policy, a tarball whose
+`publishConfig.tag` differs from the manifest, or a GitHub prerelease flag that
+does not match the versions fails closed before the first package is published.
+Do not retag afterwards; check the result with `npm view <package> dist-tags`.
 
 ## Failure, partial release and rollback
 
@@ -124,6 +165,9 @@ existing package versions first. An identical already-published integrity is a
 completed item; a different integrity or a failed registry request stops the job.
 A retry can resume the remaining packages from the same verified artifact set.
 Do not rebuild arbitrary different bytes and claim they are the same release.
+Because betas go straight to `latest`, a partial publish leaves `latest` on the new
+version for some `@mimlet/*` packages and on the previous one for others. Re-run
+the failed workflow run for the same release to finish the train before announcing it.
 
 Preserve the original release artifacts while investigating a partial publish.
 Do not publish a replacement under a conflicting immutable version. Prepare a new
@@ -136,6 +180,14 @@ matching core and Hey API integration), or move to a corrected train. Maintainer
 may deprecate a bad version and adjust distribution tags through their normal
 reviewed npm process. Do not automatically unpublish packages or rewrite Git
 history as a rollback. Never mix a generated v3 client with an incompatible core.
+
+A bad beta reaches `latest` as soon as it is published, so new installs without a
+version pick it up. Prefer publishing a fixed beta through the normal workflow; it
+moves `latest` forward. If users need the previous train before a fix is ready,
+the maintainer can move `latest` back for every affected `@mimlet/*` package with
+`npm dist-tag add <package>@<good version> latest`. This is a manual step that
+needs the maintainer's npm 2FA for each package; the release workflow never
+changes tags after publishing.
 
 This guide describes the release process; the linked release and registry metadata
 provide publication evidence. A published alpha does not authorize releasing

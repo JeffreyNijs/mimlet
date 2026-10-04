@@ -13,11 +13,11 @@ recipes and the [compatibility matrix](https://jeffreynijs.github.io/mimlet/guid
 
 ## Install
 
-Prereleases use npm's `next` tag. Pin exact versions when you need to reproduce
-fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
+Releases, including betas, are published on npm's `latest` tag. Pin exact versions
+when you need to reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
 
 ```sh
-npm install --save-dev @mimlet/zod@next zod@4.6.5
+npm install --save-dev @mimlet/zod zod@4.6.5
 ```
 
 Zod 4.6.5 is the newest tested version; the supported range is 4.4.3 through 4.6.5.

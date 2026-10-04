@@ -17,8 +17,9 @@ Avro contract, and it builds typed fixtures that pass your own validation.
 
 Install only what you use: the core has no dependencies, and each schema library has
 its own small adapter. Hey API users can also generate builder classes from an OpenAPI
-spec with `hey-api-builders`. Releases are published on npm's `next` channel, and the
-[documentation website](https://jeffreynijs.github.io/mimlet/) has guides and a live demo.
+spec with `hey-api-builders`. The toolkit is published on npm's `latest` tag (the
+`hey-api-builders` beta is on `next`), and the [documentation website](https://jeffreynijs.github.io/mimlet/)
+has guides and a live demo.
 To try Mimlet without installing anything, [run the examples in your browser](https://jeffreynijs.github.io/mimlet/guide/try-it.html).
 The sandbox runs locally in the page and uses the beta packages.
 

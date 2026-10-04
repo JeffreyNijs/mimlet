@@ -1,8 +1,8 @@
 # Shrink-aware property fixtures
 
 This optional package targets exactly `fast-check@4.10.2` and the accompanying
-version-matched Mimlet core. Prereleases use npm's `next` tag.
-The core itself does not depend on fast-check.
+version-matched Mimlet core. Releases, including betas, are published on npm's
+`latest` tag. The core itself does not depend on fast-check.
 
 ## Native arbitraries and ordinary builders
 

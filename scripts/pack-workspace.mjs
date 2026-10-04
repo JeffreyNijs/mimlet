@@ -93,17 +93,19 @@ try {
     packages.push({
       name: manifest.name,
       version: manifest.version,
+      // The reviewed source decides the dist-tag; check-workspace enforced the release policy.
+      distTag: manifest.publishConfig.tag,
       filename: packed.filename,
       sha256: digest(data, 'sha256', 'hex'),
       integrity: `sha512-${digest(data, 'sha512', 'base64')}`,
     });
   }
   const manifest = validateReleaseManifest({
-    format: 1,
+    format: 2,
     commit: git(['rev-parse', 'HEAD']),
     coreVersion: workspace.coreVersion,
     tag: `toolkit-v${workspace.coreVersion}`,
-    distTag: workspace.coreVersion.includes('-') ? 'next' : 'latest',
+    prerelease: workspace.coreVersion.includes('-'),
     packages,
   });
   const packedMetadata = [];
@@ -139,8 +141,11 @@ try {
     packages.map((pkg) => `${pkg.sha256}  ${pkg.filename}\n`).join('')
   );
   if (!checking) await rename(temporary, output);
+  const tags = Object.entries(Object.groupBy(manifest.packages, (pkg) => pkg.distTag))
+    .map(([tag, items]) => `${items.length} on ${tag}`)
+    .join(', ');
   console.log(
-    `${checking ? 'Verified' : 'Prepared'} ${packages.length} release tarballs for ${manifest.tag} (${manifest.distTag}); nothing published.`
+    `${checking ? 'Verified' : 'Prepared'} ${packages.length} release tarballs for ${manifest.tag} (${manifest.prerelease ? 'prerelease' : 'stable'}: ${tags}); nothing published.`
   );
 } finally {
   if (existsSync(temporary)) await rm(temporary, { recursive: true, force: true });

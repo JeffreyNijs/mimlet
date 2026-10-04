@@ -133,7 +133,7 @@ test('desktop, mobile and dark layouts remain usable and accessible', async ({ p
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
     await page.goto('./');
     await expect(page.getByRole('heading', { name: 'Test data, with character.' })).toBeVisible();
-    await expect(page.getByText('Available on npm’s next channel.')).toBeVisible();
+    await expect(page.getByText('Available on npm’s latest tag.')).toBeVisible();
     expect(
       await page.evaluate(
         () => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth

@@ -35,7 +35,7 @@ npm init -y
 npm install --save-dev @mimlet/core@0.1.0-beta.1 @mimlet/zod@0.1.0-beta.1 @mimlet/fast-check@0.1.0-beta.1 zod@4.6.5 fast-check@4.10.2
 ```
 
-Keep `package-lock.json`. Do not substitute floating `next` tags in a reproduction.
+Keep `package-lock.json`. Do not substitute floating tags such as `latest` or `next` in a reproduction.
 See [getting started](getting-started.md) and [compatibility](compatibility.md) for
 ESM, native peer and TypeScript boundaries. Stop and report the first blocker;
 maintainer help is useful feedback but does not count as an unassisted completion.

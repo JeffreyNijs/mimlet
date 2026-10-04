@@ -15,8 +15,8 @@ for inline examples, or follow the tested recipe source links below.
 
 ## Install the beta
 
-The coordinated beta is available on npm's `next` channel: `@mimlet/*` packages
-at `0.1.0-beta.1`, alongside `hey-api-builders@3.0.0-beta.1`. Pin matching versions
+The coordinated beta is published on npm: `@mimlet/*` packages at `0.1.0-beta.1` on
+the `latest` tag, alongside `hey-api-builders@3.0.0-beta.1` on `next`. Pin matching versions
 when reproducing fixtures or generated clients. The existing Hey API `latest` tag
 remains on v2.
 

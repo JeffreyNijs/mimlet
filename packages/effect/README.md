@@ -10,7 +10,7 @@ Pin exact versions when you need to reproduce fixtures; see
 
 ```sh
 # Effect 4
-npm install --save-dev @mimlet/core@next @mimlet/effect@next effect@4.0.0
+npm install --save-dev @mimlet/core @mimlet/effect effect@4.0.0
 # Effect 3
 npm install --save-dev @mimlet/core@0.1.0-alpha.3 @mimlet/effect@0.1.0-alpha.3 effect@3.22.2
 ```

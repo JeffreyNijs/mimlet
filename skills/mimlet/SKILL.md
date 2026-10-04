@@ -8,7 +8,7 @@ description: Use Mimlet to create typed test fixtures, native-schema builders, c
 Mimlet is a modular schema-aware test-data toolkit. This is an optional product
 skill, not permission to install dependencies, change unrelated code, or replace
 the user's chosen library. The current beta is
-`@mimlet/*@0.1.0-beta.1` on npm's `next` channel. Inspect the installed versions
+`@mimlet/*@0.1.0-beta.1` on npm's `latest` tag. Inspect the installed versions
 and use the matching documented APIs.
 
 Use `fluent(fromZod(schema), ['name'])` for direct named setters when the installed

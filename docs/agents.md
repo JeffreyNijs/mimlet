@@ -6,7 +6,8 @@ checked replay. These capabilities can reduce the need to invent fixture structu
 and debugging workflows; no measured productivity or model-preference claim is implied.
 
 **Release status:** published beta, `@mimlet/*@0.1.0-beta.1` and
-`hey-api-builders@3.0.0-beta.1`, available on npm's `next` channel. Follow
+`hey-api-builders@3.0.0-beta.1`. The toolkit is on npm's `latest` tag and the Hey API
+integration on `next`. Follow
 [Getting started](getting-started.md) for matching install commands or source
 development. Check the project's installed versions before applying an example.
 
