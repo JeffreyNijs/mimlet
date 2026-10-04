@@ -91,18 +91,35 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
   });
 }
 
+/**
+ * The builder `fromZod(schema, options)` returns: synchronous, with the schema's input and
+ * output types and an optional session. Name it as a generic helper's return type.
+ */
+export type ZodBuilder<S extends z.$ZodType> = SchemaBuilder<
+  z.input<S>,
+  z.output<S>,
+  [session?: GenerationSession]
+>;
+
+/**
+ * The builder `fromZodFactory(schema, factory, options)` returns for a factory of type `F`:
+ * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
+ * the factory's own type as `F`. As with the function, sync or async is decided once `S` is known.
+ */
+export type ZodFactoryBuilder<
+  S extends z.$ZodType,
+  F extends (...args: never[]) => z.input<S> | PromiseLike<z.input<S>>,
+> = SchemaBuilderFor<StandardSchemaV1<z.input<S>, z.output<S>>, F>;
+
 /** Generate input metadata and validate synchronously through the original Zod schema. */
-export function fromZod<S extends z.$ZodType>(
-  source: S,
-  options: ZodOptions = {}
-): SchemaBuilder<z.input<S>, z.output<S>, [session?: GenerationSession]> {
+export function fromZod<S extends z.$ZodType>(source: S, options: ZodOptions = {}): ZodBuilder<S> {
   const adapter = zodAdapter(source, options);
   const { session: defaultSession } = adapter.generation();
   // Successful JSON preparation guarantees synchronous, non-thenable generation.
   return createSchemaBuilder(adapter.standard, adapter.create, {
     ...options,
     defaultSession,
-  }) as unknown as SchemaBuilder<z.input<S>, z.output<S>, [session?: GenerationSession]>;
+  }) as unknown as ZodBuilder<S>;
 }
 
 /** Async refinements and codecs run once through safeParseAsync, without a sync probe. */
@@ -123,11 +140,7 @@ export function fromZodAsync<S extends z.$ZodType>(
 export function fromZodFactory<
   S extends z.$ZodType,
   F extends (...args: never[]) => NoInfer<z.input<S>> | PromiseLike<NoInfer<z.input<S>>>,
->(
-  source: S,
-  factory: F,
-  options: ZodOptions = {}
-): SchemaBuilderFor<StandardSchemaV1<z.input<S>, z.output<S>>, F> {
+>(source: S, factory: F, options: ZodOptions = {}): ZodFactoryBuilder<S, F> {
   return createSchemaBuilder(zodAdapter(source, options).standard, factory, options);
 }
 

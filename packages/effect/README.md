@@ -54,6 +54,16 @@ const adults = fromEffectFactory(schema, (session: GenerationSession) => ({
 const adult = adults.buildValidated(session);
 ```
 
+A generic helper's return type can stay inferred. When a lint rule such as
+`@typescript-eslint/explicit-function-return-type` requires one, name the builder
+for a `Schema.Codec<A, I>`: `fromEffect(schema)` returns `EffectBuilder<A, I>` and
+`fromEffectFactory(schema, factory)` returns `EffectFactoryBuilder<A, I, F>`, where
+`F` is the factory's type, for example `(session: GenerationSession) => I`.
+`fromEffectAsync(schema)` returns `AsyncSchemaBuilder<I, A, [session: GenerationSession]>`
+from `@mimlet/core`. Each type is exactly what its function returns. While `I` is
+unresolved, TypeScript cannot tell whether the factory returns a promise, so call
+`.with()` and `.withFactory()` on a factory builder where the helper is called.
+
 `effectFields(schema)` lists a struct's top-level keys as encoded, which is what
 builders take: a key renamed with `Schema.encodeKeys` is listed by its encoded name.
 Pass it to `fluent()` from `@mimlet/core` for a `withX()` setter per field. It reads

@@ -62,3 +62,65 @@ invoices.with({ customerId: 'c' });
 effectFields(S.String);
 // @ts-expect-error A nullable root has no single field list.
 effectFields(S.NullOr(Invoice));
+
+// Named builder types give a generic helper an explicit return type that is exactly what
+// the entry point returns, for lint rules such as explicit-function-return-type.
+import type { BuilderPatch } from '@mimlet/core';
+import type { EffectBuilder, EffectFactoryBuilder } from '@mimlet/effect';
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
+declare function exact<T extends true>(): T;
+
+function patchedRows<A, I extends object>(
+  source: S.Codec<A, I>,
+  defaults: () => BuilderPatch<I>
+): EffectBuilder<A, I> {
+  return fromEffect(source).withFactory(defaults);
+}
+expectType<{ readonly age: number }>(
+  patchedRows(schema, () => ({ age: '1' })).buildValidated(session)
+);
+function dtoBuilder<A, I>(
+  source: S.Codec<A, I>,
+  create: (session: GenerationSession) => I
+): EffectFactoryBuilder<A, I, (session: GenerationSession) => I> {
+  return fromEffectFactory(source, create);
+}
+function inferredDtoBuilder<A, I>(
+  source: S.Codec<A, I>,
+  create: (session: GenerationSession) => I
+) {
+  return fromEffectFactory(source, create);
+}
+exact<
+  Equal<
+    ReturnType<typeof dtoBuilder<{ readonly age: number }, { readonly age: string }>>,
+    ReturnType<typeof inferredDtoBuilder<{ readonly age: number }, { readonly age: string }>>
+  >
+>();
+const dtos = dtoBuilder(schema, () => ({ age: '1' }));
+expectType<{ readonly age: number }>(dtos.with({ age: '2' }).buildValidated(session));
+expectType<{ readonly age: number }>(
+  fluent(dtos, effectFields(schema)).withAge('3').buildValidated(session)
+);
+// @ts-expect-error Patches stay encoded-input typed.
+dtos.with({ age: 2 });
+function loadedDtos<A, I>(
+  source: S.Codec<A, I>,
+  load: () => Promise<I>
+): EffectFactoryBuilder<A, I, () => Promise<I>> {
+  return fromEffectFactory(source, load);
+}
+const loaded = loadedDtos(schema, async () => ({ age: '1' }));
+expectType<Promise<{ readonly age: number }>>(loaded.buildValidatedAsync());
+// @ts-expect-error An async factory never advertises synchronous builds.
+loaded.buildValidated();
+function bothWays<A, I>(source: S.Codec<A, I>, create: () => I): void {
+  const inferred = fromEffectFactory(source, create);
+  const named: EffectFactoryBuilder<A, I, () => I> = inferred;
+  const back: typeof inferred = named;
+  exact<Equal<typeof inferred, EffectFactoryBuilder<A, I, () => I>>>();
+  exact<Equal<ReturnType<typeof fromEffect<A, I>>, EffectBuilder<A, I>>>();
+  void back;
+}
+void bothWays;

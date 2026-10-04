@@ -1,5 +1,10 @@
 import { expect, expectTypeOf, it } from 'vitest';
-import { createBuilder, createSession, fluent } from '../../packages/core/src/index.js';
+import {
+  createBuilder,
+  createBuilderClass,
+  createSession,
+  fluent,
+} from '../../packages/core/src/index.js';
 import {
   fromZod,
   fromZodFactory,
@@ -107,4 +112,71 @@ it('adds a setter per schema field from generic helpers for every adapter', () =
   const standard = valibotAdapter(v.object({ name: v.string() })).standard;
   const json = fluent(fromStandardJsonSchema(standard), standardJsonSchemaFields(standard));
   expect(json.withName('Ada').buildValidated()).toEqual({ name: 'Ada' });
+});
+
+it('combines the setters of a shared helper with per-builder tuples and aliases', async () => {
+  // The shared helper gives every model a setter per field; each builder adds its own names.
+  const rows = <S extends TObject>(schema: S) => fluent(fromTypeBox(schema), typeBoxFields(schema));
+  const User = Type.Object({ id: Type.String(), user_name: Type.String(), age: Type.Number() });
+  const users = fluent(rows(User), { withKey: 'id', withLogin: 'user_name' });
+  expectTypeOf(users.withAge).parameter(0).toEqualTypeOf<number>();
+  expectTypeOf(users.withLogin).parameter(0).toEqualTypeOf<string>();
+  expectTypeOf(users.withAge(1)).toEqualTypeOf(users);
+  const built = users.withKey('u-1').withLogin('ada').withAge(36).buildValidated();
+  expect(built).toEqual({ id: 'u-1', user_name: 'ada', age: 36 });
+  expect(fluent(rows(User), ['id']).withId('a').withAge(1).buildValidated()).toEqual({
+    id: 'a',
+    user_name: '',
+    age: 1,
+  });
+  // A generic helper can nest schema field lists.
+  const legacyRows = <S extends LegacyObject>(schema: S) =>
+    fluent(fluent(fromLegacy(schema), legacyFields(schema)), legacyFields(schema));
+  expect(
+    legacyRows(Legacy.Object({ id: Legacy.String() }))
+      .withId('b')
+      .buildValidated()
+  ).toEqual({
+    id: 'b',
+  });
+  const zod = fluent(fluent(fromZod(z.object({ age: z.string().transform(Number) })), ['age']), {
+    withYears: 'age',
+  });
+  expectTypeOf(zod.withYears).parameter(0).toEqualTypeOf<string>();
+  expect(
+    await zod
+      .withAge('3')
+      .transformAsync(async (value) => value)
+      .withYears('4')
+      .buildValidatedAsync()
+  ).toEqual({ age: 4 });
+  expect(() => fluent(rows(User), { withAge: 'id' })).toThrow(TypeError);
+});
+
+it('lets an explicit setter replace a generated class method, with its own type', async () => {
+  class Users extends createBuilderClass((id: number) => ({ id, name: '', admin: false })) {
+    withName(name: string) {
+      return this.with({ name: name.toUpperCase() });
+    }
+    promoted() {
+      return this.with({ admin: true });
+    }
+  }
+  const users = fluent(new Users(), { withName: 'admin' });
+  // The setter's signature replaces the class method's; there is no overload of both.
+  expectTypeOf(users.withName).toEqualTypeOf<(value: boolean) => typeof users>();
+  expectTypeOf(users.promoted).toEqualTypeOf<() => typeof users>();
+  expect(users.withName(true).with({ name: 'ada' }).build(1)).toEqual({
+    id: 1,
+    name: 'ada',
+    admin: true,
+  });
+  const asynchronous = users.transformAsync(async (value) => value).withName(false);
+  expect(await asynchronous.promoted().withName(false).buildAsync(2)).toEqual({
+    id: 2,
+    name: '',
+    admin: false,
+  });
+  // A list leaves the class method in place.
+  expect(fluent(new Users(), ['id']).withName('ada').build(3).name).toBe('ADA');
 });

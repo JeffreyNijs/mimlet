@@ -97,12 +97,19 @@ const orderWithUser = (order = orders.buildValidated()) => ({
 ordersRepository.findUnique.mockResolvedValue(orderWithUser());
 ```
 
-Leave the function's return type inferred. TypeScript checks for excess
-properties only on an object literal written directly where a narrower type is
-expected, so `mockResolvedValue({ ...order, user })` fails with TS2353 or TS2561
-against a row type without `user`, while a value returned from a function or held
-in a `const` is checked structurally and passes. Use a scenario when several
-relations must share generated keys or a session.
+Don't type the function's return as the row type alone. TypeScript checks for
+excess properties only on an object literal written directly where a narrower type
+is expected, so `mockResolvedValue({ ...order, user })` fails with TS2353 or TS2561
+against a row type without `user`, and so does a function declared to return that
+row. A value returned from a function or held in a `const` is checked structurally
+and passes. Leave the return type inferred, or, when a lint rule such as
+`@typescript-eslint/explicit-function-return-type` requires one, name the row with
+its relation, such as `Order & { user: User }` with your model types. Use a scenario
+when several relations must share generated keys or a session.
+
+A function that returns a scenario can name it the same way: `Scenario<T>` from
+`@mimlet/core`, where `T` maps each node name to its value, or `Scenario<T, true>`
+when a node, override or trait is async.
 
 ## Writing scenarios to a database
 

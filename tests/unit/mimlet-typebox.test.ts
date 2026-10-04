@@ -65,3 +65,27 @@ it('fills formats, patterns, unique arrays, unions and bounds deterministically 
   expect(() => fromTypeBox(Order).build()).toThrow(BuilderGenerationError);
   expect(() => fromTypeBox(Order).build()).toThrow(/at \/code: no fill\.patterns candidate/);
 });
+
+it('creates unions with a Null member as null with fill.nullable', () => {
+  const Profile = Type.Object({
+    name: Type.Union([Type.String(), Type.Null()]),
+    verifiedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    chosen: Type.Union([Type.String(), Type.Null()], { default: 'kept' }),
+  });
+  expect(fromTypeBox(Profile).buildValidated()).toEqual({
+    name: '',
+    verifiedAt: '2000-01-01T00:00:00.000Z',
+    chosen: 'kept',
+  });
+  expect(fromTypeBox(Profile, { fill: { nullable: 'null' } }).buildValidated()).toEqual({
+    name: null,
+    verifiedAt: null,
+    chosen: 'kept',
+  });
+  expect(typeBoxAdapter(Profile, { fill: { nullable: 'value' } }).identity).toEqual(
+    typeBoxAdapter(Profile).identity
+  );
+  expect(typeBoxAdapter(Profile, { fill: { nullable: 'null' } }).identity.configuration).not.toBe(
+    typeBoxAdapter(Profile).identity.configuration
+  );
+});

@@ -181,6 +181,92 @@ for (const [name, T, api, Value, check] of [
           /could not create a valid default fixture/.test(error.message)
       );
     });
+    it('creates unions with a Null member as null with fill.nullable', () => {
+      // Elysia's t.Nullable(x), recreated from TypeBox primitives: the Null member comes last.
+      const Nullable = (schema, options) =>
+        T.Union([schema, T.Null()], { ...options, nullable: true });
+      const Profile = T.Object({
+        name: Nullable(T.String()),
+        age: Nullable(T.Integer({ minimum: 18 })),
+        address: Nullable(T.Object({ street: T.String() })),
+        nullFirst: T.Union([T.Null(), T.String()]),
+        role: T.Union([T.Literal('admin'), T.Null()]),
+        empty: T.Union([T.String(), T.Null(), T.Undefined()]),
+        nested: T.Union([T.String(), Nullable(T.Number())]),
+        none: T.Null(),
+        skipped: T.Optional(Nullable(T.String())),
+        chosen: Nullable(T.String(), { default: 'kept' }),
+        member: Nullable(T.String({ default: 'member' })),
+        code: Nullable(T.String({ pattern: '^A$' })),
+        list: T.Array(Nullable(T.String()), { minItems: 2 }),
+        noItems: T.Array(Nullable(T.String())),
+        keys: T.Record(T.Union([T.Literal('a'), T.Literal('b')]), Nullable(T.Number())),
+        open: T.Record(T.String(), Nullable(T.Number())),
+        pair: T.Tuple([Nullable(T.String()), T.Number()]),
+        both: T.Intersect([
+          T.Object({ note: Nullable(T.String()) }),
+          T.Object({ count: T.Number() }),
+        ]),
+      });
+      const values = {
+        name: '',
+        age: 18,
+        address: { street: '' },
+        nullFirst: null,
+        role: 'admin',
+        empty: '',
+        nested: '',
+        none: null,
+        chosen: 'kept',
+        member: 'member',
+        code: null,
+        list: ['', ''],
+        noItems: [],
+        keys: { a: 0, b: 0 },
+        open: {},
+        pair: ['', 0],
+        both: { note: '', count: 0 },
+      };
+      // The default keeps member order, as before the option existed.
+      assert.deepEqual(api.fromTypeBox(Profile).buildValidated(), values);
+      assert.deepEqual(api.fromTypeBox(Profile, { fill: { nullable: 'value' } }).build(), values);
+      const nulls = { fill: { nullable: 'null' } };
+      const value = api.fromTypeBox(Profile, nulls).buildValidated();
+      assert.equal(check(Profile, value), true);
+      assert.deepEqual(value, {
+        name: null,
+        age: null,
+        address: null,
+        nullFirst: null,
+        role: null,
+        empty: null,
+        nested: null,
+        none: null,
+        // A union's own default wins; a default on the other member does not.
+        chosen: 'kept',
+        member: null,
+        code: null,
+        list: [null, null],
+        noItems: [],
+        keys: { a: null, b: null },
+        open: {},
+        pair: [null, 0],
+        both: { note: null, count: 0 },
+      });
+      assert.equal(Object.hasOwn(value, 'skipped'), false, 'optional properties stay absent');
+      // Overrides are checked against the original schema, not the creation copy.
+      assert.equal(
+        api.fromTypeBox(Profile, nulls).with({ name: 'Ada' }).buildValidated().name,
+        'Ada'
+      );
+      // fill: false is plain native creation, which uses the first member.
+      const Owner = Nullable(T.Object({ name: Nullable(T.String()) }));
+      assert.deepEqual(api.fromTypeBox(Owner, { fill: false }).build(), { name: '' });
+      assert.equal(api.fromTypeBox(Owner, nulls).buildValidated(), null);
+      // An explicit variant still builds that member, with null inside it.
+      assert.deepEqual(api.fromTypeBoxVariant(Owner, 0, nulls).buildValidated(), { name: null });
+      assert.equal(api.fromTypeBoxVariant(Owner, 1, nulls).buildValidated(), null);
+    });
     it('chooses values inside exclusive and one-sided bounds', () => {
       const Bounds = T.Object({
         between: T.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1 }),
@@ -252,6 +338,9 @@ for (const [name, T, api, Value, check] of [
         { formats: { uuid: 1 } },
         { patterns: 'x' },
         { patterns: [1] },
+        { nullable: true },
+        { nullable: null },
+        { nullable: 'first' },
       ]) {
         assert.throws(() => api.fromTypeBox(T.String(), { fill }), TypeError);
       }
@@ -320,6 +409,45 @@ describe('typebox: modern-only shapes', () => {
       () => modern.fromTypeBox(Type.Object({ bad: Type.Ref('Bad') }), { context }).build(),
       generationError(/at \/code of reference "Bad": no fill\.patterns candidate/)
     );
+  });
+});
+
+describe('typebox: fill.nullable through references', () => {
+  it('creates nullable unions in context and cyclic definitions as null', () => {
+    const nulls = { fill: { nullable: 'null' } };
+    const context = {
+      Address: Type.Object({ street: Type.Union([Type.String(), Type.Null()]) }),
+      MaybeAddress: Type.Union([Type.Ref('Address'), Type.Null()]),
+    };
+    const Person = Type.Object({
+      home: Type.Ref('Address'),
+      work: Type.Ref('MaybeAddress'),
+      billing: Type.Union([Type.Ref('Address'), Type.Null()]),
+    });
+    assert.deepEqual(modern.fromTypeBox(Person, { context }).buildValidated(), {
+      home: { street: '' },
+      work: { street: '' },
+      billing: { street: '' },
+    });
+    assert.deepEqual(modern.fromTypeBox(Person, { context, ...nulls }).buildValidated(), {
+      home: { street: null },
+      work: null,
+      billing: null,
+    });
+    const Node = Type.Cyclic(
+      {
+        Node: Type.Object({
+          note: Type.Union([Type.String(), Type.Null()]),
+          parent: Type.Union([Type.Ref('Node'), Type.Null()]),
+        }),
+      },
+      'Node'
+    );
+    assert.deepEqual(modern.fromTypeBox(Node).buildValidated(), { note: '', parent: null });
+    assert.deepEqual(modern.fromTypeBox(Node, nulls).buildValidated(), {
+      note: null,
+      parent: null,
+    });
   });
 });
 
@@ -396,6 +524,48 @@ describe('@sinclair/typebox: dates and Elysia shapes', () => {
       assert.deepEqual(uploads.buildValidated(), output);
       assert.ok(legacy.fromTypeBox(Legacy.Uint8Array()).build() instanceof Uint8Array);
     }));
+  it('creates Elysia t.Nullable() shapes as null with fill.nullable', () => {
+    // Elysia's t.Nullable(x), recreated from TypeBox primitives: the Null member comes last.
+    const Nullable = (schema, options) =>
+      Legacy.Union([schema, Legacy.Null()], { ...options, nullable: true });
+    const nulls = { fill: { nullable: 'null' } };
+    const User = Legacy.Object(
+      { id: Legacy.Number(), nick: Nullable(Legacy.String()) },
+      { $id: 'User' }
+    );
+    const Account = Legacy.Object({
+      verifiedAt: Nullable(ElysiaDate),
+      avatar: Legacy.Optional(Nullable(Legacy.String())),
+      owner: Legacy.Ref(User),
+      manager: Nullable(Legacy.Ref(User)),
+    });
+    const account = legacy.fromTypeBox(Account, { references: [User] }).buildValidated();
+    assert.equal(account.verifiedAt.toISOString(), reference);
+    assert.deepEqual(account.manager, { id: 0, nick: '' });
+    assert.deepEqual(
+      legacy.fromTypeBox(Account, { references: [User], ...nulls }).buildValidated(),
+      { verifiedAt: null, owner: { id: 0, nick: null }, manager: null }
+    );
+    const Module = Legacy.Module({
+      A: Legacy.Object({ b: Legacy.Ref('B'), c: Nullable(Legacy.Ref('B')) }),
+      B: Legacy.Object({ note: Nullable(Legacy.String()) }),
+    });
+    assert.deepEqual(legacy.fromTypeBox(Module.Import('A')).buildValidated(), {
+      b: { note: '' },
+      c: { note: '' },
+    });
+    assert.deepEqual(legacy.fromTypeBox(Module.Import('A'), nulls).buildValidated(), {
+      b: { note: null },
+      c: null,
+    });
+    const Tree = Legacy.Recursive((Self) =>
+      Legacy.Object({ label: Nullable(Legacy.String()), parent: Nullable(Self) })
+    );
+    assert.deepEqual(legacy.fromTypeBox(Tree, nulls).buildValidated(), {
+      label: null,
+      parent: null,
+    });
+  });
   it('fills recursive schemas, modules and references', () =>
     withFormats(() => {
       const Tree = Legacy.Recursive((Self) =>

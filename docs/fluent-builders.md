@@ -56,6 +56,10 @@ In a generic helper, type the schema parameter as an object schema of that libra
 `S extends v.ObjectSchema<v.ObjectEntries, undefined>` (Valibot),
 `S extends Type<object>` (ArkType), or `schema: Schema.Codec<A, I>` with
 `I extends object` (Effect). The setter types resolve where the helper is called.
+If a lint rule requires an explicit return type, the helper returns
+`FluentFieldsBuilder<B, K>` from `@mimlet/core`: `B` is the builder type, such as
+`TypeBoxBuilder<S>` or `ZodBuilder<S>`, and `K` the type of the listed names, such
+as `Extract<keyof S['properties'], string>` for TypeBox.
 
 The functions read the schema only. They never run a factory or generate data, so
 they also work with factory builders such as `fromZodFactory()` and
@@ -103,6 +107,43 @@ top-level input fields; `fluent()` accepts the result. Read the names from the
 schema, never from a fixture, and list every field: a missing name would type a
 setter that does not exist at runtime. Type the result with the schema's input keys,
 for example `schemaFields(Object.keys(shape) as Extract<keyof Input, string>[])`.
+
+## Nesting combines setters
+
+`fluent()` keeps the methods of the builder it wraps, so calls can be nested. A
+shared helper can give every model a setter per field, and a builder can add its
+own tuple or aliases on top, as `payments` does in the recipe above:
+
+```ts
+const payments = fluent(rows(Order), { withReference: 'id' });
+payments.withReference('pay-7').withStatus('PAID'); // withStatus() comes from rows()
+```
+
+`fluent(fluent(builder, a), b)` behaves like one builder with the setters of `a` and
+`b`, in the types and at runtime. Both sets survive `.with()`, `.replace()`,
+`.withFactory()`, `.omit()`, `.transform()`, async transitions, validation and every
+build method, and each setter returns the outer builder. Methods of a generated or
+hand-written class facade are kept the same way; its instance fields and getters
+are not. Nested setters need `0.1.0-beta.2` or newer; earlier versions dropped the
+inner setters.
+
+A new name for a field that already has a setter is allowed, and both setters
+exist. When the outer call names a method the wrapped builder already has:
+
+| The name belongs to                           | Tuple or alias map              | Schema field list                  |
+| --------------------------------------------- | ------------------------------- | ---------------------------------- |
+| an inner `fluent()` setter for the same field | allowed, adds nothing           | skipped                            |
+| an inner `fluent()` setter for another field  | throws a `TypeError`            | skipped, the inner setter keeps it |
+| a method of a generated or hand-written class | replaces the method, as before  | skipped, the class method keeps it |
+| a builder method such as `withFactory()`      | throws a `TypeError`, as before | skipped, as before                 |
+
+So `fluent(rows(Order), ['id'])` is fine, and `fluent(new CartBuilder(), ['couponCode'])`
+still replaces the generated `withCouponCode()` with a setter for `couponCode`, in
+the types too. The replacing setter survives the same operations as any other.
+
+Explicit tuples and alias maps need a concrete input type, nested or not, so a
+generic helper cannot add one: add it where the helper is called. Nested schema
+field lists work inside generic helpers.
 
 ## Checked-in classes
 

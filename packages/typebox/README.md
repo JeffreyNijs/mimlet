@@ -39,6 +39,7 @@ const output = events.with({ timestamp: 1000 }).buildValidated();
 - **Patterns.** There is no regular expression solver. `fill.patterns` lists candidate strings, and a pattern string uses the first one that passes its own check (pattern, format and length).
 - **Unique arrays.** One item is always unique. For more, the items must be literals, an enum or booleans, and the array takes the first `minItems` distinct values.
 - **Unions.** Members are tried in order, once each. The first created value that passes the whole union is used.
+- **Nullable unions.** By default a union with a `Null` member follows the same order: `Type.Union([Type.String(), Type.Null()])` is created as `''` and `Type.Union([Type.Null(), Type.String()])` as `null`. `fill.nullable: 'null'` creates every union with a `Null` member as `null`, as if `Null` came first. See [Nullable fields](#nullable-fields).
 - **Bounds.** A number whose native value is outside its `exclusiveMinimum`, `exclusiveMaximum` or `maximum` gets a value inside them, such as `0.5` for `exclusiveMinimum: 0` and `exclusiveMaximum: 1`.
 
 Schemas in `context` are filled too. An unfillable one fails only when creation reaches it.
@@ -59,6 +60,29 @@ orders.buildValidated();
 ```
 
 `fill.now` sets a fixed instant instead of the session's reference time. `fill: false` turns the fill off and uses plain `Value.Create`.
+
+#### Nullable fields
+
+A nullable field written as `Type.Union([x, Type.Null()])` puts `Null` last, so it is created as `x`'s value: `''`, `0`, a date or a whole object. (Elysia's `t.Nullable(x)` builds the same shape with `@sinclair/typebox`; use `@mimlet/typebox-legacy` for it.) When fixtures should leave nullable fields empty, set `fill.nullable` to `'null'`:
+
+```ts
+const Profile = Type.Object({
+  name: Type.String(),
+  verifiedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+});
+fromTypeBox(Profile).build();
+// { name: '', verifiedAt: '2000-01-01T00:00:00.000Z' }
+fromTypeBox(Profile, { fill: { nullable: 'null' } }).build();
+// { name: '', verifiedAt: null }
+```
+
+With `'null'`, every union with a `Null` member is created as `null`: in properties, array items, tuples, records with fixed keys, intersections, schemas in `context` and cyclic definitions. A member that is itself a nullable union counts too, so `Type.Union([Type.String(), Type.Union([Type.Number(), Type.Null()])])` is `null`. Some cases keep their value:
+
+- A union with its own `default` keeps it. A `default` on the other member does not count.
+- Optional properties stay absent, because native creation leaves them out.
+- `fromTypeBoxVariant(union, index)` still builds the member you select.
+
+The default, `'value'`, keeps the member order described above. The setting is part of the adapter's replay identity, so a session recorded with one setting does not replay with the other.
 
 When a value still cannot be created, `BuilderGenerationError` names its location, such as `/lines/*/code` (`*` stands for any array item), keeps the native error as its `cause`, and recommends a fill option or a custom factory. The message never contains fixture values. This happens for a format without a sample, a pattern without a fitting candidate, and a unique array that needs more distinct values than its literals provide. A failure to create a value is not a proof that the schema is unsatisfiable.
 
@@ -90,21 +114,44 @@ TypeScript types the callback's session as optional, but the builder always pass
 
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results:
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
+
+A helper's return type can stay inferred. When a lint rule such as `@typescript-eslint/explicit-function-return-type` requires one, name the builder the helper returns. Each type is exactly what its function returns, also for a schema type parameter:
+
+| Entry point                                    | Builder type                     |
+| ---------------------------------------------- | -------------------------------- |
+| `fromTypeBox(schema, options)`                 | `TypeBoxBuilder<S, C>`           |
+| `fromTypeBoxFactory(schema, factory, options)` | `TypeBoxFactoryBuilder<S, F, C>` |
+| `fromTypeBoxVariant(union, index, options)`    | `TypeBoxVariantBuilder<S, I, C>` |
+
+`F` is the factory's type and `C` the `context` type, which you can leave out when you pass no `context`.
 
 ```ts
 import type { BuilderPatch } from '@mimlet/core';
-import type { StaticEncode, TObject } from 'typebox';
-import { fromTypeBox } from '@mimlet/typebox';
+import type { StaticEncode, TObject, TSchema } from 'typebox';
+import { fromTypeBox, fromTypeBoxFactory } from '@mimlet/typebox';
+import type { TypeBoxBuilder, TypeBoxFactoryBuilder } from '@mimlet/typebox';
 
-function rows<S extends TObject>(schema: S, defaults: () => BuilderPatch<StaticEncode<S>>) {
+function rows<S extends TObject>(
+  schema: S,
+  defaults: () => BuilderPatch<StaticEncode<S>>
+): TypeBoxBuilder<S> {
   return fromTypeBox(schema).withFactory(defaults);
 }
-const events = rows(Event, () => ({ id: 'event-2' }));
-events.buildValidatedList(2);
+rows(Event, () => ({ id: 'event-2' })).buildValidatedList(2);
+
+function dtos<S extends TSchema>(
+  schema: S,
+  create: () => StaticEncode<S>
+): TypeBoxFactoryBuilder<S, () => StaticEncode<S>> {
+  return fromTypeBoxFactory(schema, create);
+}
+dtos(Event, () => ({ id: 'event-3', timestamp: 3 }))
+  .with({ timestamp: 4 })
+  .buildValidated();
 ```
 
-TypeScript cannot tell whether a custom factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so `fromTypeBoxFactory()` resolves its sync or async methods at the call site. Leave such a helper's return type inferred; the `fromTypeBox()` type does not describe a custom-factory builder.
+TypeScript cannot tell whether a factory typed `() => StaticEncode<S>` returns a promise while `S` is unresolved, so a factory builder gets its sync or async methods where the helper is called. There, `dtos(Event, ...)` has `build()` and `buildValidated()`, and a helper typed `TypeBoxFactoryBuilder<S, () => Promise<StaticEncode<S>>>` has only the async methods. `F` also carries the factory's arguments: a builder typed `TypeBoxFactoryBuilder<S, (id: string) => StaticEncode<S>>` builds with `build(id)`. Inside the helper these methods are not known yet, so call `.with()` and `.withFactory()` on the helper's result, or put the defaults in the factory. `fluent()` also works inside the helper. `TypeBoxBuilder` does not describe a factory builder.
 
 ### Named setters for every field
 
@@ -121,7 +168,7 @@ function rows<S extends TObject>(schema: S) {
 rows(Order).withStatus('PAID').buildValidated();
 ```
 
-For a selected union branch, pass that branch: `fluent(fromTypeBoxVariant(Pet, 1), typeBoxFields(Pet.anyOf[1]))`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
+With an explicit return type, that helper returns `FluentFieldsBuilder<TypeBoxBuilder<S>, Extract<keyof S['properties'], string>>`, using `FluentFieldsBuilder` from `@mimlet/core`. For a selected union branch, pass that branch: `fluent(fromTypeBoxVariant(Pet, 1), typeBoxFields(Pet.anyOf[1]))`. Schemas without `properties`, such as unions and references, throw a `TypeError`. Names that two fields share or that are builder methods (a field named `factory`) get no setter; see [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#a-setter-for-every-schema-field).
 
 ## Strict checking, codecs and references
 
