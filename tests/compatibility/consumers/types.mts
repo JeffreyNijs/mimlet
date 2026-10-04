@@ -8,6 +8,9 @@ const response = jsonResponseResolver((request) => ({ method: request.method }))
 expectType<Promise<Response>>(response(new Request('https://example.invalid')));
 // @ts-expect-error A native Request is required, not a URL string.
 response('https://example.invalid');
+// DOM projects keep passing their own HeadersInit values.
+declare const init: HeadersInit;
+jsonResponseResolver(() => ({}), { headers: init });
 const result = persistFixtureBatch(
   2,
   (index, ctx: { prefix: string }) => ({ id: ctx.prefix + index }),

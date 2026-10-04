@@ -104,3 +104,33 @@ it('honours readOnly and writeOnly beside $ref in OpenAPI 3.1 only', () => {
   const legacy = openApi(document('3.0.3')).request({ operationId: 'create' });
   expect(legacy.check({ body: { name: 'Crate', secret: 'T-001' } })).toBe(false);
 });
+
+it('serializes bodies that native Fetch accepts, copying shared memory', async () => {
+  const shared = new Uint8Array(new SharedArrayBuffer(2));
+  shared.set([1, 2]);
+  const codecs = { 'application/octet-stream': { encode: () => shared } };
+  const api = openApi({
+    openapi: '3.1.0',
+    paths: {
+      '/files': {
+        put: {
+          operationId: 'upload',
+          requestBody: { required: true, content: { 'application/octet-stream': {} } },
+          responses: { '200': { content: { 'application/octet-stream': {} } } },
+        },
+      },
+    },
+  });
+  const request = api
+    .request({ operationId: 'upload' })
+    .serialize({ body: 'x' }, { baseUrl: 'https://example.com', codecs });
+  const response = api
+    .response({ operationId: 'upload', status: 200 })
+    .serialize({ body: 'x' }, { codecs });
+  shared.set([3, 4]);
+  // Type-checked with lib.dom: serialized bodies are BodyInit values.
+  const fetched = new Request(request.url, { method: request.method, body: request.body ?? null });
+  const native = new Response(response.body ?? null, { status: response.status });
+  expect([...new Uint8Array(await fetched.arrayBuffer())]).toEqual([1, 2]);
+  expect([...new Uint8Array(await native.arrayBuffer())]).toEqual([1, 2]);
+});

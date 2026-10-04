@@ -35,9 +35,10 @@ this configuration during emission.
 ## Verification
 
 The original real-generator fixtures still compile and execute for Swagger 2,
-OpenAPI 3.0, and OpenAPI 3.1. Additional generated declaration checks reject
-incorrect field types, incomplete union changes, and synchronous calls after an
-async transition. The packed consumer acceptance test installs actual plugin and
+OpenAPI 3.0, and OpenAPI 3.1. Additional generated declaration checks, compiled
+with `exactOptionalPropertyTypes`, reject incorrect field types, an explicit
+`undefined` for an optional property, incomplete union changes, and synchronous
+calls after an async transition. The packed consumer acceptance test installs actual plugin and
 core tarballs, generates a client, compiles it in NodeNext mode, and imports the
 emitted ESM without the integration test's module loader.
 

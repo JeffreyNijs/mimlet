@@ -9,17 +9,34 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export async function checkPackedFixture(fixture, options = {}) {
   const manifest = JSON.parse(await readFile(join(fixture, 'package.json'), 'utf8'));
   const packages = manifest.toolkitPackages;
-  const compilerLibs = manifest.compilerLibs ?? ['ES2022'];
-  if (
-    !Array.isArray(compilerLibs) ||
-    compilerLibs.some((lib) => !['ES2022', 'DOM', 'ESNext.Disposable'].includes(lib))
-  ) {
-    throw new Error('Unsupported fixture compiler library');
+  const typeCheck = (file, settings) => {
+    const compilerLibs = settings.compilerLibs ?? ['ES2022'];
+    if (
+      !Array.isArray(compilerLibs) ||
+      compilerLibs.some((lib) => !['ES2022', 'DOM', 'ESNext.Disposable'].includes(lib))
+    ) {
+      throw new Error('Unsupported fixture compiler library');
+    }
+    const compilerTypes = settings.compilerTypes ?? [];
+    if (!Array.isArray(compilerTypes) || compilerTypes.some((name) => name !== 'node')) {
+      throw new Error('Unsupported fixture compiler types');
+    }
+    return { file, compilerLibs, compilerTypes };
+  };
+  // Extra declaration files compile on their own, for example without DOM or with it.
+  const additionalTypeChecks = manifest.additionalTypeChecks ?? [];
+  if (!Array.isArray(additionalTypeChecks)) {
+    throw new Error('Additional type checks must be a list');
   }
-  const compilerTypes = manifest.compilerTypes ?? [];
-  if (!Array.isArray(compilerTypes) || compilerTypes.some((name) => name !== 'node')) {
-    throw new Error('Unsupported fixture compiler types');
-  }
+  const typeChecks = [
+    typeCheck('types.mts', manifest),
+    ...additionalTypeChecks.map((entry) => {
+      if (typeof entry?.file !== 'string' || !/^types\.[a-z0-9-]+\.mts$/.test(entry.file)) {
+        throw new Error('Additional type checks must name a types.<name>.mts file');
+      }
+      return typeCheck(entry.file, entry);
+    }),
+  ];
   const coveragePackages = manifest.coveragePackages ?? packages;
   if (
     !Array.isArray(coveragePackages) ||
@@ -41,31 +58,34 @@ export async function checkPackedFixture(fixture, options = {}) {
       );
     }
     if (options.audit === true) npm(['audit', '--omit=dev', '--audit-level=low']);
-    await cp(join(fixture, 'types.mts'), join(temporary, 'types.mts'));
     const testFiles = (await readdir(fixture))
       .filter((name) => /^[a-zA-Z0-9_.-]+\.test\.mjs$/.test(name))
       .sort();
     if (testFiles.length === 0) throw new Error('The fixture must include runtime tests');
     for (const file of testFiles) await cp(join(fixture, file), join(temporary, file));
-    await writeFile(
-      join(temporary, 'tsconfig.json'),
-      JSON.stringify({
-        compilerOptions: {
-          target: 'ES2022',
-          module: 'NodeNext',
-          moduleResolution: 'NodeNext',
-          lib: compilerLibs,
-          types: compilerTypes,
-          strict: true,
-          exactOptionalPropertyTypes: true,
-          noUncheckedIndexedAccess: true,
-          verbatimModuleSyntax: true,
-          noEmit: true,
-        },
-        include: ['types.mts'],
-      })
-    );
-    run(compiler, ['-p', join(temporary, 'tsconfig.json')]);
+    for (const [index, { file, compilerLibs, compilerTypes }] of typeChecks.entries()) {
+      await cp(join(fixture, file), join(temporary, file));
+      const config = join(temporary, index === 0 ? 'tsconfig.json' : `tsconfig.${index}.json`);
+      await writeFile(
+        config,
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            lib: compilerLibs,
+            types: compilerTypes,
+            strict: true,
+            exactOptionalPropertyTypes: true,
+            noUncheckedIndexedAccess: true,
+            verbatimModuleSyntax: true,
+            noEmit: true,
+          },
+          include: [file],
+        })
+      );
+      run(compiler, ['-p', config]);
+    }
     execFileSync(
       process.execPath,
       [

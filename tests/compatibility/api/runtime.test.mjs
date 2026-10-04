@@ -1,3 +1,4 @@
+/* global Request, Response */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
@@ -148,6 +149,40 @@ describe('parameter and content serialization', () => {
       })
     );
     await setImmediate();
+  });
+  it('returns bytes that Fetch accepts as a body, copying shared memory', async () => {
+    const owned = new Uint8Array([1, 2]);
+    const shared = new Uint8Array(new SharedArrayBuffer(4), 1, 2);
+    shared.set([3, 4]);
+    const codec = (bytes) => ({ 'application/octet-stream': { encode: () => bytes } });
+    assert.equal(encodeContent('application/octet-stream', 'x', codec(owned)), owned);
+    const copied = encodeContent('application/octet-stream', 'x', codec(shared));
+    assert.ok(copied.buffer instanceof ArrayBuffer);
+    assert.deepEqual([...copied], [3, 4]);
+    shared.set([5, 6]);
+    assert.deepEqual([...copied], [3, 4]);
+    const binary = {
+      openapi: '3.1.0',
+      paths: {
+        '/files': {
+          put: {
+            operationId: 'upload',
+            requestBody: { required: true, content: { 'application/octet-stream': {} } },
+            responses: { 200: { content: { 'application/octet-stream': {} } } },
+          },
+        },
+      },
+    };
+    const api = openApi(binary);
+    const request = api
+      .request({ operationId: 'upload' })
+      .serialize({ body: 'x' }, { baseUrl: 'https://example.com', codecs: codec(shared) });
+    const response = api
+      .response({ operationId: 'upload', status: 200 })
+      .serialize({ body: 'x' }, { codecs: codec(shared) });
+    const fetched = new Request(request.url, { method: request.method, body: request.body });
+    assert.deepEqual([...new Uint8Array(await fetched.arrayBuffer())], [5, 6]);
+    assert.deepEqual([...new Uint8Array(await new Response(response.body).arrayBuffer())], [5, 6]);
   });
 });
 

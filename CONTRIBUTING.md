@@ -63,6 +63,9 @@ Custom executable providers must be versioned for replay and documented as trust
 Every optional package needs a `tests/compatibility/<name>` fixture with locked
 external dependencies, positive/negative type cases and runtime tests. The shared
 consumer harness packs the real package and tests it outside the workspace.
+`types.mts` compiles with the fixture's `compilerLibs` and `compilerTypes`. To check
+the declarations under other libraries as well, for example with DOM or with only
+`@types/node`, list extra `types.<name>.mts` files in `additionalTypeChecks`.
 `test-optional-all.mjs` discovers fixtures so they cannot silently escape the normal
 test command. Preserve independent coverage gates rather than suppressing a failing
 suite or reclassifying untested code as an exclusion.

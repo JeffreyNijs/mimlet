@@ -54,7 +54,11 @@ export function fixtureLoader<Key extends string, Context, Value>(
 
 export interface JsonResponseOptions {
   readonly status?: number;
-  readonly headers?: HeadersInit;
+  /**
+   * Anything the global `Headers` constructor accepts. This is `HeadersInit` with the DOM
+   * library, and the same type from `@types/node` when DOM declarations are not loaded.
+   */
+  readonly headers?: NonNullable<ConstructorParameters<typeof Headers>[0]>;
   readonly maxBodyBytes?: number;
 }
 /** Plug into MSW or a Fetch mock explicitly. This never installs a global interceptor or makes requests. */

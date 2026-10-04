@@ -73,6 +73,9 @@ Branch on these codes, not on message text. New codes may be added. Errors throw
 | `CLI_USAGE_ERROR`             | any        | error    | Invalid arguments or input prevented the command from running (exit 2).        |
 | `COMMAND_FAILED`              | any        | error    | The requested operation failed for another reason.                             |
 
-`generate --check` never changes generated output. `diagnoseProject` and
-`inspectSchema` are also exported from `@mimlet/codegen` for Node tooling. The
-dependency-free core does not import the CLI or its filesystem/versioning helpers.
+`generate --check` never changes generated output. `diagnoseProject`,
+`inspectSchema` and `reportStatus` are also exported from `@mimlet/codegen` for Node
+tooling. `reportStatus(diagnostics)` returns `false` when any entry has severity
+`error`: the rule that sets a report's `ok`, for diagnostics you filter or combine
+yourself. The dependency-free core does not import the CLI or its
+filesystem/versioning helpers.

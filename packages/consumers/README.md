@@ -3,8 +3,10 @@
 Use the same builders in UI previews, HTTP mocks and test-database setup without
 adding a UI framework, server, database driver or network client to the core.
 These utilities consume **explicit callbacks**, never discover production resources
-or install global interceptors. Native Web APIs are used; TypeScript consumers need
-Web platform declarations such as `lib: ["ES2022", "DOM"]`.
+or install global interceptors. Native Web APIs are used. TypeScript consumers need
+declarations for the Fetch globals `Request`, `Response` and `Headers`: either
+`lib: ["ES2022", "DOM"]`, or `@types/node` in a Node-only project without the DOM
+library. Both setups are tested with `skipLibCheck: false`.
 
 ## Component previews
 
@@ -49,11 +51,15 @@ const resolveUser = jsonResponseResolver(
 // http.get('/user', ({ request }) => resolveUser(request));
 ```
 
+`headers` accepts anything the global `Headers` constructor accepts: `HeadersInit`
+with the DOM library, or the equivalent type from `@types/node`.
+
 Request aborts propagate; factory/validation/serialization errors are not changed
 into successful responses. Status defaults to 200, content type is JSON, and the
 UTF-8 response budget defaults to 1 MiB. For bodyless statuses, binary, streaming,
 multipart, or a prepared OpenAPI codec, explicitly construct a native `Response`
-from that codec instead. JSON limitations apply: BigInt, cycles and undefined roots
+from that codec instead. A body serialized by `@mimlet/api` can be passed to
+`new Response()` as it is. JSON limitations apply: BigInt, cycles and undefined roots
 are not invented wire encodings. The size check follows serialization and is not
 a sandbox or exact peak-memory limit for untrusted values/toJSON callbacks.
 

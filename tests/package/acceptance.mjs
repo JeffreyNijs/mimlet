@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import builders, { buildersPlugin, defaultConfig, defineConfig } from 'hey-api-builders';
 import { createClient } from '@hey-api/openapi-ts';
 import * as ts from 'typescript';
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -29,7 +29,11 @@ await createClient({
       schemas: {
         User: {
           type: 'object',
-          properties: { id: { type: 'string' }, name: { type: 'string' } },
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            nickname: { type: ['string', 'null'] },
+          },
           required: ['id', 'name'],
         },
       },
@@ -43,6 +47,15 @@ await createClient({
     builders(),
   ],
 });
+// Named setters follow with(): an exact optional key is omitted, never set to undefined.
+await writeFile(
+  join(generated, 'setters.check.ts'),
+  `import { UserBuilder } from './hey-api-builders.gen.js';
+new UserBuilder().withNickname(null).withNickname('Ada');
+// @ts-expect-error An exact optional key does not accept undefined.
+new UserBuilder().withNickname(undefined);
+`
+);
 const files = (await readdir(generated))
   .filter((file) => file.endsWith('.ts'))
   .map((file) => join(generated, file));
@@ -51,6 +64,7 @@ const program = ts.createProgram(files, {
   moduleResolution: ts.ModuleResolutionKind.NodeNext,
   target: ts.ScriptTarget.ES2022,
   strict: true,
+  exactOptionalPropertyTypes: true,
   skipLibCheck: false,
   outDir: compiled,
 });
