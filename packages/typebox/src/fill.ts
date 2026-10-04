@@ -3,7 +3,8 @@
  * pattern, unique arrays, or a union whose first member creates an invalid value, and it reads
  * the clock for dates. The fill prepares a creation-only copy of the schema with `default`
  * annotations where native creation would fail; checks and validation keep the original schema.
- * Nodes that native creation handles stay untouched, so their values do not change.
+ * Nodes that native creation handles stay untouched, so their values do not change, unless
+ * `nullable: 'null'` asks for null in unions with a `Null` member.
  *
  * This file is kept identical in @mimlet/typebox and @mimlet/typebox-legacy; the library
  * differences live in the `FillNative` operations each adapter supplies.
@@ -20,11 +21,19 @@ export interface TypeBoxFill {
   readonly formats?: Readonly<Record<string, string>>;
   /** Candidates for `pattern` strings. The first that passes the string's own check is used. */
   readonly patterns?: ReadonlyArray<string>;
+  /**
+   * What a union with a `Null` member is created as, such as Elysia's `t.Nullable(x)`, which is
+   * `Union([x, Null])`. `'value'` keeps member order: the first member whose value passes the
+   * union. `'null'` creates `null`, as if the `Null` member came first. A union with its own
+   * `default` keeps it. Default: `'value'`.
+   */
+  readonly nullable?: 'value' | 'null';
 }
 export interface FillSettings {
   readonly now: string | undefined;
   readonly formats: Readonly<Record<string, string>>;
   readonly patterns: ReadonlyArray<string>;
+  readonly nullable: 'value' | 'null';
 }
 export type Node = Record<PropertyKey, unknown>;
 export interface FillScope<References> {
@@ -57,7 +66,7 @@ export function fillSettings(fill: TypeBoxFill | false | undefined): FillSetting
   if (fill !== undefined && !isNode(fill)) {
     throw new TypeError('fill must be an options object or false');
   }
-  const { now, formats = {}, patterns = [] } = fill ?? {};
+  const { now, formats = {}, patterns = [], nullable = 'value' } = fill ?? {};
   if (
     now !== undefined &&
     (typeof now !== 'string' ||
@@ -76,14 +85,21 @@ export function fillSettings(fill: TypeBoxFill | false | undefined): FillSetting
   if (!Array.isArray(patterns) || patterns.some((candidate) => typeof candidate !== 'string')) {
     throw new TypeError('fill.patterns must be an array of strings');
   }
+  if (nullable !== 'value' && nullable !== 'null') {
+    throw new TypeError("fill.nullable must be 'value' or 'null'");
+  }
   return Object.freeze({
     now,
     formats: Object.freeze({ ...formats }),
     patterns: Object.freeze([...(patterns as ReadonlyArray<string>)]),
+    nullable,
   });
 }
 
-/** Identity of the fill configuration; bump the version when fill output changes. */
+/**
+ * Identity of the fill configuration; bump the version when fill output changes. A setting is
+ * only part of it when it differs from its default, so earlier identities stay valid.
+ */
 export function fillIdentity(settings: FillSettings | undefined): unknown {
   return settings
     ? {
@@ -91,6 +107,7 @@ export function fillIdentity(settings: FillSettings | undefined): unknown {
         now: settings.now ?? null,
         formats: Object.entries(settings.formats).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
         patterns: settings.patterns,
+        ...(settings.nullable === 'value' ? {} : { nullable: settings.nullable }),
       }
     : { fill: false };
 }
@@ -178,6 +195,12 @@ export function prepareFill<References>(
   const iso = now.toISOString();
   const formats = { ...samples(iso), ...settings.formats };
   const fixed = (node: Node, value: unknown) => copy(node, { default: () => native.clone(value) });
+  /** A `Null` member, or a member union without its own default that has one. */
+  const nullable = (node: Node): boolean =>
+    native.kind(node) === 'Null' ||
+    (native.kind(node) === 'Union' &&
+      !Object.hasOwn(node, 'default') &&
+      (node['anyOf'] as Node[]).some(nullable));
   const passes = (node: Node, scope: FillScope<References>, value: unknown) => {
     try {
       return native.check(node, scope, value);
@@ -343,9 +366,14 @@ export function prepareFill<References>(
       }
       case 'Union': {
         // Try members in order, once each: the first value that passes the whole union wins.
+        // `nullable: 'null'` tries members that create null first, keeping the order otherwise.
         const members = node['anyOf'] as Node[];
+        const order = [...members.entries()];
+        if (settings.nullable === 'null') {
+          order.sort(([, a], [, b]) => Number(nullable(b)) - Number(nullable(a)));
+        }
         let first: unknown;
-        for (const [index, member] of members.entries()) {
+        for (const [index, member] of order) {
           try {
             const prepared = child(member);
             const value = native.create(prepared, scope);
