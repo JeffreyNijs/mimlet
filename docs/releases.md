@@ -60,9 +60,9 @@ Only `latest` and `next` are allowed:
 During the beta, `npm install @mimlet/core` installs the current beta. The examples
 still pin exact versions, so fixtures and generated clients stay reproducible.
 `hey-api-builders` prereleases stay on `next`, so its `latest` remains on the
-stable v2 line until a stable 3.x release. The `next` tag of the `@mimlet/*`
-packages stopped moving at `0.1.0-beta.1`; nothing updates it any more, so do not
-use it to find the current version.
+stable v2 line until a stable 3.x release. The `@mimlet/*` packages have no `next`
+tag: it stopped moving at `0.1.0-beta.1` and was removed on 2026-10-05, so
+`npm install @mimlet/core@next` fails instead of installing an old beta.
 
 The rule is enforced in three places, and each fails closed:
 
