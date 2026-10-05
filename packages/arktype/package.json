@@ -59,6 +59,6 @@
     "standard-schema"
   ],
   "devDependencies": {
-    "arktype": "2.2.5"
+    "arktype": "2.2.7"
   }
 }
