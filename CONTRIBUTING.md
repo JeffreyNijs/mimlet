@@ -52,6 +52,15 @@ Exercise factories and native schemas from installed package tarballs, not only
 source aliases. Node 22.18/24 and the minimum core compiler are deliberately
 separate checks.
 
+The workspace builds with TypeScript 6. TypeScript 7 has no compiler API, which tsup's
+declaration build and Hey API need, so it is tested only as a consumer. To reproduce
+the TypeScript 7 job, install `typescript@7.0.2` outside the workspace, point
+`TOOLKIT_CONSUMER_TYPESCRIPT_COMPILER` at its `bin/tsc` and run
+`node scripts/test-optional-all.mjs`, `node scripts/test-typebox.mjs` and
+`node scripts/test-examples.mjs`. The packages are still built with TypeScript 6; only the
+consumer files are checked with TypeScript 7. `node scripts/validate-package.mjs --typescript-7`
+runs the Hey API consumer with TypeScript 6 beside TypeScript 7.
+
 ## New adapters and providers
 
 Declare the original schema, standards handle, actual capabilities and limitations

@@ -4,7 +4,7 @@ import { cp, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath, URL } from 'node:url';
 import { withPackedConsumer } from './packed-consumer.mjs';
 const fixture = fileURLToPath(new URL('../examples/', import.meta.url));
-await withPackedConsumer(fixture, async ({ temporary, compiler, run }) => {
+await withPackedConsumer(fixture, async ({ temporary, consumerCompiler, run }) => {
   await cp(new URL('../examples/shop.mjs', import.meta.url), `${temporary}/shop.mjs`);
   await cp(new URL('../examples/shop.test.mjs', import.meta.url), `${temporary}/shop.test.mjs`);
   await cp(new URL('../examples/recipes/', import.meta.url), `${temporary}/recipes`, {
@@ -32,7 +32,7 @@ await withPackedConsumer(fixture, async ({ temporary, compiler, run }) => {
       include: ['recipes/*.ts'],
     })
   );
-  run(compiler, ['-p', `${temporary}/tsconfig.json`]);
+  run(consumerCompiler, ['-p', `${temporary}/tsconfig.json`]);
   // Recipes named *-test.ts are test files shown in the guides; run each one as written.
   const recipeTests = (await readdir(`${temporary}/compiled`))
     .filter((name) => name.endsWith('-test.js'))

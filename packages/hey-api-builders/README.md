@@ -15,9 +15,9 @@ Use matching plugin and core versions. See [Getting started](https://jeffreynijs
 for current registry availability, or build and install the workspace tarballs.
 The generated client requires the matching core runtime plus Faker.
 The verified generation toolchain is Hey API 0.99.0, Faker 10.5.0 and TypeScript
-6.0.3. Runtime Node support starts at 22.18.0. TypeScript 7 cannot generate yet:
-`@hey-api/openapi-ts` 0.99.0 loads the TypeScript compiler API at runtime, and the
-`typescript@7` package no longer exports it, so the peer range stays `^6.0.0`.
+6.0.3. Runtime Node support starts at 22.18.0. Generation needs TypeScript 6 as the
+`typescript` package; a TypeScript 7 project can install it beside TypeScript 7
+(see [TypeScript 7](#typescript-7)).
 
 ```ts
 import { defineConfig } from '@hey-api/openapi-ts';
@@ -95,6 +95,32 @@ Mimlet session or replay record.
 The peer ranges (`@hey-api/openapi-ts ^0.99.0`, `@faker-js/faker ^10.0.0`,
 `typescript ^6.0.0`) are wider than the verified toolchain above; other versions in
 those ranges are not tested.
+
+## TypeScript 7
+
+Generation needs TypeScript 6 as the `typescript` package. `@hey-api/openapi-ts`
+0.99.0 loads the TypeScript compiler API when it starts, and the `typescript@7`
+package does not ship it. With only TypeScript 7 installed, `npm install` fails with
+`ERESOLVE` because the peer range is `typescript ^6.0.0`, and after a forced install
+generation fails with
+`TypeError: Cannot read properties of undefined (reading 'AnyKeyword')`.
+
+The generated builders compile with TypeScript 7. To use TypeScript 7 for your code,
+install it beside TypeScript 6, as the TypeScript team recommends for tools that
+still need the compiler API:
+
+```json
+{
+  "devDependencies": {
+    "@typescript/native": "npm:typescript@7.0.2",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
+  }
+}
+```
+
+`typescript` then provides the TypeScript 6 API that Hey API loads (its compiler runs
+as `tsc6`), and `tsc` runs TypeScript 7. CI generates a client this way and compiles
+it with TypeScript 7. See [TypeScript versions](https://jeffreynijs.github.io/mimlet/guide/compatibility.html#typescript-versions).
 
 ## Migration from v2
 

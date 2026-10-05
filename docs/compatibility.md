@@ -40,11 +40,10 @@ The full workspace is verified with Node 22.18.0 on Linux, macOS and Windows,
 and additionally Node 24 on Linux, using TypeScript 6.0.3. Runtime versions are pinned where reproducibility
 requires them and recorded by the corresponding CI jobs.
 
-The dependency-free core and portable consumer/adapter/Faker declarations are
-additionally tested with TypeScript 5.8.3. Do not extrapolate that result to modern
-TypeBox or vendor declarations requiring newer compiler features. Some native
-vendor declarations require Web/DOM types; the core does not. `@mimlet/consumers`
-needs only the Fetch globals, from either the DOM library or `@types/node`.
+[TypeScript versions](#typescript-versions) lists the compilers each package is
+tested with. Some native vendor declarations require Web/DOM types; the core does
+not. `@mimlet/consumers` needs only the Fetch globals, from either the DOM library
+or `@types/node`.
 
 The packed core runs as native ESM in Chromium, Firefox and WebKit, and in Bun
 1.4.2 and Deno 2.9.7. Deno's acceptance contract receives no filesystem, network,
@@ -52,6 +51,74 @@ environment or subprocess permissions. This is a core portability claim, not a
 claim that Node filesystem/worker/codegen packages run in browsers or Deno.
 The playground browser UI is exercised on all three browser engines against its
 local Node server. Playwright engine versions come from the locked test fixture.
+
+## TypeScript versions
+
+| What you do                                                                                              | TypeScript                                                 |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Type-check code that uses any `@mimlet/*` package                                                        | 6.0.3 and 7.0.2 are tested                                 |
+| Type-check code that uses only `@mimlet/core`, `@mimlet/adapter`, `@mimlet/consumers` or `@mimlet/faker` | 5.8.3 or newer; 5.8.3, 6.0.3 and 7.0.2 are tested          |
+| Type-check the builders that `hey-api-builders` or `@mimlet/codegen` generates                           | 6.0.3 and 7.0.2 are tested                                 |
+| Run `mimlet` (generate, `--check`, `doctor`, `inspect`) or call `emitBuilders`                           | Not needed: `@mimlet/codegen` does not load TypeScript     |
+| Generate builders with `hey-api-builders` (run Hey API)                                                  | TypeScript 6 as the `typescript` package; 7 only beside it |
+
+The package consumer tests install the tarballs in a clean project and compile each
+package's type tests, including the negative ones, with `strict`,
+`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and `skipLibCheck: false`,
+once with `NodeNext` and once with `Bundler` module resolution.
+
+- **TypeScript 6.0.3** is the workspace compiler. The packages are built with it, and
+  every packed consumer test uses it.
+- **TypeScript 7.0.2**: the "TypeScript 7.0.2 / packed consumers" CI job builds the
+  packages with the workspace's TypeScript 6 toolchain, as published, then type-checks
+  every package's consumer tests, the code that `@mimlet/codegen` generates and the
+  documented recipes with TypeScript 7's `tsc`. It also runs the Hey API setup
+  described below.
+- **TypeScript 5.8.3**: the "TypeScript 5.8.3 / core and portable consumers" CI job
+  compiles the core and checks the `@mimlet/adapter`, `@mimlet/consumers` and
+  `@mimlet/faker` consumers. Do not extrapolate that result to modern TypeBox or vendor
+  declarations requiring newer compiler features.
+
+No package imports TypeScript at runtime; only Hey API, which runs `hey-api-builders`,
+loads it. `mimlet` and `emitBuilders` work in a project that has only TypeScript 7
+installed.
+
+### TypeScript 7 with Hey API
+
+`@hey-api/openapi-ts` 0.99.0 loads TypeScript's compiler API when it starts. The
+`typescript@7` package has no compiler API: its JavaScript entry exports only `version`
+and `versionMajorMinor`. With only TypeScript 7 installed, npm refuses to install
+`hey-api-builders` (`ERESOLVE`, because its peer range is `typescript ^6.0.0`). Forcing
+the install makes generation fail with
+`TypeError: Cannot read properties of undefined (reading 'AnyKeyword')`. The generated
+code itself compiles with TypeScript 7.
+
+To use TypeScript 7 in a Hey API project, install both compilers side by side, as the
+TypeScript team recommends for tools that still need the compiler API:
+
+```json
+{
+  "devDependencies": {
+    "@typescript/native": "npm:typescript@7.0.2",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
+  }
+}
+```
+
+With npm:
+
+```sh
+npm install --save-dev typescript@npm:@typescript/typescript6@6.0.2 @typescript/native@npm:typescript@7.0.2
+```
+
+`typescript` is then Microsoft's `@typescript/typescript6` package. It re-exports the
+TypeScript 6 API that Hey API loads, satisfies the `typescript ^6.0.0` peer range and
+runs its compiler as `tsc6`. `tsc` runs TypeScript 7. Generate as usual (`openapi-ts` or
+`createClient()`), then type-check and build with `tsc`. The TypeScript 7 CI job tests
+this setup with npm: it installs the packed `hey-api-builders` and core, generates a
+client, type-checks it with TypeScript 7 under both module resolutions, emits it and
+runs the builders. The same `package.json` was also checked by hand with pnpm 10.
+Remove the aliases once Hey API supports TypeScript 7.
 
 ## Semantic boundaries
 
