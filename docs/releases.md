@@ -1,12 +1,12 @@
 # Releases and recovery
 
 Preparing the repository, merging a PR and publishing packages are separate
-operations. The current published train is the third beta: toolkit `0.1.0-beta.2` on npm's
-`latest` tag and Hey API integration `3.0.0-beta.2` on `next`. It includes all nineteen
+operations. The current published train is the fourth beta: toolkit `0.1.0-beta.3` on npm's
+`latest` tag and Hey API integration `3.0.0-beta.3` on `next`. It includes all nineteen
 packages, with direct named setters and schema field lists, local diagnostics and native
 Zod/ArkType adapters, targets Effect 4.0.0, accepts tested ArkType 2.2.5–2.2.7 and Faker
 10.5.0–10.6.0, and documents its error and diagnostic codes as contracts. The
-[GitHub prerelease](https://github.com/JeffreyNijs/mimlet/releases/tag/toolkit-v0.1.0-beta.2)
+[GitHub prerelease](https://github.com/JeffreyNijs/mimlet/releases/tag/toolkit-v0.1.0-beta.3)
 records its source commit and original package artifacts. The first seventeen-package
 [alpha.0 release](https://github.com/JeffreyNijs/mimlet/releases/tag/toolkit-v0.1.0-alpha.0)
 remains unchanged. For later trains,
