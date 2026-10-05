@@ -42,6 +42,12 @@ calls after an async transition. The packed consumer acceptance test installs ac
 core tarballs, generates a client, compiles it in NodeNext mode, and imports the
 emitted ESM without the integration test's module loader.
 
+Generation still needs TypeScript 6 as the `typescript` package, because Hey API
+0.99.0 loads the TypeScript compiler API. A project on TypeScript 7 can install
+TypeScript 6 beside it and compile the generated builders with TypeScript 7; the
+packed consumer job tests that setup. See
+[TypeScript 7 with Hey API](compatibility.md#typescript-7-with-hey-api).
+
 Keep the generated-code diff in a migration PR and regenerate all clients when
 upgrading the runtime/plugin together. These behavior changes must not be
 silently released under the existing v2 version.

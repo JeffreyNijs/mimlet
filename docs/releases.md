@@ -111,7 +111,8 @@ occurs during these commands.
 
 Inspect the complete artifact set. Consumer tests install actual tarballs in fresh
 projects; a successful workspace import is not equivalent evidence. Portable core,
-browser, minimum-compiler and recipe jobs are separate acceptance gates. Performance
+browser, minimum-compiler, TypeScript 7 consumer and recipe jobs are separate
+acceptance gates. Performance
 reports are correctness-checked measurements, not hardware-independent speed promises.
 
 ## Publish through the reviewed release workflow

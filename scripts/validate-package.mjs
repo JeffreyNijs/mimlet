@@ -8,6 +8,16 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const node = process.execPath;
+const options = process.argv.slice(2);
+if (options.some((option) => option !== '--typescript-7'))
+  throw new Error('Usage: node scripts/validate-package.mjs [--typescript-7]');
+// Hey API loads the TypeScript compiler API, which TypeScript 7 does not ship. With
+// --typescript-7 the consumer installs both compilers the way the TypeScript team recommends:
+// `typescript` is the @typescript/typescript6 compatibility package (the TypeScript 6 API that
+// Hey API loads), and `@typescript/native` is TypeScript 7, whose `tsc` checks the generated code.
+const typescript = options.includes('--typescript-7')
+  ? ['typescript@npm:@typescript/typescript6@6.0.2', '@typescript/native@npm:typescript@7.0.2']
+  : ['typescript@6.0.3'];
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'hey-api-builders-package-'));
 
 try {
@@ -74,7 +84,7 @@ try {
       join(temporaryRoot, corePack.filename),
       '@faker-js/faker@10.5.0',
       '@hey-api/openapi-ts@0.99.0',
-      'typescript@6.0.3',
+      ...typescript,
     ],
     {
       cwd: consumerDirectory,
@@ -84,12 +94,14 @@ try {
 
   const runtimeAcceptance = join(consumerDirectory, 'acceptance.mjs');
   await cp(join(packageRoot, 'tests/package/acceptance.mjs'), runtimeAcceptance);
-  execFileSync(node, [runtimeAcceptance], {
+  execFileSync(node, [runtimeAcceptance, ...options], {
     cwd: consumerDirectory,
     stdio: 'inherit',
   });
 
-  console.log('Packed ESM consumer validation passed.');
+  console.log(
+    `Packed ESM consumer validation passed${options.length ? ' with TypeScript 6 beside TypeScript 7' : ''}.`
+  );
 } finally {
   await rm(temporaryRoot, { force: true, recursive: true });
 }

@@ -52,6 +52,28 @@ function compile(directory, names) {
     []
   );
   assert.equal(program.emit().emitSkipped, false);
+  // A packed-consumer run for another compiler release (for example TypeScript 7, which has no
+  // compiler API) also type-checks the generated code with that release's tsc.
+  const consumerCompiler = process.env.TOOLKIT_CONSUMER_TYPESCRIPT_COMPILER;
+  if (consumerCompiler) {
+    execFileSync(
+      process.execPath,
+      [
+        consumerCompiler,
+        '--module',
+        'nodenext',
+        '--moduleResolution',
+        'nodenext',
+        '--target',
+        'es2022',
+        '--strict',
+        '--exactOptionalPropertyTypes',
+        '--noEmit',
+        ...names.map((name) => join(directory, name)),
+      ],
+      { stdio: 'inherit' }
+    );
+  }
 }
 describe('standalone builder emission', () => {
   it('is deterministic, selective, and never executes application imports', () => {

@@ -9,7 +9,7 @@ pnpm build:core
 npm pack ./packages/core --ignore-scripts
 ```
 
-The package emits ESM and TypeScript declarations. The core declarations are tested with TypeScript 5.8.3 and 6.0.3; individual adapters can require newer compiler versions. Canonical Standard Typed, Standard Schema, and Standard JSON Schema v1 interfaces are vendored as type-only code with MIT attribution in `THIRD_PARTY_NOTICES.md`. There is no reduced private validation protocol.
+The package emits ESM and TypeScript declarations. The core declarations are tested with TypeScript 5.8.3, 6.0.3 and 7.0.2; individual adapters can require newer compiler versions. Canonical Standard Typed, Standard Schema, and Standard JSON Schema v1 interfaces are vendored as type-only code with MIT attribution in `THIRD_PARTY_NOTICES.md`. There is no reduced private validation protocol.
 
 ## Existing factories
 

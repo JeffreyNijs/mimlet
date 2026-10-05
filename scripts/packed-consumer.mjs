@@ -28,8 +28,13 @@ export async function withPackedConsumer(fixture, callback) {
   ) {
     throw new Error('The fixture must declare its tested toolkit packages');
   }
+  // `compiler` builds the packages; `consumerCompiler` type-checks the consumer's files against
+  // the packed declarations. A separate consumer compiler tests the declarations the workspace
+  // toolchain emits, as published, under another TypeScript release (for example TypeScript 7,
+  // which has no JavaScript API to build the packages with).
   const compiler =
     process.env.TOOLKIT_TYPESCRIPT_COMPILER ?? join(root, 'node_modules/typescript/bin/tsc');
+  const consumerCompiler = process.env.TOOLKIT_CONSUMER_TYPESCRIPT_COMPILER ?? compiler;
   const npmCli = locateNpm();
   const temporary = await mkdtemp(join(tmpdir(), `mimlet-${name}-`));
   const artifacts = join(temporary, 'artifacts');
@@ -124,7 +129,17 @@ export async function withPackedConsumer(fixture, callback) {
       tarballs.push(await pack(directory));
       install([core, ...tarballs]);
     }
-    return await callback({ root, fixture, temporary, manifest, compiler, packages, run, npm });
+    return await callback({
+      root,
+      fixture,
+      temporary,
+      manifest,
+      compiler,
+      consumerCompiler,
+      packages,
+      run,
+      npm,
+    });
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

@@ -31,7 +31,9 @@ dependency review must pass without ignoring advisory failures.
 
 Browser acceptance uses Chromium, Firefox and WebKit against installed tarballs.
 Portable acceptance exercises the core in Node, Bun and Deno, the TypeScript 5.8.3
-core/portable declarations, the executable shop recipe and performance measurements.
+core/portable declarations, every packed package and the recipes as a TypeScript
+7.0.2 consumer (including Hey API generation with TypeScript 6 beside it), the
+executable shop recipe and performance measurements.
 The complete workspace uses TypeScript 6.0.3 and Node 22.18.0/24 on Linux, macOS and
 Windows. See [compatibility](compatibility.md) for the scope of each result.
 
