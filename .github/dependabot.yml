@@ -29,9 +29,10 @@ updates:
       - dependency-name: typebox
       - dependency-name: '@sinclair/typebox'
       - dependency-name: fast-check
-      # @hey-api/openapi-ts loads TypeScript's compiler API at runtime, which TypeScript 7
-      # no longer ships, so hey-api-builders generation cannot run on it yet. Revisit when
-      # Hey API supports TypeScript 7.
+      # The workspace builds and generates with TypeScript 6: tsup's declaration build and
+      # @hey-api/openapi-ts load TypeScript's compiler API at runtime, which TypeScript 7 no
+      # longer ships. Revisit when both support TypeScript 7. Consumers on TypeScript 7 are
+      # tested by the "TypeScript 7.0.2 / packed consumers" job in runtime-compatibility.yml.
       - dependency-name: typescript
         update-types:
           - version-update:semver-major

@@ -98,6 +98,37 @@ jobs:
           node scripts/test-optional.mjs consumers
           node scripts/test-optional.mjs faker
 
+  newest-compiler:
+    name: TypeScript 7.0.2 / packed consumers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The packages are built with the workspace's TypeScript 6 toolchain, as published.
+      # TypeScript 7 only type-checks the consumer code against the packed declarations.
+      - run: pnpm build
+      - name: Install the exact TypeScript 7 compiler outside the workspace
+        run: npm install --prefix "$RUNNER_TEMP/typescript-7" --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - name: Type-check every packed package and the recipes as a TypeScript 7 consumer
+        run: |
+          export TOOLKIT_CONSUMER_TYPESCRIPT_COMPILER="$RUNNER_TEMP/typescript-7/node_modules/typescript/bin/tsc"
+          node scripts/test-optional-all.mjs
+          node scripts/test-typebox.mjs
+          node scripts/test-examples.mjs
+      # Hey API loads the TypeScript compiler API, which TypeScript 7 does not ship. This step
+      # installs TypeScript 6 as `typescript` (@typescript/typescript6) beside TypeScript 7 as
+      # `@typescript/native`, generates a client and compiles it with TypeScript 7's tsc.
+      - name: Generate Hey API builders with TypeScript 6 beside TypeScript 7
+        run: node scripts/validate-package.mjs --typescript-7
+
   performance-and-recipes:
     name: Executable recipes and performance report
     runs-on: ubuntu-latest

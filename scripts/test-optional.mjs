@@ -45,7 +45,7 @@ export async function checkPackedFixture(fixture, options = {}) {
   ) {
     throw new Error('Coverage packages must be explicitly tested toolkit packages');
   }
-  await withPackedConsumer(fixture, async ({ temporary, compiler, run, npm }) => {
+  await withPackedConsumer(fixture, async ({ temporary, consumerCompiler, run, npm }) => {
     const lock = JSON.parse(await readFile(join(fixture, 'package-lock.json'), 'utf8'));
     for (const dependency of Object.keys(manifest.dependencies ?? {})) {
       const actual = JSON.parse(
@@ -63,28 +63,37 @@ export async function checkPackedFixture(fixture, options = {}) {
       .sort();
     if (testFiles.length === 0) throw new Error('The fixture must include runtime tests');
     for (const file of testFiles) await cp(join(fixture, file), join(temporary, file));
+    // Each declaration test compiles under Node's own resolution and a bundler's, with every
+    // declaration file checked (skipLibCheck stays off).
+    const resolutions = [
+      { name: 'nodenext', module: 'NodeNext', moduleResolution: 'NodeNext' },
+      { name: 'bundler', module: 'Preserve', moduleResolution: 'Bundler' },
+    ];
     for (const [index, { file, compilerLibs, compilerTypes }] of typeChecks.entries()) {
       await cp(join(fixture, file), join(temporary, file));
-      const config = join(temporary, index === 0 ? 'tsconfig.json' : `tsconfig.${index}.json`);
-      await writeFile(
-        config,
-        JSON.stringify({
-          compilerOptions: {
-            target: 'ES2022',
-            module: 'NodeNext',
-            moduleResolution: 'NodeNext',
-            lib: compilerLibs,
-            types: compilerTypes,
-            strict: true,
-            exactOptionalPropertyTypes: true,
-            noUncheckedIndexedAccess: true,
-            verbatimModuleSyntax: true,
-            noEmit: true,
-          },
-          include: [file],
-        })
-      );
-      run(compiler, ['-p', config]);
+      for (const { name, module, moduleResolution } of resolutions) {
+        const config = join(temporary, `tsconfig.${index}.${name}.json`);
+        await writeFile(
+          config,
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2022',
+              module,
+              moduleResolution,
+              lib: compilerLibs,
+              types: compilerTypes,
+              strict: true,
+              exactOptionalPropertyTypes: true,
+              noUncheckedIndexedAccess: true,
+              verbatimModuleSyntax: true,
+              skipLibCheck: false,
+              noEmit: true,
+            },
+            include: [file],
+          })
+        );
+        run(consumerCompiler, ['-p', config]);
+      }
     }
     execFileSync(
       process.execPath,
@@ -101,7 +110,13 @@ export async function checkPackedFixture(fixture, options = {}) {
       ],
       { cwd: temporary, stdio: 'inherit', timeout: 120_000 }
     );
-    console.log('Packed optional compatibility passed:', manifest.name, manifest.dependencies);
+    const version = run(consumerCompiler, ['--version'], temporary, true).trim();
+    console.log(
+      'Packed optional compatibility passed:',
+      manifest.name,
+      manifest.dependencies,
+      `(declarations checked with TypeScript ${version.replace(/^Version /, '')})`
+    );
   });
 }
 

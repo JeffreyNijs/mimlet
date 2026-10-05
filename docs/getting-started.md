@@ -30,6 +30,11 @@ For a plain factory, only `@mimlet/core` is needed. The `mimlet` executable come
 from `@mimlet/codegen`; the core package does not install a CLI. See
 [compatibility](compatibility.md) for tested runtime and schema-library versions.
 
+TypeScript 6 and 7 both work: every package's declarations are tested with
+TypeScript 6.0.3 and 7.0.2, and the core with 5.8.3 as well. Hey API generation is
+the exception: it needs TypeScript 6 installed as `typescript`, which can sit beside
+TypeScript 7 (see [TypeScript versions](compatibility.md#typescript-versions)).
+
 Already using Zod? Skip the TypeBox install and go straight to
 [native Zod builders](zod-and-arktype.md), or use the Zod install under
 [Named fluent helpers](#named-fluent-helpers) below.
