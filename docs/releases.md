@@ -34,6 +34,19 @@ version plan, generated changelogs, exact internal dependency versions and packa
 intentionally fails rather than concealing an incomplete version transition. Leaving
 prerelease mode is a deliberate operation.
 
+### Native peer ranges
+
+Adapters publish two ranges for their native library (see
+[supported and tested versions](compatibility.md#supported-and-tested-versions)).
+The peer range runs from the tested minimum up to the library's next breaking
+release, so users can install a compatible upstream release before Mimlet publishes
+again. The tested range in `mimlet.testedPeers` comes from `tests/vendor-versions.json`,
+and `check-workspace.mjs` rejects any drift between the two. Before preparing a
+train, read the latest `Native library canary` run: add each newer release that
+passed to `tests/vendor-versions.json` with its registry `resolved` and `integrity`,
+update `mimlet.testedPeers`, and run `pnpm test:vendors <adapter>`. A new major of a
+library always needs a reviewed adapter change and a new peer range.
+
 ## Distribution tags
 
 Each package's `publishConfig.tag` decides the npm dist-tag it is published with.

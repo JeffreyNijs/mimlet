@@ -61,7 +61,7 @@ Gate: repeated execution with the same supported inputs reproduces results; addi
 
 ## Stage 3: native and standards adapters
 
-TypeBox is first-class in both its modern and maintained legacy package lines. Expand tests for native references, recursion, custom types, formats, extended values, and codec failures before widening peer ranges. Keep compiler requirements local to adapters.
+TypeBox is first-class in both its modern and maintained legacy package lines. Expand tests for native references, recursion, custom types, formats, extended values, and codec failures before extending the tested ranges. Keep compiler requirements local to adapters.
 
 Add first-party interoperability for Zod, Valibot, ArkType, and Effect. Prefer Standard interfaces where sufficient; preserve native metadata, encoded/decoded shapes, and native arbitrary/shrinker capabilities where they materially improve support. Isolate unstable vendor APIs behind narrowly versioned packages.
 

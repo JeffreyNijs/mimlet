@@ -21,7 +21,12 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "zod": ">=4.4.3 <=4.6.5"
+    "zod": ">=4.4.3 <5"
+  },
+  "mimlet": {
+    "testedPeers": {
+      "zod": ">=4.4.3 <=4.6.5"
+    }
   },
   "repository": {
     "type": "git",

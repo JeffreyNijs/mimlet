@@ -7,6 +7,16 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+/** The npm CLI that belongs to the running Node installation. */
+export function locateNpm() {
+  const npmCli = [
+    join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
+    resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js'),
+  ].find(existsSync);
+  if (!npmCli) throw new Error('Cannot locate npm for the active Node installation');
+  return npmCli;
+}
+
 export async function withPackedConsumer(fixture, callback) {
   const name = fixture.split(/[\\/]/).at(-1);
   const manifest = JSON.parse(await readFile(join(fixture, 'package.json'), 'utf8'));
@@ -20,11 +30,7 @@ export async function withPackedConsumer(fixture, callback) {
   }
   const compiler =
     process.env.TOOLKIT_TYPESCRIPT_COMPILER ?? join(root, 'node_modules/typescript/bin/tsc');
-  const npmCli = [
-    join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
-    resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js'),
-  ].find(existsSync);
-  if (!npmCli) throw new Error('Cannot locate npm for the active Node installation');
+  const npmCli = locateNpm();
   const temporary = await mkdtemp(join(tmpdir(), `mimlet-${name}-`));
   const artifacts = join(temporary, 'artifacts');
   const offline = process.env.TOOLKIT_OFFLINE_MODULES;

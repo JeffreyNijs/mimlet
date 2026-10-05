@@ -15,7 +15,9 @@ Use matching plugin and core versions. See [Getting started](https://jeffreynijs
 for current registry availability, or build and install the workspace tarballs.
 The generated client requires the matching core runtime plus Faker.
 The verified generation toolchain is Hey API 0.99.0, Faker 10.5.0 and TypeScript
-6.0.3. Runtime Node support starts at 22.18.0.
+6.0.3. Runtime Node support starts at 22.18.0. TypeScript 7 cannot generate yet:
+`@hey-api/openapi-ts` 0.99.0 loads the TypeScript compiler API at runtime, and the
+`typescript@7` package no longer exports it, so the peer range stays `^6.0.0`.
 
 ```ts
 import { defineConfig } from '@hey-api/openapi-ts';

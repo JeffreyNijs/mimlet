@@ -3,8 +3,19 @@ import { it } from 'node:test';
 import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readWorkspace, releaseDistTag } from '../../scripts/check-workspace.mjs';
+import { URL } from 'node:url';
+import {
+  readWorkspace,
+  releaseDistTag,
+  satisfiesPeerRange,
+  supportedPeerRange,
+  testedPeerRange,
+} from '../../scripts/check-workspace.mjs';
 const baseline = await readWorkspace();
+const vendorVersions = await readFile(
+  new URL('../../tests/vendor-versions.json', import.meta.url),
+  'utf8'
+);
 async function fixture(action) {
   const root = await mkdtemp(join(tmpdir(), 'toolkit-workspace-test-'));
   const write = async (path, value) => {
@@ -18,6 +29,7 @@ async function fixture(action) {
   };
   try {
     await write('package.json', baseline.manifest);
+    await write('tests/vendor-versions.json', vendorVersions);
     for (const item of baseline.packages) {
       const name = item.directory.split(/[\\/]/).at(-1);
       await write(`packages/${name}/package.json`, item.manifest);
@@ -210,3 +222,126 @@ it('does not follow symbolic package manifests', () =>
     await symlink(join(root, 'other.json'), path);
     await assert.rejects(readWorkspace(root), /symbolic links/);
   }));
+it('derives supported peer ranges up to the next breaking release and tested ranges from the matrix', () => {
+  assert.equal(supportedPeerRange('4.0.0'), '>=4.0.0 <5');
+  assert.equal(supportedPeerRange('10.5.0'), '>=10.5.0 <11');
+  assert.equal(supportedPeerRange('0.34.48'), '>=0.34.48 <0.35');
+  assert.equal(supportedPeerRange('0.0.3'), '>=0.0.3 <0.1');
+  assert.equal(testedPeerRange('1.3.34', '1.3.34'), '1.3.34');
+  assert.equal(testedPeerRange('4.4.3', '4.6.5'), '>=4.4.3 <=4.6.5');
+  for (const [version, range, expected] of [
+    ['4.0.1', '>=4.0.0 <5', true],
+    ['4.99.0', '>=4.0.0 <5', true],
+    ['5.0.0', '>=4.0.0 <5', false],
+    ['3.22.2', '>=4.0.0 <5', false],
+    ['0.34.60', '>=0.34.48 <0.35', true],
+    ['0.35.0', '>=0.34.48 <0.35', false],
+    ['1.0.0', '>=0.34.48 <0.35', false],
+    ['4.6.5', '>=4.4.3 <=4.6.5', true],
+    ['4.6.6', '>=4.4.3 <=4.6.5', false],
+    ['1.3.34', '1.3.34', true],
+    ['1.3.35', '1.3.34', false],
+  ])
+    assert.equal(satisfiesPeerRange(version, range), expected, `${version} ${range}`);
+  assert.throws(() => satisfiesPeerRange('4.0.0', '^4.0.0'), /unsupported peer range/);
+  assert.throws(() => supportedPeerRange('4.0.0-beta.1'), /exact x\.y\.z/);
+});
+it('publishes every native peer as its supported range and the matrix range as tested', async () => {
+  for (const { manifest } of baseline.packages.filter((item) => item.manifest.mimlet)) {
+    for (const [name, tested] of Object.entries(manifest.mimlet.testedPeers)) {
+      const minimum = tested.replace(/^>=/, '').split(' ')[0];
+      assert.equal(manifest.peerDependencies[name], supportedPeerRange(minimum), manifest.name);
+    }
+  }
+  const changes = [
+    [
+      'packages/zod/package.json',
+      (pkg) => {
+        pkg.mimlet.testedPeers.zod = '>=4.4.3 <=4.7.0';
+      },
+      /mimlet\.testedPeers\.zod must be >=4\.4\.3 <=4\.6\.5/,
+    ],
+    [
+      'packages/zod/package.json',
+      (pkg) => {
+        delete pkg.mimlet;
+      },
+      /mimlet\.testedPeers\.zod must be/,
+    ],
+    [
+      'packages/effect/package.json',
+      (pkg) => {
+        pkg.peerDependencies.effect = '4.0.0';
+      },
+      /peerDependencies\.effect must be >=4\.0\.0 <5/,
+    ],
+    [
+      'packages/typebox-legacy/package.json',
+      (pkg) => {
+        pkg.peerDependencies['@sinclair/typebox'] = '>=0.34.48 <1';
+      },
+      /must be >=0\.34\.48 <0\.35/,
+    ],
+    [
+      'packages/valibot/package.json',
+      (pkg) => {
+        pkg.devDependencies.valibot = '1.6.0';
+      },
+      /devDependencies\.valibot must be a tested version/,
+    ],
+    [
+      'packages/fast-check/package.json',
+      (pkg) => {
+        pkg.peerDependencies['pure-rand'] = '>=8.0.0 <9';
+      },
+      /native peer pure-rand has no group/,
+    ],
+    [
+      'packages/faker/package.json',
+      (pkg) => {
+        pkg.mimlet.notes = 'free text';
+      },
+      /may only contain a testedPeers object/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        matrix.groups.find((group) => group.adapter === 'effect').maximum = '4.0.0';
+      },
+      /minimum and maximum must be the first and last tested versions/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        matrix.groups.find((group) => group.adapter === 'effect').versions.reverse();
+      },
+      /distinct and ascending/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        matrix.groups.find((group) => group.adapter === 'arktype').range = '>=2.2.5 <3';
+      },
+      /range must be >=2\.2\.5 <=2\.2\.7/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        matrix.groups = matrix.groups.filter((group) => group.adapter !== 'valibot');
+      },
+      /native peer valibot has no group/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        matrix.groups.push({ ...matrix.groups[0], adapter: 'core' });
+      },
+      /@mimlet\/core has no zod peer/,
+    ],
+  ];
+  for (const [path, edit, pattern] of changes)
+    await fixture(async ({ root, change }) => {
+      await change(path, edit);
+      await assert.rejects(readWorkspace(root), pattern);
+    });
+});

@@ -62,8 +62,10 @@ function printReport(report: DiagnosticReport, json: boolean): void {
       );
       console.log(`  ${entry.hint}`);
       if (entry.expected) {
+        // An untested peer is still supported, so its range is what was tested, not a requirement.
+        const label = entry.code === 'PEER_VERSION_UNTESTED' ? 'Tested' : 'Expected';
         console.log(
-          `  Expected: ${JSON.stringify(entry.expected)}; installed: ${JSON.stringify(entry.actual ?? 'missing')}`
+          `  ${label}: ${JSON.stringify(entry.expected)}; installed: ${JSON.stringify(entry.actual ?? 'missing')}`
         );
       }
     }

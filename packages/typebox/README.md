@@ -1,6 +1,6 @@
 # Native TypeBox builders
 
-`@mimlet/typebox` accepts native `typebox` schemas. Releases, including betas, are published on npm's `latest` tag. Its current compatibility target is exactly `typebox@1.3.34`; broader ranges require additional matrix testing.
+`@mimlet/typebox` accepts native `typebox` schemas. Releases, including betas, are published on npm's `latest` tag. The peer range accepts `typebox` `>=1.3.34 <2`; `typebox@1.3.34` is the tested version, and `mimlet doctor` reports a newer, untested TypeBox 1 release as `PEER_VERSION_UNTESTED`. Releases before 1.3.34 are not supported; 1.3.30 through 1.3.33 report some JSON Pointer error paths ambiguously.
 
 Install from npm. Pin exact versions when you need to
 reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).

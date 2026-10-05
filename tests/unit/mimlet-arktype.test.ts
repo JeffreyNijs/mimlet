@@ -6,6 +6,14 @@ import {
   fromArkTypeFactory,
 } from '../../packages/arktype/src/index.js';
 import { BuilderValidationError } from '../../packages/core/src/index.js';
+import arkTypePackage from '../../packages/arktype/package.json' with { type: 'json' };
+
+it('reports the published peer range as its supported versions', () => {
+  // ArkType has no runtime version, so the metadata cannot drift from the peer range unnoticed.
+  expect(arkTypeAdapter(type('string')).metadata.supportedVersions).toBe(
+    arkTypePackage.peerDependencies.arktype
+  );
+});
 
 it('generates native input and runs a morph only during validation', () => {
   let calls = 0;

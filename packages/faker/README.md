@@ -1,8 +1,10 @@
 # Realistic Faker fixtures
 
-This adapter targets `@faker-js/faker` 10.5.0 through 10.6.0, each release tested against
-the packed adapter, without making Faker a core dependency (alpha.3 and earlier pin 10.5.0).
-Its replay identity records the loaded Faker version.
+This adapter accepts `@faker-js/faker` `>=10.5.0 <11`, without making Faker a core
+dependency. Each release from 10.5.0 through 10.6.0 is tested against the packed adapter
+(alpha.3 and earlier pin 10.5.0); `mimlet doctor` reports a newer, untested Faker 10
+release as `PEER_VERSION_UNTESTED`. Its replay identity records the loaded Faker version,
+so a replay never crosses Faker releases.
 Randomness and the reference date belong to a scoped generation session, not the
 process-wide Faker singleton or the wall clock. No fixtures are cryptographic secrets.
 

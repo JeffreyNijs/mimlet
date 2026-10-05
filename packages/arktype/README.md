@@ -2,8 +2,10 @@
 
 Introduced in the coordinated toolkit `0.1.0-alpha.1` train.
 
-Native builders for **ArkType 2.2.5 through 2.2.7**, each release tested against the
-packed adapter (alpha.3 and earlier pin 2.2.5). `fromArkType(schema, options)` generates
+Native builders for **ArkType 2**. The peer range accepts ArkType `>=2.2.5 <3`; each
+release from 2.2.5 through 2.2.7 is tested against the packed adapter (alpha.3 and
+earlier pin 2.2.5). `mimlet doctor` reports a newer, untested ArkType 2 release as
+`PEER_VERSION_UNTESTED`. `fromArkType(schema, options)` generates
 encoded input through ArkType's Standard JSON Schema projection and validates
 through the original Type. Input/output inference, morphs, brands, defaults,
 scoped recursion and native error paths are retained.

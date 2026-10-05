@@ -8,8 +8,33 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+        # Major updates arrive as separate pull requests, so one breaking release cannot
+        # block every other update in the group.
+        update-types:
+          - minor
+          - patch
         patterns:
           - '*'
+    # The adapters' native libraries are pinned on purpose (root, packages/* and apps/docs
+    # devDependencies) to versions listed in tests/vendor-versions.json, mostly the tested
+    # minimum; scripts/check-workspace.mjs rejects an untested pin in an adapter package.
+    # New releases enter that matrix by review, and the weekly native canary workflow
+    # tests the latest release of each library.
+    ignore:
+      - dependency-name: zod
+      - dependency-name: arktype
+      - dependency-name: '@faker-js/faker'
+      - dependency-name: effect
+      - dependency-name: valibot
+      - dependency-name: typebox
+      - dependency-name: '@sinclair/typebox'
+      - dependency-name: fast-check
+      # @hey-api/openapi-ts loads TypeScript's compiler API at runtime, which TypeScript 7
+      # no longer ships, so hey-api-builders generation cannot run on it yet. Revisit when
+      # Hey API supports TypeScript 7.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions

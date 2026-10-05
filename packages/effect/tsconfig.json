@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "ESNext.Disposable"],
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "resolveJsonModule": true
   },
   "include": ["src/**/*.ts"]
 }

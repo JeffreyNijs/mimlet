@@ -1,0 +1,50 @@
+name: Native library canary
+
+# Weekly check that the newest published release of each native library still works with its
+# adapter. It installs from the registry without integrity pins, so it is an early warning, not a
+# release gate, and it never changes the tested ranges in tests/vendor-versions.json. A failed
+# scheduled run notifies the maintainer through GitHub's default workflow email.
+on:
+  schedule:
+    - cron: '23 6 * * 1' # Mondays 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  latest:
+    name: Latest native release / ${{ matrix.adapter }}
+    # Scheduled runs in forks do nothing; only maintainers can dispatch it here.
+    if: github.repository == 'JeffreyNijs/mimlet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [zod, typebox, typebox-legacy, arktype, faker, effect, valibot, fast-check]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test the adapter against the latest published native release
+        run: node scripts/test-vendor-versions.mjs "$ADAPTER" --latest
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-canary-${{ matrix.adapter }}
+          path: test-results/vendor-canary-${{ matrix.adapter }}.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -21,6 +21,19 @@ packages, dependency/peer ranges, Node engine ranges and matching release trains
 Workspace symlinks and ordinary Node-style ancestor resolution are supported.
 Missing optional dependencies are allowed; installed optional peers must match.
 
+An adapter's peer range is its supported range: it runs up to the native library's
+next major release (the next minor for 0.x libraries). Inside it, the adapter's
+`package.json` names the versions the release was tested with in
+`mimlet.testedPeers`. A peer outside the supported range is the error
+`PEER_VERSION_UNSUPPORTED`. A peer inside the supported range but outside the
+tested range, usually a release newer than the adapter, is the warning
+`PEER_VERSION_UNTESTED`: its `expected` field holds the tested range, and the report
+stays `ok`. Newer versions usually work. Report a problem in the
+[issue tracker](https://github.com/JeffreyNijs/mimlet/issues), or pin the library to
+the tested range when you need a tested setup. Each entry in the report's
+`packages[].peers` lists `required` (the supported range), `tested` when the
+package declares one, and `installed`. See [compatibility](compatibility.md#supported-and-tested-versions).
+
 This is a dependency metadata check, not a proof that every export works, the
 application compiles or its tests pass. npm tags and workspace selectors are not
 resolved over the network. Unsupported or malformed manifests fail with actionable
@@ -87,6 +100,7 @@ Branch on these codes, not on message text. New codes may be added. Errors throw
 | `NODE_VERSION_UNSUPPORTED`    | `doctor`   | error    | The running Node version does not satisfy a package's engines.                 |
 | `PEER_NOT_INSTALLED`          | `doctor`   | error    | A required peer dependency of a Mimlet package is missing.                     |
 | `PEER_VERSION_UNSUPPORTED`    | `doctor`   | error    | An installed peer is outside the adapter's supported range.                    |
+| `PEER_VERSION_UNTESTED`       | `doctor`   | warning  | An installed peer is supported, but outside the adapter's tested range.        |
 | `TOOLKIT_DEPENDENCY_MISMATCH` | `doctor`   | error    | An internal toolkit dependency is missing or incompatible.                     |
 | `MIXED_TOOLKIT_RELEASES`      | `doctor`   | warning  | More than one scoped Mimlet release version is installed.                      |
 | `PROJECT_INSPECTION_FAILED`   | `doctor`   | error    | Package metadata could not be inspected safely; no project code was executed.  |

@@ -47,8 +47,14 @@ an engine upgrade. See [sessions](sessions-and-replay.md) and
 ## Support boundaries
 
 The [compatibility matrix](compatibility.md) defines runtime, compiler and vendor
-support separately. Wider peer ranges require installed-tarball conformance tests
-for the claimed versions. Unsupported future releases are not implicitly included.
+support separately. An adapter's peer range is its supported range: it runs up to
+the native library's next breaking release (next major, or next minor for 0.x), so
+compatible upstream releases install. Only the tested range, published as
+`mimlet.testedPeers` and recorded in `tests/vendor-versions.json`, is claimed as
+tested; each of its versions has installed-tarball conformance tests. A newer
+release inside the supported range is accepted without that claim, and
+`mimlet doctor` reports it as `PEER_VERSION_UNTESTED`. A release outside the
+supported range, such as a new major, needs a reviewed adapter release.
 The dependency-free core stays independently installable; native adapters,
 generation, codegen, the website and playground remain optional.
 

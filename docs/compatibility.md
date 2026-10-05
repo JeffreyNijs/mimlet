@@ -2,8 +2,9 @@
 
 This describes the published `0.1.0-beta.2` train and its tested source contracts. A supported interface, a native parser,
 an automatic generator and a shrinker are different capabilities. Native package
-versions below are explicit conformance targets or exhaustively tested bounded
-ranges. Fixture manifests, lockfiles and `tests/vendor-versions.json` are the
+versions below are the tested versions; each adapter's peer range, its supported
+range, can be wider (see [supported and tested versions](#supported-and-tested-versions)).
+Fixture manifests, lockfiles and `tests/vendor-versions.json` are the
 executable source of truth.
 
 | Input or integration | Tested target                          | Generation and types                                                                                          | Validation, codecs and limits                                                                                             |
@@ -16,7 +17,7 @@ executable source of truth.
 | Zod                  | 4.4.3–4.6.5                            | Dedicated Zod/Mini builders, input JSON generation and typed factories.                                       | Native parsing/codecs; explicit async path avoids the Standard entry probe.                                               |
 | Valibot              | 1.5.0; converter 1.8.0                 | Native adapter converts synchronous schema input.                                                             | Original parsing/transformations. Async/native-only schemas use a factory with Standard Schema.                           |
 | ArkType              | 2.2.5–2.2.7 (2.2.5 through alpha.3)    | Dedicated builders, input JSON generation and native typed factories.                                         | Native morphs/scopes and input checks retained; no private AST dependency.                                                |
-| Effect               | 4.0.0 (3.22.2 through alpha.3)         | Native decoded arbitrary re-encoded as input; sync/async factory escape hatches.                              | Native input/output arbitraries, codecs and Effect 4's own arbitrary engine and shrinking (fast-check 3 through alpha.3). |
+| Effect               | 4.0.0–4.0.1 (3.22.2 through alpha.3)   | Native decoded arbitrary re-encoded as input; sync/async factory escape hatches.                              | Native input/output arbitraries, codecs and Effect 4's own arbitrary engine and shrinking (fast-check 3 through alpha.3). |
 | JSON Schema          | Draft-07, 2019-09, 2020-12             | `json-schema-faker` 0.6.3; explicit versioned alternative providers.                                          | Separate Ajv 8.20.0 validators and ajv-formats 3.0.1; checked output, offline references and bounded attempts.            |
 | Faker                | 10.5.0–10.6.0 (10.5.0 through alpha.3) | Explicit factories, locale fallback and stable named session streams.                                         | Native schemas can validate results; fixed reference dates and versioned replay.                                          |
 | fast-check           | 4.10.2                                 | Native arbitraries, fixture mappings, parameter/scenario shrinking.                                           | Sync/async properties, assertions and replay; arbitrary derivation from every schema is not claimed.                      |
@@ -78,26 +79,79 @@ future dependency releases. Named-stream isolation applies where a provider uses
 those scopes, not to every field of a third-party generator. Fixture capture is
 available when the actual value must survive dependency changes.
 
-## Version ranges since alpha.2
+## Supported and tested versions
 
-Alpha.1 used exact peer pins. Alpha.2 widened Zod to `>=4.4.3 <=4.6.5` and
-legacy TypeBox to `>=0.34.48 <=0.34.52`, and later trains keep both ranges.
-Alpha.4 widens ArkType to `>=2.2.5 <=2.2.7` and Faker to `>=10.5.0 <=10.6.0`;
-alpha.3 pinned them to 2.2.5 and 10.5.0. ArkType brings its own exact `@ark/*` and `arkregex`
-dependencies, so each matrix entry pins that whole set by integrity.
-`tests/vendor-versions.json` pins every currently published version in those
-intervals by tarball integrity. `pnpm test:vendors` reuses the full native
-conformance, negative-type and coverage suites for each version in isolated
-installations, including a production dependency audit. Future versions require
-a new reviewed matrix entry.
+Each native adapter has two ranges for its library:
 
-Modern TypeBox remains exactly `1.3.34`. Probing 1.3.30–1.3.33 found that a
-property named `a/b~c` is reported as `/a/b~c` rather than the unambiguous JSON
-Pointer `/a~1b~0c`. The existing path-preservation regression fails on those
-versions; the adapter does not guess a repair.
+- The **supported range** is the adapter's `peerDependencies` entry. It starts at the
+  oldest tested version and runs up to the next release that may break the library:
+  the next major from 1.0, or the next minor for a 0.x library. npm accepts any
+  version in it, so a compatible upstream patch or minor release does not make
+  `npm install` fail with `ERESOLVE` before Mimlet publishes again.
+- The **tested range** is the set of versions that `tests/vendor-versions.json`
+  installs one by one and runs the adapter's full conformance suite against. Each
+  adapter publishes it in its `package.json` as `mimlet.testedPeers`.
+
+| Adapter                  | Library             | Supported (peer)  | Tested                |
+| ------------------------ | ------------------- | ----------------- | --------------------- |
+| `@mimlet/zod`            | `zod`               | `>=4.4.3 <5`      | `>=4.4.3 <=4.6.5`     |
+| `@mimlet/valibot`        | `valibot`           | `>=1.5.0 <2`      | `1.5.0`               |
+| `@mimlet/arktype`        | `arktype`           | `>=2.2.5 <3`      | `>=2.2.5 <=2.2.7`     |
+| `@mimlet/effect`         | `effect`            | `>=4.0.0 <5`      | `>=4.0.0 <=4.0.1`     |
+| `@mimlet/typebox`        | `typebox`           | `>=1.3.34 <2`     | `1.3.34`              |
+| `@mimlet/typebox-legacy` | `@sinclair/typebox` | `>=0.34.48 <0.35` | `>=0.34.48 <=0.34.52` |
+| `@mimlet/faker`          | `@faker-js/faker`   | `>=10.5.0 <11`    | `>=10.5.0 <=10.6.0`   |
+| `@mimlet/fast-check`     | `fast-check`        | `>=4.10.2 <5`     | `4.10.2`              |
+
+These ranges apply from the train after `0.1.0-beta.2`. The published
+`0.1.0-beta.2` packages still declare their tested range as the peer range (Effect,
+Valibot, TypeBox and fast-check exactly), so a newer library release makes their
+installation fail until the next train is published.
+
+`pnpm check:workspace`, which `pnpm install` also runs, fails when a peer range, a
+`mimlet.testedPeers` entry or an adapter's pinned development version disagrees
+with `tests/vendor-versions.json`. `pnpm test:vendors` (one CI job per adapter,
+"Native version range") installs each recorded version by tarball integrity in an
+isolated project and reuses the full native conformance, negative-type and
+coverage suites, including a production dependency audit. ArkType brings its own
+exact `@ark/*` and `arkregex` dependencies, and fast-check its `pure-rand`, so each
+matrix entry pins that whole set by integrity. A newer release joins the tested
+range only through a reviewed matrix entry.
+
+`mimlet doctor` reports a library outside the supported range as the error
+`PEER_VERSION_UNSUPPORTED`, and one inside it but outside the tested range as the
+warning `PEER_VERSION_UNTESTED`; a warning does not make the report fail. Newer
+versions usually work. If one does not, report it in the
+[issue tracker](https://github.com/JeffreyNijs/mimlet/issues) and pin the library to
+its tested range in the meantime. See [CLI diagnostics](cli-diagnostics.md).
+
+A weekly canary workflow (`Native library canary`, Mondays and on demand) installs
+the newest published release of each library from the registry, without integrity
+pins, and runs the same adapter suites (`node scripts/test-vendor-versions.mjs <adapter> --latest`).
+It also fails when the newest release is outside the supported range, which is the
+signal that a new major needs a reviewed adapter release. It is an early warning,
+not a release gate, and it never changes the tested range.
+
+### History and per-library notes
+
+Alpha.1 used exact peer pins. Alpha.2 widened Zod to `>=4.4.3 <=4.6.5` and legacy
+TypeBox to `>=0.34.48 <=0.34.52`. Alpha.4 widened ArkType to `>=2.2.5 <=2.2.7` and
+Faker to `>=10.5.0 <=10.6.0`; alpha.3 pinned them to 2.2.5 and 10.5.0. Until
+`0.1.0-beta.2`, the peer range was the tested range.
+
+Modern TypeBox starts at `1.3.34`. Probing 1.3.30–1.3.33 found that a property
+named `a/b~c` is reported as `/a/b~c` rather than the unambiguous JSON Pointer
+`/a~1b~0c`. The existing path-preservation regression fails on those versions; the
+adapter does not guess a repair. TypeBox exposes no runtime version, so the creation
+identity names the tested `1.3.34` creation behavior.
+
+Effect marks its `effect/Arbitrary` module unstable and does not promise identical
+samples across releases. The adapter's metadata names the loaded Effect release,
+and a release that removes the Arbitrary API it uses makes the adapter throw a
+`TypeError` when it loads. Include the Effect version in your session provider.
 
 Zod adapter metadata records the loaded Zod version. Generation identity comes from
 the converted input schema and the JSON Schema provider, so a Zod upgrade that changes
 the converted schema cannot reuse an older replay. Faker's replay identity names the
-loaded Faker release from alpha.4. ArkType exposes no runtime
-version; its generation identity comes from the converted input schema instead.
+loaded Faker release from alpha.4. ArkType and Valibot expose no runtime version;
+their generation identity comes from the converted input schema instead.

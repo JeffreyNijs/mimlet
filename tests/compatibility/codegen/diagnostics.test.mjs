@@ -86,6 +86,75 @@ describe('project diagnostics from installed metadata', () => {
       assert.equal(invoke('doctor', '--project', root, '--json').status, 1);
       assert.match(invoke('doctor', '--project', root).stdout, /needs attention/);
     }));
+  it('warns about a supported peer that is newer than the tested range and still exits 0', () =>
+    temporary(async (root) => {
+      await json(join(root, 'package.json'), { dependencies: { '@mimlet/custom': '1.0.0' } });
+      const adapter = {
+        peerDependencies: { vendor: '>=2.0.0 <3', legacy: '>=0.4.0 <0.5' },
+        mimlet: { testedPeers: { vendor: '>=2.0.0 <=2.1.0', legacy: '0.4.0' } },
+      };
+      await installed(root, '@mimlet/custom', adapter);
+      await installed(root, 'vendor', { version: '2.4.1' });
+      await installed(root, 'legacy', { version: '0.4.0' });
+      const report = await diagnoseProject(root);
+      assert.equal(report.ok, true);
+      assert.deepEqual(codes(report), ['PEER_VERSION_UNTESTED']);
+      assert.deepEqual(
+        { ...report.diagnostics[0], hint: undefined },
+        {
+          code: 'PEER_VERSION_UNTESTED',
+          severity: 'warning',
+          message:
+            'An installed peer dependency is inside the supported range but outside the tested range.',
+          hint: undefined,
+          package: '@mimlet/custom',
+          dependency: 'vendor',
+          expected: '>=2.0.0 <=2.1.0',
+          actual: '2.4.1',
+        }
+      );
+      assert.match(
+        report.diagnostics[0].hint,
+        /pin vendor to a version in >=2\.0\.0 <=2\.1\.0 to stay on tested versions/
+      );
+      assert.deepEqual(
+        report.packages[0].peers.map(({ name, required, tested, installed }) => ({
+          name,
+          required,
+          tested,
+          installed,
+        })),
+        [
+          { name: 'legacy', required: '>=0.4.0 <0.5', tested: '0.4.0', installed: '0.4.0' },
+          { name: 'vendor', required: '>=2.0.0 <3', tested: '>=2.0.0 <=2.1.0', installed: '2.4.1' },
+        ]
+      );
+      const command = invoke('doctor', '--project', root, '--json');
+      assert.equal(command.status, 0, command.stderr);
+      assert.deepEqual(JSON.parse(command.stdout), report);
+      const human = invoke('doctor', '--project', root);
+      assert.equal(human.status, 0);
+      assert.match(human.stdout, /Mimlet doctor: warnings/);
+      assert.match(human.stdout, /WARNING PEER_VERSION_UNTESTED \(@mimlet\/custom -> vendor\)/);
+      assert.match(human.stdout, /Tested: ">=2\.0\.0 <=2\.1\.0"; installed: "2\.4\.1"/);
+      // A 0.x peer outside its next minor is unsupported, not merely untested.
+      await installed(root, 'legacy', { version: '0.5.0' });
+      assert.deepEqual(codes(await diagnoseProject(root)), [
+        'PEER_VERSION_UNTESTED',
+        'PEER_VERSION_UNSUPPORTED',
+      ]);
+      assert.equal(invoke('doctor', '--project', root, '--json').status, 1);
+      for (const mimlet of [
+        [],
+        { testedPeers: 'SECRET_VALUE' },
+        { testedPeers: { vendor: 'SECRET_VALUE' } },
+      ]) {
+        await installed(root, '@mimlet/custom', { ...adapter, mimlet });
+        const malformed = await diagnoseProject(root);
+        assert.deepEqual(codes(malformed), ['PROJECT_INSPECTION_FAILED']);
+        assert(!JSON.stringify(malformed).includes('SECRET_VALUE'));
+      }
+    }));
   it('recognizes workspace links, duplicate release trains and cycles', () =>
     temporary(async (root) => {
       await json(join(root, 'package.json'), {

@@ -1,9 +1,15 @@
 # Native Valibot generation
 
-`fromValibot(schema, options)` adds automatic input generation to `valibot@1.5.0`
-through the pinned `@valibot/to-json-schema@1.8.0` converter. The original native
+`fromValibot(schema, options)` adds automatic input generation to Valibot through
+the pinned `@valibot/to-json-schema@1.8.0` converter. The original native
 parser retains its output transformations and is invoked once per validated build.
 Conversion failures are not suppressed or downgraded to warnings.
+
+The peer range accepts Valibot `>=1.5.0 <2`, the same range the converter accepts;
+`valibot@1.5.0` is the tested version. A newer Valibot 1 release installs, and
+`mimlet doctor` reports it as `PEER_VERSION_UNTESTED`. Newer versions usually work;
+a schema action the pinned converter does not know throws its "cannot be converted"
+error instead of being dropped.
 
 Install from npm's `latest` tag, which includes betas. Pin exact versions when you
 need to reproduce fixtures; see [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).

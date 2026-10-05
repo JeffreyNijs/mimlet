@@ -4,6 +4,7 @@ import * as A from 'effect/Arbitrary';
 import * as E from 'effect/Effect';
 import * as SAST from 'effect/SchemaAST';
 import * as ST from 'effect/SchemaTransformation';
+import effectPackage from 'effect/package.json' with { type: 'json' };
 import {
   fromEffect,
   fromEffectAsync,
@@ -57,8 +58,10 @@ it('samples the native arbitrary deterministically from the session, not Effect 
   } finally {
     A.configureGlobal({});
   }
+  // The loaded release, not a fixed claim: Effect does not promise identical samples across releases.
   expect(effectAdapter(S.Int).metadata).toMatchObject({
-    version: '4.0.0',
+    version: effectPackage.version,
+    arbitraryVersion: effectPackage.version,
     shrinking: 'native-effect-arbitrary-4',
   });
 });
