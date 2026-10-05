@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.3
+
+### Patch Changes
+
+- @mimlet/core@0.1.0-beta.3
+  - @mimlet/json-schema@0.1.0-beta.3
+
 ## 0.1.0-beta.2
 
 ### Patch Changes

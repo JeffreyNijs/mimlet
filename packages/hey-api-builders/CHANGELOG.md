@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.0-beta.3
+
+### Patch Changes
+
+- @mimlet/core@0.1.0-beta.3
+
 ## 3.0.0-beta.2
 
 ### Patch Changes

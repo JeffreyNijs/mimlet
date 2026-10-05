@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/arktype",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "private": false,
   "description": "Native ArkType fixture builders with typed factories and input/output semantics.",
   "type": "module",
@@ -42,8 +42,8 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-arktype.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.2",
-    "@mimlet/json-schema": "0.1.0-beta.2"
+    "@mimlet/core": "0.1.0-beta.3",
+    "@mimlet/json-schema": "0.1.0-beta.3"
   },
   "engines": {
     "node": ">=22.18.0"
