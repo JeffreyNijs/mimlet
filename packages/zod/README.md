@@ -2,8 +2,8 @@
 
 Introduced in the coordinated toolkit `0.1.0-alpha.1` train.
 
-Native builders for **Zod 4**, including Zod Mini. Alpha.1 pinned 4.4.3;
-alpha.2 supports the tested range 4.4.3 through 4.6.5. Input and output types come
+Native builders for **Zod 4**, including Zod Mini. The peer range accepts Zod
+`>=4.4.3 <5`; each release from 4.4.3 through 4.6.5 is tested. Input and output types come
 from the original schema. Automatic generation uses its input JSON Schema;
 validation, transforms, defaults and codecs remain native Zod operations.
 The dependency-free core remains separate.
@@ -20,7 +20,10 @@ when you need to reproduce fixtures; see [Getting started](https://jeffreynijs.g
 npm install --save-dev @mimlet/zod zod@4.6.5
 ```
 
-Zod 4.6.5 is the newest tested version; the supported range is 4.4.3 through 4.6.5.
+Zod 4.6.5 is the newest tested version. The supported range is `>=4.4.3 <5`, so a
+newer Zod 4 release installs; `mimlet doctor` reports it as `PEER_VERSION_UNTESTED`
+until it is tested. Newer versions usually work; pin `zod@4.6.5` when you need a
+tested setup.
 
 ## Builders
 

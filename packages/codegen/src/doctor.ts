@@ -13,6 +13,8 @@ interface PackageData {
   peerDependencies?: unknown;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   engines?: { node?: unknown };
+  /** `mimlet.testedPeers`: the peer versions an adapter was tested with, inside its peer ranges. */
+  mimlet?: unknown;
 }
 interface Installed {
   data: PackageData;
@@ -23,7 +25,10 @@ export interface ProjectPackage {
   readonly version: string;
   readonly peers: readonly {
     name: string;
+    /** The supported peer range. */
     required: string;
+    /** The tested range inside `required`, when the package declares one. */
+    tested?: string;
     installed: string | null;
     optional: boolean;
   }[];
@@ -56,6 +61,16 @@ function dependencies(value: unknown): [string, string][] {
     throw new Error('metadata');
   }
   return entries as [string, string][];
+}
+/** A missing field or one without `testedPeers` declares no tested ranges. */
+function testedPeers(value: unknown): Map<string, string> {
+  if (value === undefined) {
+    return new Map();
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('metadata');
+  }
+  return new Map(dependencies((value as { testedPeers?: unknown }).testedPeers));
 }
 async function manifest(file: string): Promise<Installed | undefined> {
   try {
@@ -208,8 +223,10 @@ export async function diagnoseProject(directory: string = process.cwd()): Promis
           }
         }
         const peers: ProjectPackage['peers'][number][] = [];
+        const testedRanges = testedPeers(pkg.mimlet);
         for (const [name, range] of dependencies(pkg.peerDependencies)) {
-          if (!validRange(range)) {
+          const tested = testedRanges.get(name);
+          if (!validRange(range) || (tested !== undefined && !validRange(tested))) {
             throw new Error('peer range');
           }
           const peer = await locate(name, installed.directory);
@@ -219,7 +236,13 @@ export async function diagnoseProject(directory: string = process.cwd()): Promis
             throw new Error('peer identity');
           }
           const actual = typeof version === 'string' ? version : null;
-          peers.push({ name, required: range, installed: actual, optional });
+          peers.push({
+            name,
+            required: range,
+            ...(tested === undefined ? {} : { tested }),
+            installed: actual,
+            optional,
+          });
           if (!actual && !optional) {
             add(
               'PEER_NOT_INSTALLED',
@@ -235,6 +258,16 @@ export async function diagnoseProject(directory: string = process.cwd()): Promis
               `Align ${name} with the adapter's supported range.`,
               item.name,
               { dependency: name, expected: range, actual }
+            );
+          } else if (actual && tested !== undefined && !satisfies(actual, tested)) {
+            // Supported (npm accepts it) but not one of the versions the adapter was tested with.
+            add(
+              'PEER_VERSION_UNTESTED',
+              'An installed peer dependency is inside the supported range but outside the tested range.',
+              `Versions newer than the tested range usually work. Report problems at https://github.com/JeffreyNijs/mimlet/issues, or pin ${name} to a version in ${tested} to stay on tested versions.`,
+              item.name,
+              { dependency: name, expected: tested, actual },
+              'warning'
             );
           }
           if (toolkit(name) && peer) {

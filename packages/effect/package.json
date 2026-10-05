@@ -21,7 +21,12 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "effect": "4.0.0"
+    "effect": ">=4.0.0 <5"
+  },
+  "mimlet": {
+    "testedPeers": {
+      "effect": ">=4.0.0 <=4.0.1"
+    }
   },
   "repository": {
     "type": "git",

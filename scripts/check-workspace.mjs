@@ -26,6 +26,132 @@ export function releaseDistTag(name, version) {
   return name === 'hey-api-builders' && version.includes('-') ? 'next' : 'latest';
 }
 
+const exactVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const parseExact = (version) => {
+  const match = typeof version === 'string' ? exactVersion.exec(version) : null;
+  if (!match) fail(`expected an exact x.y.z version, received ${JSON.stringify(version)}`);
+  return match.slice(1).map(Number);
+};
+/** Order two exact x.y.z versions. Prerelease and build suffixes are not accepted. */
+export function compareVersions(left, right) {
+  const a = parseExact(left),
+    b = parseExact(right);
+  for (let index = 0; index < 3; index++) if (a[index] !== b[index]) return a[index] - b[index];
+  return 0;
+}
+
+/**
+ * The peer range an adapter publishes for its native library: from the tested minimum up to the
+ * next release that may break it. That is the next major from 1.0.0, and the next minor for 0.x,
+ * so a compatible upstream patch or minor never makes `npm install` fail with ERESOLVE.
+ */
+export function supportedPeerRange(minimum) {
+  const [major, minor] = parseExact(minimum);
+  return `>=${minimum} <${major > 0 ? major + 1 : `0.${minor + 1}`}`;
+}
+
+/** The range of versions that `tests/vendor-versions.json` installs and tests one by one. */
+export function testedPeerRange(minimum, maximum) {
+  return minimum === maximum ? minimum : `>=${minimum} <=${maximum}`;
+}
+
+/** Whether an exact version is inside a range made by `supportedPeerRange` or `testedPeerRange`. */
+export function satisfiesPeerRange(version, range) {
+  if (exactVersion.test(range)) return compareVersions(version, range) === 0;
+  const tested = /^>=(\S+) <=(\S+)$/.exec(range);
+  if (tested)
+    return compareVersions(version, tested[1]) >= 0 && compareVersions(version, tested[2]) <= 0;
+  const supported = /^>=(\S+) <(0\.)?(0|[1-9]\d*)$/.exec(range);
+  if (!supported) fail(`unsupported peer range ${JSON.stringify(range)}`);
+  const [major, minor] = parseExact(version);
+  const bound = Number(supported[3]);
+  return (
+    compareVersions(version, supported[1]) >= 0 &&
+    (supported[2] ? major === 0 && minor < bound : major < bound)
+  );
+}
+
+const vendorName = /^(?:@[a-z0-9-]+\/)?[a-z0-9][a-z0-9.-]*$/;
+/** Validate the record of tested native versions. Each group is one adapter and one library. */
+export async function readVendorMatrix(root) {
+  const matrix = await json(join(root, 'tests/vendor-versions.json'));
+  if (matrix?.format !== 1 || !Array.isArray(matrix.groups) || !matrix.groups.length)
+    fail('tests/vendor-versions.json must use format 1 with at least one group');
+  const seen = new Set();
+  for (const group of matrix.groups) {
+    const id = `${group?.adapter} -> ${group?.dependency}`;
+    if (
+      !/^[a-z0-9-]+$/.test(group?.fixture ?? '') ||
+      !/^[a-z0-9-]+$/.test(group?.adapter ?? '') ||
+      !vendorName.test(group?.dependency ?? '') ||
+      seen.has(id) ||
+      !Array.isArray(group.versions) ||
+      !group.versions.length ||
+      group.versions.length > 64
+    )
+      fail(`invalid native version group ${id}`);
+    seen.add(id);
+    const versions = group.versions.map((entry) => entry?.version);
+    versions.forEach(parseExact);
+    if (
+      versions.some((version, index) => index && compareVersions(versions[index - 1], version) >= 0)
+    )
+      fail(`tested versions of ${id} must be distinct and ascending`);
+    if (group.minimum !== versions[0] || group.maximum !== versions.at(-1))
+      fail(`${id}: minimum and maximum must be the first and last tested versions`);
+    if (group.range !== testedPeerRange(group.minimum, group.maximum))
+      fail(`${id}: range must be ${testedPeerRange(group.minimum, group.maximum)}`);
+  }
+  return matrix;
+}
+
+/**
+ * Every native peer of a scoped adapter has a group in `tests/vendor-versions.json`. The adapter
+ * publishes the supported range as its peer and the tested range as `mimlet.testedPeers`, so
+ * `mimlet doctor` can tell a supported but untested version from an unsupported one.
+ */
+function checkNativePeers(packages, matrix) {
+  const groups = new Map(
+    matrix.groups.map((group) => [`${group.adapter}\0${group.dependency}`, group])
+  );
+  const used = new Set();
+  for (const { directory, manifest: pkg } of packages) {
+    if (!pkg.name.startsWith('@mimlet/')) continue;
+    const adapter = directory.split(/[\\/]/).at(-1);
+    const extra = pkg.mimlet;
+    if (
+      extra !== undefined &&
+      (!extra ||
+        typeof extra !== 'object' ||
+        Array.isArray(extra) ||
+        Object.keys(extra).some((key) => key !== 'testedPeers') ||
+        !extra.testedPeers ||
+        typeof extra.testedPeers !== 'object' ||
+        Array.isArray(extra.testedPeers))
+    )
+      fail(`${pkg.name}: the mimlet field may only contain a testedPeers object`);
+    const tested = extra?.testedPeers ?? {};
+    const peers = Object.keys(pkg.peerDependencies ?? {}).filter((name) => !internalName(name));
+    for (const name of new Set([...peers, ...Object.keys(tested)])) {
+      const group = groups.get(`${adapter}\0${name}`);
+      if (!group)
+        fail(`${pkg.name}: native peer ${name} has no group in tests/vendor-versions.json`);
+      used.add(group);
+      const supported = supportedPeerRange(group.minimum);
+      if (pkg.peerDependencies?.[name] !== supported)
+        fail(`${pkg.name}: peerDependencies.${name} must be ${supported}`);
+      if (tested[name] !== group.range)
+        fail(`${pkg.name}: mimlet.testedPeers.${name} must be ${group.range}`);
+      const pinned = pkg.devDependencies?.[name];
+      if (pinned !== undefined && !group.versions.some((entry) => entry.version === pinned))
+        fail(`${pkg.name}: devDependencies.${name} must be a tested version`);
+    }
+  }
+  for (const group of groups.values())
+    if (!used.has(group))
+      fail(`tests/vendor-versions.json: @mimlet/${group.adapter} has no ${group.dependency} peer`);
+}
+
 export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.meta.url)), '..')) {
   const manifest = await json(join(root, 'package.json'));
   if (manifest.private !== true) fail('the repository root must be private');
@@ -116,6 +242,7 @@ export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.
       }
     }
   }
+  checkNativePeers(packages, await readVendorMatrix(root));
   const core = names.get('@mimlet/core').manifest;
   if (
     Object.keys(core.dependencies ?? {}).length ||

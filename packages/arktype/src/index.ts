@@ -43,8 +43,9 @@ export function arkTypeAdapter<S extends ArkTypeSchema>(source: S, options: ArkT
     metadata: Object.freeze({
       vendor: 'arktype',
       // ArkType exposes no runtime version. Generation identity comes from the
-      // converted input schema, so a projection change cannot reuse a replay.
-      supportedVersions: '>=2.2.5 <=2.2.7',
+      // converted input schema, so a projection change cannot reuse a replay. This is the
+      // peer range; package.json `mimlet.testedPeers` names the versions tested one by one.
+      supportedVersions: '>=2.2.5 <3',
       generation: 'input-json-schema',
       validation: 'native-standard-schema',
       encoding: false,

@@ -1,9 +1,14 @@
 # Native Effect fixtures
 
-From `0.1.0-alpha.4`, this package targets exactly `effect@4.0.0`. Effect 4 replaced
-the bundled fast-check with its own `effect/Arbitrary` engine, which Effect marks as
-unstable, so the peer stays exact. Toolkit `0.1.0-alpha.3` and earlier target
-`effect@3.22.2`; Effect 3 projects should stay on that train.
+This package supports Effect 4: its peer range is `effect` `>=4.0.0 <5`, and each
+release from 4.0.0 through 4.0.1 is tested against the packed adapter. Effect 4
+replaced the bundled fast-check with its own `effect/Arbitrary` engine, which Effect
+marks as unstable, so a newer Effect 4 release can change generated values. The
+adapter's metadata names the loaded Effect release, and `mimlet doctor` reports an
+untested release as `PEER_VERSION_UNTESTED`. Newer releases usually work; pin a
+tested release when you need a tested setup, and report problems in the
+[issue tracker](https://github.com/JeffreyNijs/mimlet/issues). Toolkit `0.1.0-alpha.3`
+and earlier target `effect@3.22.2`; Effect 3 projects should stay on that train.
 
 Pin exact versions when you need to reproduce fixtures; see
 [Getting started](https://jeffreynijs.github.io/mimlet/guide/getting-started.html).
@@ -130,7 +135,8 @@ error and, from JavaScript, raises a `TypeError` before any generation. Every
 native sampling option (count, size, discards and seed) is passed explicitly, so
 `Arbitrary.configureGlobal` cannot change generated fixtures, and the adapter does
 not modify native configuration. Effect does not promise identical samples across
-releases; include `effect@4.0.0` in your session provider. Native schemas/annotations are
+releases; include the Effect version (for example `effect@4.0.1`, also in
+`effectAdapter(schema).metadata.version`) in your session provider. Native schemas/annotations are
 trusted code; this is not an interruptible worker or a guarantee of arbitrary
 termination for opaque user filters.
 

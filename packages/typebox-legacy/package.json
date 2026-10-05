@@ -21,7 +21,12 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@sinclair/typebox": ">=0.34.48 <=0.34.52"
+    "@sinclair/typebox": ">=0.34.48 <0.35"
+  },
+  "mimlet": {
+    "testedPeers": {
+      "@sinclair/typebox": ">=0.34.48 <=0.34.52"
+    }
   },
   "repository": {
     "type": "git",

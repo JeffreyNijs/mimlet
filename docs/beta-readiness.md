@@ -38,7 +38,7 @@ Existing records, not beta-candidate verification:
       Document planned breaking changes and migrations, including [Hey API v3](hey-api-migration.md).
       Keep [compatibility targets](compatibility.md) unchanged unless new installed
       consumer/vendor evidence supports a change; do not extend core portability
-      or existing peer ranges by inference.
+      or existing tested native ranges by inference.
 - [ ] **Pass final-head checks.** Link results at the exact candidate SHA for
       all [acceptance gates](acceptance.md#checks-that-must-pass-on-the-final-head):
       source/types, coverage, tarballs, dependency audit/review, browsers, platforms,

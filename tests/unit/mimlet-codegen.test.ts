@@ -1,10 +1,151 @@
 import { expect, it } from 'vitest';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  diagnoseProject,
   emitBuilders,
   emitJsonSchemaBuilders,
   inspectSchema,
   reportStatus,
 } from '../../packages/codegen/src/index.js';
+import type { Diagnostic } from '../../packages/codegen/src/index.js';
+
+const repository = fileURLToPath(new URL('../..', import.meta.url));
+async function project(run: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'mimlet-doctor-unit-'));
+  try {
+    await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+async function json(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(value));
+}
+const install = (root: string, name: string, data: Record<string, unknown>) =>
+  json(join(root, 'node_modules', name, 'package.json'), { name, version: '1.0.0', ...data });
+/** The documented diagnostic table: code -> command and severity. */
+async function documentedCodes(): Promise<Map<string, { command: string; severity: string }>> {
+  const markdown = await readFile(join(repository, 'docs/cli-diagnostics.md'), 'utf8');
+  const rows = [
+    ...markdown.matchAll(/^\| `([A-Z_]+)` +\| (`[a-z]+`|any) +\| (error|warning) +\|/gm),
+  ];
+  return new Map(
+    rows.map(([, code = '', command = '', severity = '']) => [
+      code,
+      { command: command.replaceAll('`', ''), severity },
+    ])
+  );
+}
+
+it('warns about a supported peer outside its tested range without failing the report', () =>
+  project(async (root) => {
+    await json(join(root, 'package.json'), { devDependencies: { '@mimlet/custom': '1.0.0' } });
+    const adapter = {
+      peerDependencies: { vendor: '>=2.0.0 <3' },
+      mimlet: { testedPeers: { vendor: '>=2.0.0 <=2.1.0' } },
+    };
+    await install(root, '@mimlet/custom', adapter);
+    const codes = (diagnostics: readonly Diagnostic[]) => diagnostics.map((entry) => entry.code);
+    await install(root, 'vendor', { version: '2.1.0' });
+    const tested = await diagnoseProject(root);
+    expect(tested).toMatchObject({ ok: true, diagnostics: [] });
+    expect(tested.packages[0]?.peers).toEqual([
+      {
+        name: 'vendor',
+        required: '>=2.0.0 <3',
+        tested: '>=2.0.0 <=2.1.0',
+        installed: '2.1.0',
+        optional: false,
+      },
+    ]);
+    await install(root, 'vendor', { version: '2.4.1' });
+    const newer = await diagnoseProject(root);
+    expect(newer.ok).toBe(true);
+    expect(reportStatus(newer.diagnostics)).toBe(true);
+    expect(newer.diagnostics).toEqual([
+      {
+        code: 'PEER_VERSION_UNTESTED',
+        severity: 'warning',
+        message:
+          'An installed peer dependency is inside the supported range but outside the tested range.',
+        hint: expect.stringMatching(
+          /usually work\. Report problems at https:\/\/github\.com\/JeffreyNijs\/mimlet\/issues, or pin vendor to a version in >=2\.0\.0 <=2\.1\.0 to stay on tested versions\.$/
+        ) as string,
+        package: '@mimlet/custom',
+        dependency: 'vendor',
+        expected: '>=2.0.0 <=2.1.0',
+        actual: '2.4.1',
+      },
+    ]);
+    // Outside the supported range is the existing error, never also an untested warning.
+    await install(root, 'vendor', { version: '3.0.0' });
+    const unsupported = await diagnoseProject(root);
+    expect(unsupported.ok).toBe(false);
+    expect(codes(unsupported.diagnostics)).toEqual(['PEER_VERSION_UNSUPPORTED']);
+    expect(unsupported.diagnostics[0]).toMatchObject({ expected: '>=2.0.0 <3', actual: '3.0.0' });
+    // Packages without tested ranges keep the previous behavior.
+    await install(root, '@mimlet/custom', { peerDependencies: adapter.peerDependencies });
+    await install(root, 'vendor', { version: '2.4.1' });
+    const undeclared = await diagnoseProject(root);
+    expect(undeclared).toMatchObject({ ok: true, diagnostics: [] });
+    expect(undeclared.packages[0]?.peers[0]).not.toHaveProperty('tested');
+    const documented = await documentedCodes();
+    for (const entry of [...newer.diagnostics, ...unsupported.diagnostics]) {
+      expect(documented.get(entry.code)).toEqual({ command: 'doctor', severity: entry.severity });
+    }
+    // Malformed tested ranges fail closed without echoing them.
+    for (const mimlet of [
+      [],
+      'SECRET_VALUE',
+      { testedPeers: [] },
+      { testedPeers: { vendor: 'SECRET_VALUE' } },
+    ]) {
+      await install(root, '@mimlet/custom', { ...adapter, mimlet });
+      const report = await diagnoseProject(root);
+      expect(codes(report.diagnostics)).toEqual(['PROJECT_INSPECTION_FAILED']);
+      expect(JSON.stringify(report)).not.toContain('SECRET_VALUE');
+    }
+  }));
+
+it('reports an Effect release newer than the tested range of the real adapter manifest', () =>
+  project(async (root) => {
+    const manifest = JSON.parse(
+      await readFile(join(repository, 'packages/effect/package.json'), 'utf8')
+    ) as { name: string; version: string; peerDependencies: Record<string, string> };
+    await json(join(root, 'package.json'), {
+      devDependencies: { [manifest.name]: manifest.version, effect: '4.99.0' },
+    });
+    await install(root, manifest.name, manifest);
+    await install(root, '@mimlet/core', { version: manifest.version });
+    await install(root, 'effect', { version: '4.99.0' });
+    const report = await diagnoseProject(root);
+    expect(report.ok).toBe(true);
+    expect(report.diagnostics.map(({ code, dependency }) => ({ code, dependency }))).toEqual([
+      { code: 'PEER_VERSION_UNTESTED', dependency: 'effect' },
+    ]);
+    await install(root, 'effect', { version: '5.0.0' });
+    expect((await diagnoseProject(root)).diagnostics.map((entry) => entry.code)).toEqual([
+      'PEER_VERSION_UNSUPPORTED',
+    ]);
+  }));
+
+it('documents every diagnostic code the CLI can report, and no other', async () => {
+  const sources = await Promise.all(
+    ['doctor', 'inspect', 'cli'].map((name) =>
+      readFile(join(repository, `packages/codegen/src/${name}.ts`), 'utf8')
+    )
+  );
+  const emitted = new Set(
+    sources.flatMap((source) =>
+      [...source.matchAll(/'([A-Z]+(?:_[A-Z]+)+)'/g)].map(([, code = '']) => code)
+    )
+  );
+  expect([...(await documentedCodes()).keys()].sort()).toEqual([...emitted].sort());
+});
 it('generates deterministic collision-safe fluent helpers', () => {
   const targets = [
     {

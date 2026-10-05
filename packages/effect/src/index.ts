@@ -4,6 +4,7 @@ import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Cause from 'effect/Cause';
 import * as AST from 'effect/SchemaAST';
+import effectPackage from 'effect/package.json' with { type: 'json' };
 import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   GenerationSession,
@@ -15,8 +16,11 @@ import type {
   StandardSchemaV1,
 } from '@mimlet/core';
 
-/** Exact native release whose unstable Arbitrary engine this adapter is tested against. */
-const EFFECT_VERSION = '4.0.0';
+/**
+ * The loaded Effect release. Effect marks its Arbitrary engine unstable and does not promise
+ * identical samples across releases, so metadata names the release that actually generates.
+ */
+const EFFECT_VERSION: string = effectPackage.version;
 // Every sampling option is explicit, so `Arbitrary.configureGlobal` defaults cannot alter replay.
 const SAMPLING = Object.freeze({ count: 1, size: 10, maxDiscards: 100 });
 
@@ -26,7 +30,7 @@ if (
   typeof Schema.toStandardSchemaV1 !== 'function'
 ) {
   throw new TypeError(
-    `@mimlet/effect requires effect@${EFFECT_VERSION}; Effect 3 users must pin the 0.1.0-alpha.3 Mimlet train`
+    `@mimlet/effect requires Effect 4 (effect@>=4.0.0 <5), but effect@${EFFECT_VERSION} is loaded; Effect 3 users must pin the 0.1.0-alpha.3 Mimlet train`
   );
 }
 
