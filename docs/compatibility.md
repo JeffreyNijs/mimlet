@@ -1,6 +1,6 @@
 # Compatibility contract
 
-This describes the published `0.1.0-beta.2` train and its tested source contracts. A supported interface, a native parser,
+This describes the published `0.1.0-beta.3` train and its tested source contracts. A supported interface, a native parser,
 an automatic generator and a shrinker are different capabilities. Native package
 versions below are the tested versions; each adapter's peer range, its supported
 range, can be wider (see [supported and tested versions](#supported-and-tested-versions)).
@@ -103,10 +103,10 @@ Each native adapter has two ranges for its library:
 | `@mimlet/faker`          | `@faker-js/faker`   | `>=10.5.0 <11`    | `>=10.5.0 <=10.6.0`   |
 | `@mimlet/fast-check`     | `fast-check`        | `>=4.10.2 <5`     | `4.10.2`              |
 
-These ranges apply from the train after `0.1.0-beta.2`. The published
-`0.1.0-beta.2` packages still declare their tested range as the peer range (Effect,
-Valibot, TypeBox and fast-check exactly), so a newer library release makes their
-installation fail until the next train is published.
+These ranges apply from `0.1.0-beta.3`. Earlier trains declare their tested range
+as the peer range (Effect, Valibot, TypeBox and fast-check exactly), so installing
+them with a newer library release fails with `ERESOLVE`; upgrade to `0.1.0-beta.3`
+or newer.
 
 `pnpm check:workspace`, which `pnpm install` also runs, fails when a peer range, a
 `mimlet.testedPeers` entry or an adapter's pinned development version disagrees
