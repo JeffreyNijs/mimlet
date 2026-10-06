@@ -37,6 +37,32 @@ set a readonly field and leaves a computed getter to the class. The class comes 
 factory, so the factory is checked against the record as TypeScript reads it: it needs no
 annotation, and a literal column such as `source: 'import'` keeps its type without `as const`.
 
+TypeScript itself does not report an extra key in an object literal that a function returns.
+`createInstanceBuilder()` checks the keys separately, so a misspelled field is a compile error
+in the factory without a return type annotation, in sync and async factories, factories with
+arguments or a session, block bodies and spreads:
+
+```ts
+createInstanceBuilder(User, () => ({
+  ...baseUser(),
+  isSystemAdmn: true,
+  // error: Type 'boolean' is not assignable to type '"isSystemAdmn is not a field of the class"'.
+}));
+```
+
+Methods and private fields are reported the same way. A class with an index signature accepts
+any key, and a factory typed as returning `any` is not checked. When one branch of a conditional
+returns a typed record and the other the same record plus a key, TypeScript merges the two
+types and the extra key is not reported; give that factory a return type
+(`(): InstanceInput<User> => ...`) if it matters.
+
+The check is compile-time only. At runtime, every own enumerable key of the record is copied,
+and Mimlet does not compare the keys with the class. A new instance has no own property for a
+field declared with `declare`, for an uninitialized field such as `uuid!: string` when the
+class is compiled with `useDefineForClassFields: false`, or for any field with
+`construct: 'prototype'`, so a runtime check could not tell a misspelled key from a declared
+field.
+
 `.with()`, `.omit()`, the patch factories and the `fluent()` setters change the record. Each
 build creates a new instance, so a variant never shares an instance with another build.
 
@@ -98,7 +124,9 @@ is `T` until a `map()`. `createInstanceBuilder(User, factory)` is
 `Builder<InstanceInput<User>, Args, User>`, also available as `InstanceBuilder<typeof User, Args>`
 for a helper's return type. `intoClass(User)` is the mapper `createInstanceBuilder()` uses, so
 `createBuilder((): InstanceInput<User> => ({ ... })).map(intoClass(User))` is the same builder,
-for the rare case where a transform must see the record before the instance exists.
+for the rare case where a transform must see the record before the instance exists. That
+factory needs its return type annotation: `createBuilder()` does not know the class, so only
+the annotation makes TypeScript report missing fields and misspelled keys there.
 
 `map()` works on async builders and on `fluent()` builders, whose setters stay typed. Schema
 builders have no `map()`: their validator expects the unmapped input, and a validator that

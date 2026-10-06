@@ -111,6 +111,65 @@ users.with({ firstName: 1 });
 createInstanceBuilder(User, () => ({ uuid: 'u-1' }));
 // @ts-expect-error Literal fields are checked too.
 createInstanceBuilder(User, () => ({ ...record(), source: 'other' }));
+
+// Keys the class does not declare are errors without a return type annotation.
+// @ts-expect-error A misspelled field in an inline factory.
+createInstanceBuilder(User, () => ({
+  uuid: 'u-1',
+  createdAt: new Date(0),
+  deletedAt: null,
+  status: Status.ACTIVE,
+  source: 'import',
+  firstName: null,
+  lastName: null,
+  lastNmae: 'Doe',
+}));
+// @ts-expect-error The same after a spread of a typed record.
+createInstanceBuilder(User, () => ({ ...record(), sourse: 'manual' }));
+// @ts-expect-error The same in a block body.
+createInstanceBuilder(User, () => {
+  const base = record();
+  return { ...base, deleted: true };
+});
+// @ts-expect-error The same in an async factory.
+createInstanceBuilder(User, async () => ({ ...record(), firstname: 'Ada' }));
+// @ts-expect-error The same in a factory that takes arguments.
+createInstanceBuilder(User, (suffix?: string) => ({ ...record(), uuidSuffix: suffix }));
+// @ts-expect-error The same in one branch of a conditional.
+createInstanceBuilder(User, (blocked?: boolean) =>
+  blocked
+    ? { ...record(), status: Status.BLOCKED, blockedAt: new Date() }
+    : { ...record(), status: Status.ACTIVE }
+);
+// @ts-expect-error Methods are not fields of the record.
+createInstanceBuilder(User, () => ({ ...record(), isBlocked: () => true }));
+const misspelled = () => ({ ...record(), statsu: Status.ACTIVE });
+// @ts-expect-error A named factory is checked the same way.
+createInstanceBuilder(User, misspelled);
+class Account {
+  uuid!: string;
+  private secret = 'hidden';
+  reveal(): string {
+    return this.secret;
+  }
+}
+// @ts-expect-error Private members are set by the constructor, not by the record.
+createInstanceBuilder(Account, () => ({ uuid: 'a-1', secret: 'x' }));
+// Getters, optional and readonly fields are fields the factory may set, without `as const`.
+expectType<Query>(createInstanceBuilder(Query, () => ({ limit: 10, tag: 'recent' })).build());
+expectType<User>(
+  createInstanceBuilder(User, () => ({ ...record(), source: 'manual', roles: [], fullName: 'x' }))
+    .with({ roles: [new Role()] })
+    .build()
+);
+class Settings {
+  [key: string]: unknown;
+  theme!: 'light' | 'dark';
+}
+// A class with an index signature accepts any key.
+expectType<Settings>(createInstanceBuilder(Settings, () => ({ theme: 'dark', extra: 1 })).build());
+// A factory typed as returning any is not checked.
+createInstanceBuilder(User, () => JSON.parse('{}'));
 // Transforms after the mapping receive the instance and return one.
 users.transform((user) => {
   expectType<User>(user);
@@ -168,6 +227,26 @@ required.map((user, session) => {
   expectType<GenerationSession>(session);
   return user.uuid;
 });
+// The session parameter needs no annotation with a default session.
+const unannotated = createInstanceBuilder(
+  User,
+  (session) => ({ ...record(), uuid: `u-${session.sequence('user')}`, source: 'manual' }),
+  { defaultSession: () => createSession(identity) }
+);
+expectExact<
+  typeof unannotated,
+  Builder<UserRecord, [session?: GenerationSession], User, [session: GenerationSession]>
+>(true);
+createInstanceBuilder(
+  User,
+  // @ts-expect-error Unknown keys are reported with a default session too.
+  (session) => ({ ...record(), uuid: `u-${session.sequence('user')}`, isAdmn: true }),
+  { defaultSession: () => createSession(identity) }
+);
+// Setters and patches still work on the checked builder.
+expectType<User>(
+  fluent(unannotated, ['firstName', 'source']).withFirstName('Ada').withSource('import').build()
+);
 
 // Async factories build into the class through buildAsync(), and map() is typed there too.
 const asyncUsers = createInstanceBuilder(User, async () => record());

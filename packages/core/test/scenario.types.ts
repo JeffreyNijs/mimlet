@@ -53,6 +53,56 @@ unknownNode.build(session);
 const emptyTrait = cart.trait('named', {});
 expectType<number>(emptyTrait.build(session).total);
 
+// patch() keeps the node's derivation and type; literal types need no `as const`.
+interface Deal {
+  uuid: string;
+  leadUuid: string;
+  status: 'open' | 'won' | 'lost';
+}
+const dealOf = (leadUuid: string): Deal => ({ uuid: 'deal-1', leadUuid, status: 'open' });
+const crm = createScenario()
+  .node('lead', [], (_deps, s) => ({ uuid: `lead-${s.sequence('lead')}` }))
+  .node('deal', ['lead'], ({ lead }) => dealOf(lead.uuid))
+  .node('summary', ['deal'], ({ deal }) => ({ status: deal.status }));
+const lost = crm.patch('deal', (deal, { lead }, s) => {
+  expectType<Deal>(deal);
+  expectType<string>(lead.uuid);
+  expectType<number>(s.integer(1, 2));
+  return { ...deal, status: 'lost' };
+});
+expectType<'open' | 'won' | 'lost'>(lost.build(session).summary.status);
+expectType<typeof crm>(lost);
+crm.patch('deal', (deal, dependencies) => {
+  // @ts-expect-error A patch only receives the node's declared dependencies.
+  void dependencies.summary;
+  return deal;
+});
+// @ts-expect-error A patch keeps the node's type.
+crm.patch('deal', (deal) => ({ ...deal, status: 'closed' }));
+// @ts-expect-error A patch must return the whole value.
+crm.patch('deal', () => ({ status: 'lost' }));
+// @ts-expect-error A patch names an existing node.
+crm.patch('unknown', (value) => value);
+// Patches chain with overrides, traits and further nodes.
+expectType<string>(
+  crm
+    .override('lead', () => ({ uuid: 'lead-9' }))
+    .patch('lead', (lead) => ({ uuid: `${lead.uuid}!` }))
+    .trait('won', { summary: () => ({ status: 'won' }) })
+    .node('label', ['deal'], ({ deal }) => deal.uuid)
+    .build(session).label
+);
+const asyncPatch = crm.patch('deal', async (deal) => ({ ...deal, status: 'won' }));
+expectType<Promise<'open' | 'won' | 'lost'>>(
+  asyncPatch.buildAsync(session).then((value) => value.deal.status)
+);
+// @ts-expect-error An async patch makes the scenario async-only.
+asyncPatch.build(session);
+// A sync patch on an async scenario stays async-only.
+const asyncThenPatched = asyncCart.patch('external', (name) => name.toUpperCase());
+// @ts-expect-error The scenario was already async.
+asyncThenPatched.build(session);
+
 // A function returning a scenario can declare its return type with the exported Scenario type.
 import type { Scenario } from '../src/index.js';
 interface CartNodes {

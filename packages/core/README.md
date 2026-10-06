@@ -130,7 +130,7 @@ const labels = createBuilder(() => ({ first: 'Ada', last: 'Lovelace' })).map(
 labels.with({ first: 'Grace' }).build(); // 'Grace Lovelace'
 ```
 
-`createInstanceBuilder(Class, factory, config)` builds instances of a class, such as a TypeORM entity. The factory returns the class's plain record, `InstanceInput<InstanceType<Class>>`: its public data fields, without methods and without fields typed `never`, with readonly properties optional (TypeScript types a getter without a setter like a `readonly` field). Because the class comes first, the factory is checked against the record as TypeScript reads it, so it needs no annotation and literal fields keep their types. Patches apply to the record; each build creates a new instance:
+`createInstanceBuilder(Class, factory, config)` builds instances of a class, such as a TypeORM entity. The factory returns the class's plain record, `InstanceInput<InstanceType<Class>>`: its public data fields, without methods and without fields typed `never`, with readonly properties optional (TypeScript types a getter without a setter like a `readonly` field). Because the class comes first, the factory is checked against the record as TypeScript reads it, so it needs no annotation and literal fields keep their types. A key the class does not declare, such as a misspelled field, is a compile error in the factory too (`"isSystemAdmn is not a field of the class"`), although TypeScript does not report extra keys in returned object literals on its own. Patches apply to the record; each build creates a new instance:
 
 ```ts
 const users = fluent(
@@ -147,7 +147,7 @@ users.withFirstName('Ada').build(); // a User; user.fullName is computed by the 
 ```
 
 - **Construction.** `new Class()` runs without arguments, as TypeORM and class-transformer create entities, so field initializers and `#private` fields exist. `{ construct: 'prototype' }` uses `Object.create(Class.prototype)` and runs no constructor code; the types require it for a class whose constructor takes arguments.
-- **Copying.** Each own enumerable field of the record is defined on the instance, or assigned through the class's setter. A value for a getter without a setter throws (`fullName is computed by User ...`). Copying is shallow: build related entities with their own builders.
+- **Copying.** Each own enumerable field of the record is defined on the instance, or assigned through the class's setter. A value for a getter without a setter throws (`fullName is computed by User ...`). Copying is shallow: build related entities with their own builders. Unknown keys are checked at compile time only: a `declare` field, an uninitialized field compiled with `useDefineForClassFields: false`, or any field with `construct: 'prototype'` has no own property on a new instance, so the runtime cannot tell it from a misspelling.
 - **Transforms after the mapping** receive the instance and must return an instance of the class (for example by changing it with `Object.assign`); a spread copy, which would silently be a plain object, throws. A later `map()` may change the type again.
 - **Everything else stays.** Factory arguments, default sessions (also with a required session parameter), builder names, list tuples, async factories and `fluent()` setters work as for any builder. `map()` on a `fluent()` builder keeps its setters, in the runtime and in the types.
 
@@ -189,6 +189,17 @@ Each build, validated build or list call that omits the leading session (or pass
 The `name` option names a builder. `describe()` reports it, and a builder with a default session draws its session-less builds from `defaultSession().scope('builder', name)`, so two builders with different names produce different values even when their recipes are identical. A session passed to a build is used unchanged.
 
 `createTestSession(seed = 1)` creates a session with a fixed generic identity (`testSessionIdentity`) for sharing across the builds of a test: consecutive builds continue it instead of repeating the first value. A session's values depend only on its seed and scope path; the fingerprint, provider and configuration are checked by `restoreSession()` and do not change the values.
+
+## Scenarios
+
+`createScenario()` builds related values as an immutable graph of nodes, each declaring the nodes it depends on. `override(name, factory)` replaces a node, `trait(name, replacements)` replaces several under a name, and `patch(name, patcher)` changes the value a node built while keeping its factory, so a variant does not repeat the node's derivation:
+
+```ts
+const lost = crm.patch('deal', (deal) => ({ ...deal, status: 'lost' }));
+lost.build().summary.status; // 'lost': dependent nodes see the patched value
+```
+
+A patcher receives `(value, dependencies, session)` and returns a value of the node's type. Patches run in order after the node's factory, override or trait; a later override or trait replaces the node and its patches. See [correlated scenarios](https://jeffreynijs.github.io/mimlet/guide/correlated-scenarios.html).
 
 ## Inspection and adapters
 
