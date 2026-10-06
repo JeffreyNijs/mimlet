@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { admin } from './compiled/hero.js';
 import { code } from './compiled/factory.js';
-import { shop, discounted } from './compiled/scenario.js';
+import { shop, discounted, settled, Invoice } from './compiled/scenario.js';
 import { first, again } from './compiled/replay.js';
 import { report } from './compiled/shrinking.js';
 import { files } from './compiled/codegen.js';
@@ -109,6 +109,11 @@ test('a patched scenario node keeps its derivation and reaches dependents', () =
   assert.equal(discounted.order.customerId, discounted.customer.id);
   assert.equal(discounted.order.totalCents, 2500);
   assert.deepEqual(discounted.invoice, { dueCents: 2500 });
+});
+test('patched fields keep a class instance node an instance of its class', () => {
+  assert.ok(settled.invoice instanceof Invoice);
+  assert.equal(settled.invoice.paid, true);
+  assert.equal(settled.invoice.customerId, settled.customer.id);
 });
 test('the documented snapshot reproduces the next operation', () => assert.deepEqual(first, again));
 test('the documented shrinking recipe retains its dependent total', () => {

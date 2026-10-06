@@ -94,7 +94,8 @@ and traits; it never includes values or application callback source.
 
 To vary one field of a derived node, an override has to repeat the derivation:
 every caller that wants a lost deal rebuilds it with the lead's key. `patch(name, patcher)`
-keeps the node's factory and changes the value it built:
+keeps the node's factory and changes the value it built (for class instances, pass the
+fields instead; see [below](#patch-fields-of-class-instances)):
 
 ```ts
 const crm = createScenario({ name: 'crm' })
@@ -123,12 +124,45 @@ node's own stream after the factory's draws.
 - **Async.** An async patcher makes the scenario async-only, like an async node. A
   patcher on an async node receives the resolved value in `buildAsync()`; a synchronous
   `build()` reports the async node before any patcher runs.
-- **Values.** Return a new value, such as a spread copy of a plain record. For a class
-  instance from `createInstanceBuilder()`, which a spread would turn into a plain object,
-  change the instance in place with `Object.assign(deal, { status: 'lost' })`: each build
-  creates a new instance, so this is safe as long as the node's factory builds a new value
-  each time. Like a factory, a patcher should not change its dependencies.
+- **Values.** Return a new value, such as a spread copy of a plain record. Like a factory, a
+  patcher should not change its dependencies.
 - **Failures.** An error in a patcher is a `SCENARIO_EXECUTION` error for the node.
+
+### Patch fields of class instances
+
+A spread copy of a class instance, such as an entity from `createInstanceBuilder()`, is a
+plain object. TypeScript accepts it for a class without methods, so the node would silently
+stop being a `Deal`, and `Object.assign(deal, { stauts: 'sent' })` accepts a misspelled key.
+Pass the changed fields instead of a function:
+
+```ts
+const sent = crm.patch('deal', { status: 'sent' });
+sent.build().deal instanceof Deal; // true
+crm.patch('deal', { stauts: 'sent' }); // compile error: 'stauts' does not exist
+```
+
+The fields are typed as a partial of the node's data fields, as `InstanceInput` reads a class:
+no methods, no fields typed `never`, and literals need no `as const`. Each build copies the
+node's value with the fields set and never changes the value the factory built:
+
+- The copy has the same prototype, so `instanceof`, getters and methods keep working, and the
+  same own properties, including non-enumerable and symbol keys. A frozen, sealed or
+  non-extensible value gives a copy in the same state.
+- A field is set the way `createInstanceBuilder()` sets a record's field: through a setter on
+  the class when there is one, and a value for a getter without a setter fails the node
+  (`label is computed by Deal ...`).
+- No constructor runs, as with `construct: 'prototype'`, so `#private` fields do not exist on
+  the copy. For such a class, return a new instance from a patcher function.
+- The fields are read once, when `patch()` is called, and copied shallowly. The form works for
+  plain records too, and it is synchronous, so it keeps a synchronous scenario synchronous.
+- Arrays, dates and other built-in values have no fields to set; the types reject them, and a
+  value that turns out not to be a record or an instance at runtime (such as `null` for a
+  nullable node) fails the node.
+
+A patcher function that returns a plain object for a class instance fails the node with
+`A patch of deal returned a plain object in place of a Deal instance`, as a transform after
+`createInstanceBuilder()` fails for a spread copy. Changing the instance in place with
+`Object.assign` or returning another instance of the class still works.
 
 ## Async execution, failures, and replay
 

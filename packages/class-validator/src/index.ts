@@ -6,6 +6,7 @@ import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   AsyncSchemaBuilder,
   DefaultSessionFor,
+  KnownNestedFieldsFactory,
   SchemaBuilderConfig,
   SchemaBuilderFor,
   SchemaFields,
@@ -133,6 +134,17 @@ export type ClassValidatorSchema<T extends object, Output = T> = StandardSchemaV
 export type DtoFactory<T extends object> = (
   ...args: never[]
 ) => NoInfer<DtoInput<T>> | PromiseLike<NoInfer<DtoInput<T>>>;
+/**
+ * The check on a DTO factory without a return type annotation: a key that is not a payload
+ * field, such as a misspelled field or a field typed `never`, is a compile error at any depth
+ * of nested DTOs and arrays. TypeScript does not report excess keys of a returned object on
+ * its own, and `build()` would send them.
+ */
+type KnownDtoFactory<F extends (...args: never[]) => unknown, T> = KnownNestedFieldsFactory<
+  F,
+  DtoInput<T>,
+  T
+>;
 
 /**
  * The builder `fromClassValidator(Dto, factory, options)` returns for a factory of type `F`: the
@@ -172,7 +184,13 @@ const NOT_FOR_THE_VALIDATOR = new Set([
   'wire',
   'async',
 ]);
-const BUILDER_OPTIONS = ['cloneInput', 'maxListSize', 'validationOptions', 'defaultSession'];
+const BUILDER_OPTIONS = [
+  'cloneInput',
+  'maxListSize',
+  'name',
+  'validationOptions',
+  'defaultSession',
+];
 
 /**
  * A Standard Schema for a class-validator DTO that validates the way NestJS's ValidationPipe
@@ -371,18 +389,20 @@ function split<F extends (...args: never[]) => unknown>(
 /**
  * A builder for a DTO: `build()` returns the payload a client sends, `buildValidated()` what
  * ValidationPipe passes to the controller (the DTO instance by default). The factory's return
- * type comes from the class, so it needs no annotation. Validation is synchronous
- * (`validateSync()`, which skips async constraints); see `fromClassValidatorAsync()`.
+ * type comes from the class, so it needs no annotation; a key that is not a payload field,
+ * such as a misspelled field or a field typed `never`, is a compile error, in nested DTOs too.
+ * Validation is synchronous (`validateSync()`, which skips async constraints); see
+ * `fromClassValidatorAsync()`.
  */
 export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
   dto: DtoClass<T>,
-  factory: F,
+  factory: F & KnownDtoFactory<F, T>,
   options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
 ): ClassValidatorBuilder<T, F, DtoInput<T>>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
   dto: DtoClass<T>,
-  factory: F,
+  factory: F & KnownDtoFactory<F, T>,
   options?: ClassValidatorBuilderOptions<F>
 ): ClassValidatorBuilder<T, F>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
@@ -401,17 +421,17 @@ export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
 /**
  * The async form of `fromClassValidator()`: class-validator's `validate()` runs, as in
  * ValidationPipe, so async constraints (such as a uniqueness check) apply. Only the async
- * build methods are available.
+ * build methods are available. The factory is checked as in `fromClassValidator()`.
  */
 export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
   dto: DtoClass<T>,
-  factory: F,
+  factory: F & KnownDtoFactory<F, T>,
   options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
 ): AsyncClassValidatorBuilder<T, F, DtoInput<T>>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
   dto: DtoClass<T>,
-  factory: F,
+  factory: F & KnownDtoFactory<F, T>,
   options?: ClassValidatorBuilderOptions<F>
 ): AsyncClassValidatorBuilder<T, F>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
@@ -428,19 +448,56 @@ export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T
   );
 }
 
+/** Fields a DTO types as `never` (or only `undefined`): no payload can set them. */
+type NeverFields<T> = {
+  [K in keyof T]-?: [Exclude<T[K], undefined>] extends [never] ? K : never;
+}[keyof T];
+/** The names `classValidatorFields(Dto, { exclude })` can return. */
+export type ClassValidatorFieldNames<T, Excluded extends string = never> = Exclude<
+  Extract<keyof DtoInput<T> | NeverFields<T>, string>,
+  Excluded
+>;
+/** Options of `classValidatorFields()`. */
+export interface ClassValidatorFieldsOptions<E extends string = string> {
+  /**
+   * Fields to leave out of the list. Name the fields the DTO types as `never`: class-validator
+   * metadata cannot tell them from other fields, so the list holds them until they are named.
+   */
+  readonly exclude?: readonly E[];
+}
+
+function dtoName(dto: DtoClass): string {
+  return typeof dto.name === 'string' && dto.name ? dto.name : 'the DTO';
+}
+
 /**
- * **Experimental.** The payload fields of a DTO, for a setter per field:
+ * **Experimental.** The fields of a DTO, for a setter per field:
  * `fluent(fromClassValidator(Dto, factory), classValidatorFields(Dto))`. The list holds every
- * property with a class-validator decorator, inherited ones included, and the fields that
- * `new Dto()` defines. TypeScript cannot compare it with the class, so a field that has no
- * decorator and is not emitted as a class field (a `declare` field, or any field when
- * `useDefineForClassFields` is off) gets a typed setter that does not exist at runtime.
+ * property with a class-validator decorator, inherited ones included, and the data fields that
+ * `new Dto()` defines, without the names in `exclude`. Its type holds the payload fields and
+ * the fields typed `never` that `exclude` does not name, because the runtime cannot see
+ * TypeScript types: exclude those fields so the list matches the payload. `fluent()` gives a
+ * field typed `never` no typed setter either way. A DTO without decorators and without
+ * emitted fields throws, instead of returning an empty list that its type would not describe.
  */
-export function classValidatorFields<T extends object>(
-  dto: DtoClass<T>
-): SchemaFields<Extract<keyof DtoInput<T>, string>> {
+export function classValidatorFields<
+  T extends object,
+  const E extends Extract<keyof T, string> = never,
+>(
+  dto: DtoClass<T>,
+  options?: ClassValidatorFieldsOptions<E>
+): SchemaFields<ClassValidatorFieldNames<T, E>>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function classValidatorFields(
+  dto: DtoClass,
+  options: ClassValidatorFieldsOptions = {}
+): unknown {
   if (typeof dto !== 'function' || typeof dto.prototype !== 'object') {
     throw new TypeError('classValidatorFields() requires a DTO class');
+  }
+  const exclude: unknown = options.exclude ?? [];
+  if (!Array.isArray(exclude) || exclude.some((name) => typeof name !== 'string')) {
+    throw new TypeError('exclude must be an array of field names');
   }
   const names = new Set<string>();
   for (const metadata of defaultValidator
@@ -458,7 +515,130 @@ export function classValidatorFields<T extends object>(
     );
   }
   for (const name of Object.keys(instance)) {
-    names.add(name);
+    // A function is not payload data, as in DtoInput; accessors are not called.
+    const field = Object.getOwnPropertyDescriptor(instance, name);
+    if (!(field && 'value' in field && typeof field.value === 'function')) {
+      names.add(name);
+    }
   }
-  return schemaFields([...names] as Extract<keyof DtoInput<T>, string>[]);
+  const name = dtoName(dto);
+  if (names.size === 0) {
+    throw new TypeError(
+      `classValidatorFields(${name}) found no fields: the class has no class-validator decorators and new ${name}() defines no fields (field declarations are not emitted when useDefineForClassFields is off). List the fields in fluent() instead`
+    );
+  }
+  for (const excluded of exclude as string[]) {
+    names.delete(excluded);
+  }
+  if (names.size === 0) {
+    throw new TypeError(`classValidatorFields(${name}) excludes every field it found`);
+  }
+  return schemaFields([...names]);
+}
+
+/**
+ * Options bound once with `withClassValidatorDefaults()`: the pipe's options, `wire`, the
+ * package copies and the builder options every builder shares. `async` follows from the
+ * function called; `name` and `defaultSession` belong to one builder and stay per call.
+ */
+export type ClassValidatorDefaults = Omit<ClassValidatorSchemaOptions, 'async'> &
+  Omit<SchemaBuilderConfig, 'name'>;
+/** What `buildValidated()` returns under the defaults `D`: the payload with `transform: false`. */
+type DefaultOutput<D, T extends object> = D extends { readonly transform: false } ? DtoInput<T> : T;
+
+/**
+ * `fromClassValidator()`, `fromClassValidatorAsync()` and `classValidatorSchema()` with the
+ * defaults `D` applied first. Per-call options override the defaults key by key. The builders
+ * have the same types as the unbound functions return, so `ClassValidatorBuilder<T, F>` still
+ * names them.
+ */
+export interface ClassValidatorWithDefaults<D extends ClassValidatorDefaults> {
+  /** The bound defaults, frozen; spread them to derive other defaults. */
+  readonly defaults: Readonly<D>;
+  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
+  ): ClassValidatorBuilder<T, F, DtoInput<T>>;
+  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options: ClassValidatorBuilderOptions<F> & { readonly transform: true }
+  ): ClassValidatorBuilder<T, F>;
+  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options?: ClassValidatorBuilderOptions<F>
+  ): ClassValidatorBuilder<T, F, DefaultOutput<D, T>>;
+  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
+  ): AsyncClassValidatorBuilder<T, F, DtoInput<T>>;
+  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options: ClassValidatorBuilderOptions<F> & { readonly transform: true }
+  ): AsyncClassValidatorBuilder<T, F>;
+  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+    dto: DtoClass<T>,
+    factory: F & KnownDtoFactory<F, T>,
+    options?: ClassValidatorBuilderOptions<F>
+  ): AsyncClassValidatorBuilder<T, F, DefaultOutput<D, T>>;
+  classValidatorSchema<T extends object>(
+    dto: DtoClass<T>,
+    options: UntransformedOptions
+  ): ClassValidatorSchema<T, DtoInput<T>>;
+  classValidatorSchema<T extends object>(
+    dto: DtoClass<T>,
+    options: ClassValidatorSchemaOptions & { readonly transform: true }
+  ): ClassValidatorSchema<T>;
+  classValidatorSchema<T extends object>(
+    dto: DtoClass<T>,
+    options?: ClassValidatorSchemaOptions
+  ): ClassValidatorSchema<T, DefaultOutput<D, T>>;
+}
+
+const PER_BUILDER = ['async', 'name', 'defaultSession'];
+
+/**
+ * Bind options once, such as the application's ValidationPipe options, or those plus
+ * `wire: qs` for query DTOs: `const query = withClassValidatorDefaults({ ...validationPipeOptions,
+ * wire: qs })`, then `query.fromClassValidator(ViewOrdersQuery, () => ({}))`. The returned
+ * functions take the same arguments as the unbound ones and do not depend on `this`.
+ */
+export function withClassValidatorDefaults<const D extends ClassValidatorDefaults>(
+  defaults: D
+): ClassValidatorWithDefaults<D> {
+  if (typeof defaults !== 'object' || defaults === null || Array.isArray(defaults)) {
+    throw new TypeError('withClassValidatorDefaults() requires an options object');
+  }
+  for (const key of PER_BUILDER) {
+    if (Object.hasOwn(defaults, key)) {
+      throw new TypeError(
+        `${key} is not a default: pass it to fromClassValidator() or fromClassValidatorAsync()`
+      );
+    }
+  }
+  const bound = Object.freeze({ ...defaults });
+  /** Per-call options override the defaults key by key; an undefined value keeps the default. */
+  const merged = (options: object | undefined): Record<string, unknown> => {
+    const result: Record<string, unknown> = { ...bound };
+    for (const [key, value] of Object.entries(options ?? {})) {
+      if (value !== undefined) {
+        result[key] = value;
+      }
+    }
+    return result;
+  };
+  type Factory = DtoFactory<object>;
+  return Object.freeze({
+    defaults: bound,
+    fromClassValidator: (dto: DtoClass, factory: Factory, options?: object) =>
+      fromClassValidator(dto, factory, merged(options)),
+    fromClassValidatorAsync: (dto: DtoClass, factory: Factory, options?: object) =>
+      fromClassValidatorAsync(dto, factory, merged(options)),
+    classValidatorSchema: (dto: DtoClass, options?: object) =>
+      classValidatorSchema(dto, merged(options)),
+  }) as unknown as ClassValidatorWithDefaults<D>;
 }

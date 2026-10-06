@@ -14,6 +14,8 @@ import {
   type GenerationSession,
   type InstanceBuilder,
   type InstanceInput,
+  type KnownFieldsFactory,
+  type KnownNestedFieldsFactory,
   type StandardSchemaV1,
 } from '../src/index.js';
 
@@ -155,6 +157,59 @@ class Account {
 }
 // @ts-expect-error Private members are set by the constructor, not by the record.
 createInstanceBuilder(Account, () => ({ uuid: 'a-1', secret: 'x' }));
+// @ts-expect-error Fields typed never cannot be set either.
+createInstanceBuilder(Query, () => ({ limit: 10, search: 'x' }));
+
+// The check is exported for adapters: unknown when every key is known, otherwise a signature
+// that types each unknown key as the message TypeScript reports.
+type Checked<F extends () => unknown> = KnownFieldsFactory<F, InstanceInput<User>, User>;
+expectExact<Checked<() => { uuid: string }>, unknown>(true);
+expectExact<
+  Checked<() => { uuid: string; lastNmae: string }>,
+  () => {
+    uuid: string;
+    lastNmae: 'lastNmae is not a field of the class';
+  }
+>(true);
+expectExact<
+  Checked<() => { uuid: string; isBlocked: () => boolean }>,
+  () => {
+    uuid: string;
+    isBlocked: 'isBlocked is a method of the class, not a field';
+  }
+>(true);
+expectExact<
+  KnownFieldsFactory<() => Promise<{ limit: number; search: string }>, InstanceInput<Query>, Query>,
+  () => PromiseLike<{
+    limit: number;
+    search: 'search is typed never in the class and cannot be set';
+  }>
+>(true);
+// Only the record's own keys are checked; the nested form checks plain records and arrays too.
+type Nested = { range: { from: string }; tags: { name: string }[]; meta: object };
+expectExact<KnownFieldsFactory<() => { range: { from: string; to: string } }, Nested>, unknown>(
+  true
+);
+expectExact<
+  KnownNestedFieldsFactory<
+    () => { range: { from: string; to: string }; tags: { name: string; id: number }[] },
+    Nested
+  >,
+  () => {
+    range: { from: string; to: 'to is not a field of the class' };
+    tags: { name: string; id: 'id is not a field of the class' }[];
+  }
+>(true);
+// A nested type without known keys accepts any key.
+expectExact<KnownNestedFieldsFactory<() => { meta: { any: 1 } }, Nested>, unknown>(true);
+// A factory declared to return exactly the shape is not checked, so generic helpers work.
+export function genericCheck<T>(later: () => Promise<T>): void {
+  expectExact<KnownNestedFieldsFactory<() => T, T>, unknown>(true);
+  // For a promise the check stays undecided for a type parameter, but the factory fits it.
+  const accepted: KnownNestedFieldsFactory<() => Promise<T>, T> = later;
+  void accepted;
+}
+
 // Getters, optional and readonly fields are fields the factory may set, without `as const`.
 expectType<Query>(createInstanceBuilder(Query, () => ({ limit: 10, tag: 'recent' })).build());
 expectType<User>(

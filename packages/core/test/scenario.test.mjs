@@ -6,6 +6,7 @@ import {
   createSession,
   restoreSession,
   createBuilder,
+  createInstanceBuilder,
   ScenarioError,
 } from '../dist/index.js';
 const identity = { fingerprint: 'orders/v1', provider: 'fixture@1' };
@@ -396,6 +397,191 @@ describe('correlated immutable scenarios', () => {
       () => recipe().patch('total', 1),
     ]) {
       assert.throws(invalid, (e) => e instanceof ScenarioError && e.code === 'SCENARIO_DEFINITION');
+    }
+  });
+  it('patches fields of a class instance and keeps its class', async () => {
+    class Deal {
+      uuid;
+      leadUuid;
+      status;
+      #notes = [];
+      get label() {
+        return `${this.uuid}:${this.status}`;
+      }
+      set code(value) {
+        this.uuid = `deal-${value}`;
+      }
+      isOpen() {
+        return this.status === 'open';
+      }
+      notes() {
+        return this.#notes;
+      }
+    }
+    const deals = createInstanceBuilder(Deal, (s, leadUuid = 'none') => ({
+      uuid: `deal-${s.sequence('deal', 1)}`,
+      leadUuid,
+      status: 'open',
+    }));
+    const crm = createScenario({ name: 'crm' })
+      .node('lead', [], (_deps, s) => ({ uuid: `lead-${s.sequence('lead', 1)}` }))
+      .node('deal', ['lead'], ({ lead }, s) => deals.build(s, lead.uuid))
+      .node('summary', ['deal'], ({ deal }) => ({ label: deal.label, open: deal.isOpen() }));
+    const seen = [];
+    const sent = crm
+      .patch('deal', (deal) => {
+        seen.push(deal);
+        return deal;
+      })
+      .patch('deal', { status: 'sent' });
+    const fixture = sent.build(session());
+    assert.ok(fixture.deal instanceof Deal);
+    assert.equal(fixture.deal.status, 'sent');
+    assert.equal(fixture.deal.leadUuid, fixture.lead.uuid);
+    assert.deepEqual(fixture.summary, { label: `${fixture.deal.uuid}:sent`, open: false });
+    // The factory's instance is copied, never changed.
+    assert.notEqual(seen[0], fixture.deal);
+    assert.equal(seen[0].status, 'open');
+    assert.deepEqual({ ...fixture.deal }, { ...seen[0], status: 'sent' });
+    // No constructor runs for the copy, so #private fields do not exist on it.
+    assert.deepEqual(seen[0].notes(), []);
+    assert.throws(() => fixture.deal.notes(), TypeError);
+    // A setter on the class is called; a getter without one fails the node.
+    assert.equal(crm.patch('deal', { code: 7 }).build(session()).deal.uuid, 'deal-7');
+    assert.throws(
+      () => crm.patch('deal', { label: 'x' }).build(session()),
+      (e) =>
+        e.code === 'SCENARIO_EXECUTION' &&
+        e.node === 'deal' &&
+        e.cause.message.includes('label is computed by Deal')
+    );
+    // Async scenarios apply it after awaiting the node, and a trait still conflicts with it.
+    const later = createScenario()
+      .node('deal', [], async (_deps, s) => deals.build(s))
+      .patch('deal', { status: 'won' });
+    const resolved = (await later.buildAsync(session())).deal;
+    assert.ok(resolved instanceof Deal);
+    assert.equal(resolved.status, 'won');
+    assert.equal(later.describe().nodes[0].patches, 1);
+    assert.throws(
+      () => sent.trait('closed', { deal: (s) => deals.with({ status: 'closed' }).build(s) }),
+      (e) => e.code === 'SCENARIO_CONFLICT' && e.node === 'deal'
+    );
+  });
+  it('patches fields of records and keeps their properties and integrity', () => {
+    const marker = Symbol('marker');
+    const base = createScenario()
+      .node('frozen', [], () => Object.freeze({ id: 1, name: 'Ada' }))
+      .node('sealed', [], () => Object.seal({ id: 2, name: 'Lin' }))
+      .node('closed', [], () => Object.preventExtensions({ id: 3, name: 'Grace' }))
+      .node('hidden', [], () => {
+        const value = { id: 4, [marker]: 'kept' };
+        Object.defineProperty(value, 'secret', { value: 's', enumerable: false, writable: true });
+        let stored = 'start';
+        Object.defineProperty(value, 'tracked', {
+          enumerable: true,
+          get: () => stored,
+          set: (next) => {
+            stored = `set:${next}`;
+          },
+        });
+        return value;
+      })
+      .node('bare', [], () => Object.assign(Object.create(null), { id: 5 }));
+    const fields = { name: 'Changed' };
+    const patched = base
+      .patch('frozen', fields)
+      .patch('sealed', { name: 'Sealed' })
+      .patch('closed', { extra: true })
+      .patch('hidden', { secret: 't', tracked: 'now', id: 40 })
+      .patch('bare', { id: 50 });
+    // The fields are read once, when patch() is called.
+    fields.name = 'Later';
+    const value = patched.build(session());
+    assert.deepEqual(value.frozen, { id: 1, name: 'Changed' });
+    assert.equal(Object.isFrozen(value.frozen), true);
+    assert.equal(Object.isSealed(value.sealed), true);
+    assert.equal(Object.isFrozen(value.sealed), false);
+    assert.equal(value.sealed.name, 'Sealed');
+    assert.equal(Object.isExtensible(value.closed), false);
+    assert.equal(value.closed.extra, true);
+    assert.equal(value.hidden.id, 40);
+    assert.equal(value.hidden[marker], 'kept');
+    assert.equal(value.hidden.secret, 't');
+    assert.equal(Object.getOwnPropertyDescriptor(value.hidden, 'secret').enumerable, false);
+    assert.equal(value.hidden.tracked, 'set:now');
+    assert.equal(Object.getPrototypeOf(value.bare), null);
+    assert.equal(value.bare.id, 50);
+    assert.deepEqual(base.build(session()).frozen, { id: 1, name: 'Ada' });
+  });
+  it('fails a patcher that returns a plain object for a class instance', async () => {
+    class Deal {
+      uuid = 'deal-1';
+      status = 'open';
+    }
+    const scenario = createScenario().node('deal', [], () => new Deal());
+    const spread = scenario.patch('deal', (deal) => ({ ...deal, status: 'sent' }));
+    const check = (e) =>
+      e.code === 'SCENARIO_EXECUTION' &&
+      e.node === 'deal' &&
+      e.cause instanceof TypeError &&
+      e.cause.message.includes('plain object in place of a Deal instance');
+    assert.throws(() => spread.build(session()), check);
+    await assert.rejects(
+      scenario.patch('deal', async (deal) => ({ ...deal })).buildAsync(session()),
+      check
+    );
+    // Changing the instance or returning another instance keeps the class.
+    const assigned = scenario.patch('deal', (deal) => Object.assign(deal, { status: 'won' }));
+    assert.equal(assigned.build(session()).deal.status, 'won');
+    const replaced = scenario.patch('deal', () => Object.assign(new Deal(), { status: 'lost' }));
+    assert.ok(replaced.build(session()).deal instanceof Deal);
+    // Only class instances are checked: other values are kept as the patcher returns them.
+    const values = createScenario()
+      .node('record', [], () => ({ a: 1 }))
+      .node('list', [], () => [1])
+      .node('date', [], () => new Date(0))
+      .patch('record', (record) => ({ ...record, a: 2 }))
+      .patch('list', () => ({ length: 0 }))
+      .patch('date', () => ({ time: 0 }))
+      .build(session());
+    assert.deepEqual(values, { record: { a: 2 }, list: { length: 0 }, date: { time: 0 } });
+  });
+  it('rejects invalid patch records before execution and unpatchable values when building', () => {
+    for (const invalid of [
+      () => recipe().patch('customer', [{ name: 'x' }]),
+      () => recipe().patch('customer', new Map()),
+      () =>
+        recipe().patch(
+          'customer',
+          Object.defineProperty({}, 'name', { get: () => 'x', enumerable: true })
+        ),
+    ]) {
+      assert.throws(
+        invalid,
+        (e) =>
+          e instanceof ScenarioError && e.code === 'SCENARIO_DEFINITION' && e.node === 'customer'
+      );
+    }
+    // Non-enumerable keys of the patch are not fields.
+    const quiet = recipe().patch(
+      'customer',
+      Object.defineProperty({ name: 'Grace' }, 'id', { value: 0, enumerable: false })
+    );
+    assert.deepEqual(quiet.build(session()).customer, { id: 1, name: 'Grace' });
+    for (const [name, value] of [
+      ['number', () => 1],
+      ['list', () => [1]],
+      ['date', () => new Date(0)],
+      ['view', () => new Uint8Array(1)],
+    ]) {
+      assert.throws(
+        () => createScenario().node(name, [], value).patch(name, { a: 1 }).build(session()),
+        (e) =>
+          e.code === 'SCENARIO_EXECUTION' &&
+          e.node === name &&
+          e.cause.message.includes('needs a record or a class instance')
+      );
     }
   });
   it('composes existing builders without a separate fixture execution implementation', () => {
