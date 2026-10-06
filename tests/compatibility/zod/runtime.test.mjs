@@ -501,4 +501,26 @@ test('names the Zod callback that threw and places it when it is the only one', 
     failure(mini_, { at: 'x' }).message,
     'Schema validation failed: 1 issue at at; thrown by the Zod transform parseDate'
   );
+
+  // Any function name is shown: an identifier path as it is, anything else as a JSON string
+  // without control characters. Without a usable name the location is shown.
+  const rename = (name) =>
+    Object.defineProperty(
+      () => {
+        throw thrown;
+      },
+      'name',
+      { value: name }
+    );
+  const renamed = (name) => failure(Lead.transform(rename(name)), lead()).message;
+  const prefix = 'Schema validation failed: 1 issue at (root); thrown by the Zod transform';
+  assert.equal(renamed('LeadIndex.toModel'), `${prefix} LeadIndex.toModel`);
+  assert.equal(
+    failure(Lead.transform(rename('LeadIndex.toModel')), lead()).issues[0].message,
+    'The Zod transform LeadIndex.toModel threw Error: bad date'
+  );
+  assert.equal(renamed('to model\n"now"\u0007'), `${prefix} "to model\\"now\\""`);
+  assert.equal(renamed(`Lead.${'x'.repeat(120)}`), `${prefix} "Lead.${'x'.repeat(92)}..."`);
+  assert.equal(renamed('\u200b'), `${prefix} at (root)`);
+  assert.equal(renamed(''), `${prefix} at (root)`);
 });

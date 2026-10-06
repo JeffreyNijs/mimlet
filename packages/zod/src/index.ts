@@ -379,18 +379,50 @@ function zodCallbacks(root: unknown): Callbacks {
     complete = false;
   }
   const list = [...found].map(([callback, { kind, locations }]): Callback => {
-    const own: unknown = Object.getOwnPropertyDescriptor(callback, 'name')?.value;
-    const name =
-      typeof own === 'string' && /^(?:bound )*[A-Za-z_$][\w$]{0,63}$/.test(own) ? own : undefined;
     const [location, path] = (locations.size === 1 && !recursive && [...locations][0]) || [];
     return {
       kind,
-      name,
+      name: callbackName(callback),
       location,
       path: path && !path.includes(anyMember) ? (path as Array<string | number>) : undefined,
     };
   });
   return { complete, list };
+}
+
+/** Characters a name must not carry into a message: controls, line breaks, invisible formatting. */
+const unprintable = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+/** An identifier or a dotted path of them, such as `bound fromDto` or `LeadIndex.toModel`. */
+const plainName =
+  /^(?:bound )*[\p{ID_Start}$_][\p{ID_Continue}$]*(?:\.[\p{ID_Start}$_][\p{ID_Continue}$]*)*$/u;
+
+/** At most `limit` UTF-16 code units, ending in `...` when cut, without splitting a character. */
+function clip(text: string, limit: number): string {
+  if (text.length <= limit) {
+    return text;
+  }
+  let end = limit - 3;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) {
+    end -= 1;
+  }
+  return `${text.slice(0, end)}...`;
+}
+
+/**
+ * The function's own `name` for a message, or `undefined` when it has none. Only a data
+ * property is read, so no getter runs. Unprintable characters are removed and a long name is
+ * cut to 100 characters; a name that is not a plain identifier path is shown as a JSON string,
+ * so quotes, commas and spaces in it cannot be confused with the rest of the message.
+ */
+function callbackName(callback: unknown): string | undefined {
+  const own: unknown = Object.getOwnPropertyDescriptor(callback, 'name')?.value;
+  const printable = typeof own === 'string' ? own.replace(unprintable, '').trim() : '';
+  if (!printable) {
+    return undefined;
+  }
+  const name = clip(printable, 100);
+  return plainName.test(name) ? name : JSON.stringify(name);
 }
 
 /** `transform fromDto`, or `transform at deal` for an anonymous function. */
@@ -437,7 +469,9 @@ function callbackFailure(error: unknown, callbacks: () => Callbacks): unknown {
           list.length > 3 ? ` and ${list.length - 3} more` : ''
         }`
       : 'thrown by a Zod callback';
-  return new BuilderValidationError(issues, { cause: error, detail });
+  // The error keeps 200 characters of the detail; cutting it here first keeps a character
+  // whole and marks the cut.
+  return new BuilderValidationError(issues, { cause: error, detail: clip(detail, 200) });
 }
 
 /** Native parsing and codecs; JSON conversion is needed only for automatic generation. */

@@ -541,11 +541,18 @@ export function fingerprint(value: unknown): string {
     }
     return JSON.stringify(v);
   }
-  let hash = 0xcbf29ce484222325n;
+  // 64-bit FNV-1a over code points, in two 32-bit halves: the prime is 2^40 + 0x1b3, and every
+  // intermediate stays below 2^53, so plain numbers give the same digest as 64-bit arithmetic
+  // at a fraction of the cost of BigInt.
+  let high = 0xcbf29ce4;
+  let low = 0x84222325;
   for (const character of canonical(value)) {
-    hash = BigInt.asUintN(64, (hash ^ BigInt(character.codePointAt(0)!)) * 0x100000001b3n);
+    low = (low ^ character.codePointAt(0)!) >>> 0;
+    const product = low * 0x1b3;
+    high = (high * 0x1b3 + Math.floor(product / 0x1_0000_0000) + low * 0x100) >>> 0;
+    low = product >>> 0;
   }
-  return `json-fnv1a64-v1:${hash.toString(16).padStart(16, '0')}`;
+  return `json-fnv1a64-v1:${high.toString(16).padStart(8, '0')}${low.toString(16).padStart(8, '0')}`;
 }
 
 /** Resolve a reference the way an offline validator does; unresolvable bases stay textual. */
