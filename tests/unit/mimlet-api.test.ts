@@ -269,6 +269,59 @@ it('projects named component schemas for each direction', () => {
   expect(() => openApiComponents({ swagger: '2.0' })).toThrow('Expected OpenAPI 3.0, 3.1 or 3.2');
 });
 
+it('checks data against a projected component in each direction', () => {
+  const components = openApiComponents(nestDocument());
+  const command = components.schema('CreateDealCommand', 'request');
+  expect(command.check({ title: 'Deal', amount: 10, facade: null })).toBe(true);
+  expect(command.check({ title: 'Deal', amount: 10, facade: { street: 'Main street 1' } })).toBe(
+    true
+  );
+  expect(command.issues({ title: 'Deal', amount: 10, facade: null })).toEqual([]);
+  const invalid = { title: 'Deal', amount: -1, facade: { street: 1 } };
+  expect(command.check(invalid)).toBe(false);
+  expect(
+    command.issues(invalid).map(({ instancePath, keyword }) => [instancePath, keyword])
+  ).toEqual(
+    expect.arrayContaining([
+      ['/amount', 'minimum'],
+      ['/facade/street', 'type'],
+    ])
+  );
+  expect(command.issues({ title: 'Deal', amount: 1 })[0]).toMatchObject({
+    keyword: 'required',
+    message: expect.stringContaining('facade'),
+  });
+  // The direction decides which properties are allowed and required.
+  const response = components.schema('DealDto');
+  const request = components.schema('DealDto', 'request');
+  const facade = { street: 'Main street 1' };
+  expect(
+    response.check({ id: 'd4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11', title: 'Deal', facade })
+  ).toBe(true);
+  expect(
+    response.check({
+      id: 'd4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11',
+      title: 'Deal',
+      password: 'secret',
+    })
+  ).toBe(false);
+  expect(request.check({ title: 'Deal', password: 'secret' })).toBe(true);
+  expect(
+    request.check({ id: 'd4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11', title: 'Deal', password: 'secret' })
+  ).toBe(false);
+  // Values must be JSON data, as for operation fixtures.
+  expect(command.check({ title: 'Deal', amount: 1, facade: null, note: undefined })).toBe(false);
+  expect(command.issues(new Date())).toEqual([
+    expect.objectContaining({ keyword: 'jsonData', message: 'Expected bounded JSON input' }),
+  ]);
+  // The projection and its checks agree with the operation fixtures.
+  const body = openApi(nestDocument())
+    .request({ operationId: 'DealsController_create' })
+    .builder()
+    .buildValidated().body;
+  expect(command.check(body)).toBe(true);
+});
+
 it('names OpenAPI 3.1 definitions after their components and keeps reference siblings', () => {
   const components = openApiComponents({
     openapi: '3.1.0',

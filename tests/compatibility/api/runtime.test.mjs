@@ -868,6 +868,18 @@ describe('framework-built documents and component schemas', () => {
     ]);
     fail(() => components.schema('Missing'), /Unknown component schema/);
     fail(() => components.schema('DealDto', 'both'), /direction/);
+    // Each projection checks data with the same validator as operation fixtures.
+    const create = components.schema('CreateDealCommand', 'request');
+    assert.equal(create.check({ title: 'Deal', amount: 1, facade: null }), true);
+    assert.deepEqual(create.issues({ title: 'Deal', amount: 1, facade: null }), []);
+    assert.deepEqual(
+      create.issues({ title: 'Deal', amount: -1, facade: null }).map((issue) => issue.keyword),
+      ['minimum']
+    );
+    assert.equal(
+      components.schema('DealDto').check({ id: 'x', title: 'Deal', password: 'secret' }),
+      false
+    );
     assert.deepEqual(openApiComponents({ openapi: '3.2.0' }).names(), []);
     assert.equal(openApiComponents({ openapi: '3.1.0', components: {} }).dialect, 'draft-2020-12');
     fail(() => openApiComponents({ openapi: '2.0' }));
