@@ -294,9 +294,14 @@ export async function emitJsonSchemaBuilders(
         throw new CodegenError('Schema type emission failed', { cause });
       }
     }
+    // A property whose schema is `false` (such as a read-only property of a request) cannot
+    // be set, so it gets no helper.
     const fields =
       typeof schema === 'object' && schema.properties && typeof schema.properties === 'object'
-        ? Object.keys(schema.properties).sort()
+        ? Object.entries(schema.properties as Record<string, unknown>)
+            .filter(([, property]) => property !== false)
+            .map(([property]) => property)
+            .sort()
         : [];
     const setter = setterType(`${target.name}\n${declarations}`);
     const methods = helpers(fields, name, setter.name);

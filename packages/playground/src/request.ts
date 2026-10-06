@@ -141,7 +141,7 @@ export function snapshotRequest(input: unknown): GenerationRequest {
   }
   if (
     result.profile !== undefined &&
-    !['minimal', 'defaults', 'examples', 'random', 'boundary'].includes(result.profile)
+    !['minimal', 'defaults', 'examples', 'random', 'boundary', 'realistic'].includes(result.profile)
   ) {
     return invalid();
   }

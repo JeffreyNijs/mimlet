@@ -31,9 +31,11 @@ fields. The runtime state itself is held in a private WeakMap.
 
 ## Generated named setters
 
-`mimlet generate` (and `emitBuilders` or `emitJsonSchemaBuilders` in
-[`@mimlet/codegen`](../packages/codegen/README.md)) writes one such facade per builder,
-with a `withX()` helper for each selected field. Each helper accepts exactly what
+`mimlet generate` (and `emitBuilders`, `emitJsonSchemaBuilders` or `emitOpenApiBuilders`
+in [`@mimlet/codegen`](../packages/codegen/README.md)) writes one such facade per builder,
+with a `withX()` helper for each selected field. For an OpenAPI document, an `openapi`
+entry in the configuration emits one builder per component schema; see
+[OpenAPI documents](../packages/codegen/README.md#openapi-documents). Each helper accepts exactly what
 `with()` accepts for that property, like [`fluent()` setters](fluent-builders.md). For a
 factory that returns `{ customerId: string; couponCode?: string }`:
 

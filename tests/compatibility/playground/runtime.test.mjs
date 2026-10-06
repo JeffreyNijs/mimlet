@@ -493,7 +493,7 @@ it('measures the same execution implementation used inside workers, including bo
   const { executeGeneration } = await import(
     new URL('./execution.js', import.meta.resolve('@mimlet/playground'))
   );
-  for (const profile of ['minimal', 'random', 'boundary', 'defaults', 'examples']) {
+  for (const profile of ['minimal', 'random', 'boundary', 'defaults', 'examples', 'realistic']) {
     const result = JSON.parse(
       executeGeneration({ schema: { type: 'integer', minimum: 2, maximum: 2 }, profile, count: 1 })
     );

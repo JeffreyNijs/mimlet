@@ -17,6 +17,8 @@ import { shop } from './compiled/scenario.js';
 import { first, again } from './compiled/replay.js';
 import { report } from './compiled/shrinking.js';
 import { files } from './compiled/codegen.js';
+import { files as openApiFiles } from './compiled/openapi-codegen.js';
+import { minimal as minimalOrder, realistic as realisticOrder } from './compiled/realistic.js';
 import { input as zodInput, user as zodUser } from './compiled/zod.js';
 import { input as arkInput, user as arkUser } from './compiled/arktype.js';
 import { input as fluentInput, output as fluentOutput, asynchronous } from './compiled/fluent.js';
@@ -113,6 +115,30 @@ test('the generated API uses Mimlet imports and named fluent methods', () => {
   assert.match(files[0].content, /from "@mimlet\/core"/);
   assert.match(files[0].content, /withId\(/);
   assert.match(files[0].content, /withRole\(/);
+});
+test('OpenAPI component builders follow the request projection', () => {
+  assert.deepEqual(
+    openApiFiles.map((file) => file.path),
+    ['CreateDealCommandBuilder.ts']
+  );
+  const [file] = openApiFiles;
+  assert.match(file.content, /facade: Facade \| null;/);
+  assert.match(file.content, /withTitle\(/);
+  assert.doesNotMatch(file.content, /withId\(/);
+  assert.match(file.content, /"profile":"realistic"/);
+});
+test('the realistic profile fills optional fields with small readable values', () => {
+  assert.deepEqual(Object.keys(minimalOrder).sort(), ['lines', 'reference', 'total']);
+  assert.deepEqual(Object.keys(realisticOrder).sort(), ['coupon', 'lines', 'reference', 'total']);
+  assert.match(realisticOrder.reference, /^[A-Z][a-z]+( [a-z]+)*$/);
+  assert.equal(typeof realisticOrder.coupon, 'string');
+  assert.ok(realisticOrder.total >= 0 && realisticOrder.total <= 100);
+  assert.ok(realisticOrder.lines.length >= 1 && realisticOrder.lines.length <= 3);
+  for (const line of realisticOrder.lines) {
+    assert.deepEqual(Object.keys(line).sort(), ['note', 'quantity', 'sku']);
+    assert.ok(line.quantity >= 1 && line.quantity <= 100);
+    assert.ok(line.sku.length <= 12);
+  }
 });
 test('installed codegen exposes the renamed executable', async () => {
   const metadata = JSON.parse(await readFile('node_modules/@mimlet/codegen/package.json', 'utf8'));
