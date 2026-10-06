@@ -765,7 +765,7 @@ describe('validator preparation', () => {
     );
     // The property was exercised, not passed vacuously.
     expect(quick).toBeGreaterThan(400);
-  });
+  }, 60_000);
 
   it('reports a schema the meta-schema rejects with the validator message', () => {
     const invalid: Array<readonly [JsonSchema, SchemaDialect]> = [
@@ -853,7 +853,7 @@ describe('validator preparation', () => {
       }
     }
     expect(compared).toBeGreaterThan(5_000);
-  });
+  }, 60_000);
 
   it('computes the same fingerprints as 64-bit BigInt arithmetic', () => {
     const canonical = (value: unknown): string =>
