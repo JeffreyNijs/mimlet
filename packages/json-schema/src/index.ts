@@ -97,6 +97,7 @@ export { NegativeCaseError } from './cases.js';
 export type { NegativeTarget } from './cases.js';
 import { boundaryHints, checkedNegative, synchronous } from './cases.js';
 import { realisticHints, realisticIdentity, realisticValue } from './realistic.js';
+import { certainlyValidSchema } from './meta.js';
 
 const YEAR_SECONDS = 365 * 24 * 60 * 60;
 /**
@@ -182,6 +183,10 @@ function createValidatorContext(
     removeAdditional: false,
     validateFormats: true,
     logger: false,
+    // Ajv's optimization pass only tidies the generated code: the validator accepts and
+    // reports exactly the same. It took about a third of compiling a schema, and a
+    // generator runs its validator only a few times per build.
+    code: { optimize: false },
   }) as Validator;
   // ajv-formats is CommonJS; NodeNext represents its default through the module type.
   const addFormats = formatsModule as unknown as (instance: Ajv) => void;
@@ -218,6 +223,21 @@ function createValidatorContext(
     } else {
       validator.addKeyword({ keyword: name, valid: true });
     }
+  }
+  if (Object.keys(keywords).length === 0 && Object.keys(customFormats).length === 0) {
+    // Ajv checks every schema it adds against the meta-schema, and compiling the meta-schema is
+    // a large part of preparing the first generator in a process. Skip that only for schemas
+    // the quick check proves valid; any other schema gets Ajv's own check and error message,
+    // at the same point as before. Callbacks could change what the formats accept, so a
+    // validator with custom keywords or formats always checks.
+    const validateSchema = validator.validateSchema.bind(validator);
+    validator.validateSchema = (schema, throwOrLogError) => {
+      if (certainlyValidSchema(schema, selected, validator.formats)) {
+        validator.errors = null;
+        return true;
+      }
+      return validateSchema(schema, throwOrLogError);
+    };
   }
   for (const [name, format] of Object.entries(customFormats)) {
     if (!format || typeof format.validate !== 'function' || typeof format.generate !== 'function') {

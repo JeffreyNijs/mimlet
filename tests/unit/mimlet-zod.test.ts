@@ -389,6 +389,89 @@ it('places errors thrown by a nested transform at its field when the schema has 
   });
 });
 
+it('names a callback by any function name, quoted unless it is an identifier path', () => {
+  const failure = new Error('bad lead');
+  const Lead = z.object({ id: z.string() });
+  /** A throwing transform whose own `name` property is set to `name`. */
+  const named = (descriptor: PropertyDescriptor) => {
+    const transform = () => {
+      throw failure;
+    };
+    Object.defineProperty(transform, 'name', { configurable: true, ...descriptor });
+    return Lead.transform(transform);
+  };
+  const thrown = (descriptor: PropertyDescriptor) =>
+    rejection(() => fromZod(named(descriptor)).buildValidated());
+  const message = (name: unknown) => thrown({ value: name }).message;
+  const prefix = 'Schema validation failed: 1 issue at (root); thrown by the Zod transform';
+
+  // A static method reference or a name set with Object.defineProperty.
+  const error = thrown({ value: 'LeadIndex.toModel' });
+  expect(error.message).toBe(`${prefix} LeadIndex.toModel`);
+  expect(error.issues).toEqual([
+    { message: 'The Zod transform LeadIndex.toModel threw Error: bad lead', path: [] },
+  ]);
+  expect(error.cause).toBe(failure);
+  expect(message('bound LeadIndex.toModel')).toBe(`${prefix} bound LeadIndex.toModel`);
+  expect(message('créerPiste')).toBe(`${prefix} créerPiste`);
+  expect(message('x'.repeat(100))).toBe(`${prefix} ${'x'.repeat(100)}`);
+  // Any other name is a JSON string, so its quotes, commas and spaces stay inside it.
+  expect(message('to model, then "save"')).toBe(`${prefix} "to model, then \\"save\\""`);
+  expect(message('get lead')).toBe(`${prefix} "get lead"`);
+  expect(message('[Symbol.iterator]')).toBe(`${prefix} "[Symbol.iterator]"`);
+  // Control, line-break and invisible formatting characters are removed.
+  expect(message('to\u0000Model\n\u202e\u200b')).toBe(`${prefix} toModel`);
+  expect(message('\u001b[31mred\u001b[0m')).toBe(`${prefix} "[31mred[0m"`);
+  // A long name is cut to 100 characters (UTF-16 code units), never inside a character.
+  expect(message(`Lead.${'x'.repeat(150)}`)).toBe(`${prefix} "Lead.${'x'.repeat(92)}..."`);
+  expect(message('\u{1F600}'.repeat(60))).toBe(`${prefix} "${'\u{1F600}'.repeat(48)}..."`);
+  // A long list is cut before the error's own 200-character limit, also between characters.
+  const many = Lead.refine(
+    Object.defineProperty(() => true, 'name', { value: '\u{1F600}'.repeat(50) })
+  ).transform(
+    Object.defineProperty(
+      () => {
+        throw failure;
+      },
+      'name',
+      { value: `Lead.${'\u{1F600}'.repeat(50)}` }
+    )
+  );
+  const cut = rejection(() => fromZod(many).buildValidated()).message;
+  expect(cut).toMatch(/\.\.\.$/);
+  // A lone surrogate would make this throw.
+  expect(() => encodeURIComponent(cut)).not.toThrow();
+  expect(cut.length - cut.indexOf('thrown by')).toBeLessThanOrEqual(200);
+  // No usable name: the location names the callback, as for an anonymous function.
+  for (const name of ['', '   ', '\u0000\n\u200b', 42, undefined, null]) {
+    expect(message(name)).toBe(`${prefix} at (root)`);
+  }
+  // A name getter is never called.
+  expect(
+    thrown({
+      get() {
+        throw new Error('name getter ran');
+      },
+    }).message
+  ).toBe(`${prefix} at (root)`);
+
+  // Several callbacks are listed with the same names.
+  const several = Lead.refine(
+    Object.defineProperty(() => true, 'name', { value: 'Lead, valid' })
+  ).transform(
+    Object.defineProperty(
+      () => {
+        throw failure;
+      },
+      'name',
+      { value: 'LeadIndex.toModel' }
+    )
+  );
+  expect(rejection(() => fromZod(several).buildValidated()).message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by one of the Zod callbacks refinement "Lead, valid", transform LeadIndex.toModel'
+  );
+});
+
 it('reports no location for a callback inside a recursive schema', () => {
   interface Node {
     name: string;

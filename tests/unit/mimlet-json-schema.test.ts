@@ -1,4 +1,6 @@
+import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
+import * as fc from 'fast-check';
 import { z } from 'zod';
 import {
   clearGeneratorCache,
@@ -6,9 +8,15 @@ import {
   fromJsonSchema,
   jsonSchemaAdapter,
 } from '../../packages/json-schema/src/index.js';
-import type { JsonSchema, JsonSchemaOptions } from '../../packages/json-schema/src/index.js';
+import type {
+  JsonSchema,
+  JsonSchemaOptions,
+  SchemaDialect,
+} from '../../packages/json-schema/src/index.js';
 import type * as JsonSchemaModule from '../../packages/json-schema/src/index.js';
 import { packageVersion } from '../../packages/json-schema/src/version.js';
+import { certainlyValidSchema } from '../../packages/json-schema/src/meta.js';
+import { fingerprint } from '../../packages/json-schema/src/schema.js';
 import { createSession, restoreSession } from '../../packages/core/src/index.js';
 import { fromZod } from '../../packages/zod/src/index.js';
 import * as api from './fixtures/zod-crm.gen.js';
@@ -557,6 +565,322 @@ describe('shared preparation', () => {
       expect(entries()).toBe(before + 1);
     } finally {
       registry.delete('@mimlet/json-schema@0.0.0-other');
+    }
+  });
+});
+
+describe('validator preparation', () => {
+  /** The validator classes and formats this package uses, loaded from its own dependencies. */
+  interface ReferenceValidator {
+    readonly formats: Readonly<Record<string, unknown>>;
+    validateSchema(schema: unknown): boolean;
+    compile(schema: unknown): ((value: unknown) => boolean) & {
+      readonly errors?: ReadonlyArray<Record<string, unknown>> | null;
+    };
+  }
+  type ValidatorClass = new (options: object) => ReferenceValidator;
+  const load = createRequire(new URL('../../packages/json-schema/package.json', import.meta.url));
+  const classes: Record<SchemaDialect, ValidatorClass> = {
+    'draft-07': (load('ajv') as { Ajv: ValidatorClass }).Ajv,
+    'draft-2019-09': (load('ajv/dist/2019') as { Ajv2019: ValidatorClass }).Ajv2019,
+    'draft-2020-12': (load('ajv/dist/2020') as { Ajv2020: ValidatorClass }).Ajv2020,
+  };
+  const addFormats = (load('ajv-formats') as { default: (validator: object) => void }).default;
+  // The options of packages/json-schema/src/index.ts, with Ajv's default code optimization.
+  const reference = (dialect: SchemaDialect) => {
+    const validator = new classes[dialect]({
+      allErrors: true,
+      strict: true,
+      strictSchema: false,
+      strictTypes: false,
+      strictRequired: false,
+      strictTuples: false,
+      allowUnionTypes: true,
+      allowMatchingProperties: true,
+      ownProperties: true,
+      coerceTypes: false,
+      useDefaults: false,
+      removeAdditional: false,
+      validateFormats: true,
+      logger: false,
+    });
+    addFormats(validator);
+    return validator;
+  };
+  const dialects = ['draft-07', 'draft-2019-09', 'draft-2020-12'] as const;
+  const crm = (target: 'draft-07' | 'draft-2020-12') =>
+    Object.values(api)
+      .filter((schema) => schema._zod.def.type !== 'void')
+      .map((schema) => z.toJSONSchema(schema, { io: 'input', target, unrepresentable: 'throw' }))
+      .map((schema) => JSON.parse(JSON.stringify(schema)) as JsonSchema);
+
+  it('skips the meta-schema only for schemas the meta-schema accepts', () => {
+    const validators = Object.fromEntries(dialects.map((d) => [d, reference(d)])) as Record<
+      SchemaDialect,
+      ReferenceValidator
+    >;
+    const metaValid = (schema: unknown, dialect: SchemaDialect) => {
+      try {
+        return validators[dialect].validateSchema(schema) === true;
+      } catch {
+        return false;
+      }
+    };
+    // Every schema converted from the generated API takes the quick path.
+    for (const target of ['draft-07', 'draft-2020-12'] as const) {
+      for (const schema of crm(target)) {
+        expect(certainlyValidSchema(schema, target, validators[target].formats)).toBe(true);
+        expect(metaValid(schema, target)).toBe(true);
+      }
+    }
+    // Schemas that are mostly well formed, with a wrong kind of value now and then, so that
+    // every keyword rule meets both valid and invalid values in nested positions.
+    const strings = fc.oneof(
+      fc.string({ maxLength: 4 }),
+      fc.constantFrom(
+        ...['string', 'integer', 'null', 'strin', '^a+$', '[', '^]$', 'a\\Z', '\\p{L}', '\\_'],
+        ...['#', '#/$defs/a', '#/definitions/a', 'https://example.test/a', 'a b', ':', '#a'],
+        'https://json-schema.org/draft/2020-12/schema',
+        'https://json-schema.org/draft/2019-09/schema',
+        'http://json-schema.org/draft-07/schema#',
+        'http://json-schema.org/draft-07/schema',
+        'http://json-schema.org/draft/2020-12/schema',
+        'https://json-schema.org/draft/2020-12/schema#'
+      )
+    );
+    const scalars = fc.oneof(
+      strings,
+      fc.integer({ min: -2, max: 4 }),
+      fc.constantFrom(0.5, -0, 1e300, -1.5),
+      fc.boolean(),
+      fc.constant(null)
+    );
+    const anything = fc.oneof(
+      scalars,
+      fc.array(scalars, { maxLength: 2 }),
+      fc.dictionary(strings, scalars, { maxKeys: 2 })
+    );
+    const types = fc.constantFrom('array', 'boolean', 'integer', 'null', 'number', 'object');
+    const { schema } = fc.letrec((tie) => {
+      const sub = tie('schema');
+      const mostly = (arbitrary: fc.Arbitrary<unknown>) =>
+        fc.oneof({ weight: 5, arbitrary }, { weight: 1, arbitrary: anything });
+      const kinds: Record<string, fc.Arbitrary<unknown>> = {
+        $schema: strings,
+        $ref: strings,
+        $id: strings,
+        $anchor: strings,
+        default: anything,
+        const: anything,
+        examples: mostly(fc.array(scalars, { maxLength: 2 })),
+        multipleOf: mostly(fc.constantFrom(-1, 0, 0.5, 2)),
+        type: mostly(fc.oneof(types, fc.constant('strin'), fc.array(types, { maxLength: 3 }))),
+        enum: mostly(
+          fc.oneof(
+            fc.array(fc.oneof(scalars, fc.constant({ a: 1 })), { maxLength: 3 }),
+            fc.constantFrom(['a', 'a'], [1, 1], [null, 'a', null])
+          )
+        ),
+        pattern: strings,
+        required: mostly(fc.array(fc.constantFrom('a', 'b', 'c'), { maxLength: 3 })),
+        dependentRequired: mostly(
+          fc.dictionary(strings, fc.array(fc.constantFrom('a', 'b'), { maxLength: 2 }), {
+            maxKeys: 2,
+          })
+        ),
+        dependencies: mostly(
+          fc.dictionary(
+            strings,
+            fc.oneof(sub, fc.array(fc.constantFrom('a', 'b'), { maxLength: 2 })),
+            { maxKeys: 2 }
+          )
+        ),
+        items: mostly(fc.oneof(sub, fc.array(sub, { maxLength: 2 }))),
+        patternProperties: mostly(fc.dictionary(strings, sub, { maxKeys: 2 })),
+        'x-extension': anything,
+        ['__proto__']: anything,
+      };
+      for (const name of ['$comment', 'title', 'description', 'format', 'contentEncoding']) {
+        kinds[name] = mostly(strings);
+      }
+      for (const name of ['readOnly', 'writeOnly', 'deprecated', 'uniqueItems']) {
+        kinds[name] = mostly(fc.boolean());
+      }
+      for (const name of ['maximum', 'minimum', 'exclusiveMaximum', 'exclusiveMinimum']) {
+        kinds[name] = mostly(fc.oneof(fc.integer(), fc.double({ noNaN: true })));
+      }
+      for (const name of ['maxLength', 'minLength', 'maxItems', 'minItems', 'minProperties']) {
+        kinds[name] = mostly(fc.oneof(fc.integer({ min: -1, max: 3 }), fc.constant(0.5)));
+      }
+      for (const name of ['maxProperties', 'minContains', 'maxContains']) {
+        kinds[name] = mostly(fc.integer({ min: -1, max: 3 }));
+      }
+      for (const name of ['additionalItems', 'contains', 'additionalProperties', 'not', 'if']) {
+        kinds[name] = mostly(sub);
+      }
+      for (const name of ['propertyNames', 'then', 'else', 'unevaluatedProperties']) {
+        kinds[name] = mostly(sub);
+      }
+      for (const name of ['unevaluatedItems', 'contentSchema']) {
+        kinds[name] = mostly(sub);
+      }
+      for (const name of ['allOf', 'anyOf', 'oneOf', 'prefixItems']) {
+        kinds[name] = mostly(fc.array(sub, { maxLength: 2 }));
+      }
+      for (const name of ['properties', '$defs', 'definitions', 'dependentSchemas']) {
+        kinds[name] = mostly(fc.dictionary(strings, sub, { maxKeys: 2 }));
+      }
+      const entry = fc.oneof(
+        ...Object.entries(kinds).map(([name, value]) =>
+          fc.tuple(fc.constant(name), value as fc.Arbitrary<unknown>)
+        )
+      );
+      return {
+        schema: fc.oneof(
+          { depthSize: 'small', maxDepth: 4 },
+          { weight: 1, arbitrary: fc.boolean() },
+          {
+            weight: 4,
+            arbitrary: fc.array(entry, { maxLength: 4 }).map((entries) => {
+              const result: Record<string, unknown> = {};
+              for (const [name, value] of entries) {
+                Object.defineProperty(result, name, { value, enumerable: true, writable: true });
+              }
+              return result;
+            }),
+          }
+        ),
+      };
+    });
+    let quick = 0;
+    fc.assert(
+      fc.property(schema, fc.constantFrom(...dialects), (candidate, dialect) => {
+        const data = JSON.parse(JSON.stringify(candidate)) as unknown;
+        if (certainlyValidSchema(data, dialect, validators[dialect].formats)) {
+          quick += 1;
+          expect(metaValid(data, dialect)).toBe(true);
+        }
+      }),
+      { numRuns: 4000, seed: 20261006 }
+    );
+    // The property was exercised, not passed vacuously.
+    expect(quick).toBeGreaterThan(400);
+  });
+
+  it('reports a schema the meta-schema rejects with the validator message', () => {
+    const invalid: Array<readonly [JsonSchema, SchemaDialect]> = [
+      [{ type: 'string', minLength: -1 }, 'draft-2020-12'],
+      [{ type: 'strin' }, 'draft-2020-12'],
+      [{ type: 'string', pattern: 'a\\Z' }, 'draft-2020-12'],
+      [{ type: 'object', required: ['a', 'a'] }, 'draft-2020-12'],
+      [{ anyOf: [] }, 'draft-2019-09'],
+      [{ type: 'number', multipleOf: 0 }, 'draft-2020-12'],
+      [{ type: 'object', properties: { a: { type: 'number', minimum: 'x' } } }, 'draft-07'],
+      [{ type: 'string', description: 5 }, 'draft-2020-12'],
+      [{ type: 'string', examples: 'x' }, 'draft-07'],
+      [{ enum: [] }, 'draft-07'],
+      [{ enum: ['a', 'a'] }, 'draft-07'],
+      [{ type: 'object', patternProperties: { '[': { type: 'string' } } }, 'draft-2020-12'],
+    ];
+    for (const [schema, dialect] of invalid) {
+      let expected: unknown;
+      try {
+        reference(dialect).compile(schema);
+      } catch (error) {
+        expected = error;
+      }
+      expect(expected).toBeInstanceOf(Error);
+      expect(() => jsonSchemaAdapter(schema, { dialect })).toThrow(
+        expect.objectContaining({
+          name: 'SchemaPreparationError',
+          code: 'SCHEMA_PREPARATION_FAILED',
+          message: 'Schema compilation failed at /',
+          cause: expect.objectContaining({ message: (expected as Error).message }),
+        })
+      );
+    }
+    // A pattern that only the validator's Unicode mode rejects passes the meta-schema and
+    // still fails when the validator compiles it.
+    expect(() => jsonSchemaAdapter({ type: 'string', pattern: '^]$' })).toThrow(
+      'Schema compilation failed at /'
+    );
+  });
+
+  it('compiles validators that accept and report exactly as optimized code does', () => {
+    const mutations = (value: unknown, depth = 0): unknown[] => {
+      if (!value || typeof value !== 'object') {
+        return [null, 1, 'x', [], {}];
+      }
+      const result: unknown[] = [];
+      for (const [key, item] of Object.entries(value).slice(0, 8)) {
+        for (const replacement of [null, 1.5, 'x', true, {}, []]) {
+          result.push(Array.isArray(value) ? [replacement] : { ...value, [key]: replacement });
+        }
+        if (!Array.isArray(value)) {
+          const rest: Record<string, unknown> = { ...value };
+          delete rest[key];
+          result.push(rest);
+        }
+        if (depth < 1) {
+          for (const nested of mutations(item, depth + 1)) {
+            result.push(Array.isArray(value) ? [nested] : { ...value, [key]: nested });
+          }
+        }
+      }
+      result.push(Array.isArray(value) ? [...value, { extra: 1 }] : { ...value, extra: 1 });
+      return result;
+    };
+    const summary = (errors: ReadonlyArray<Record<string, unknown>>) =>
+      errors.map(({ keyword, instancePath, schemaPath, message }) => ({
+        keyword,
+        instancePath,
+        schemaPath,
+        message,
+      }));
+    let compared = 0;
+    for (const target of ['draft-07', 'draft-2020-12'] as const) {
+      const optimized = reference(target);
+      for (const schema of crm(target)) {
+        const adapter = jsonSchemaAdapter(schema);
+        const validate = optimized.compile(schema);
+        const values = [1, 2, 3].map((seed) => adapter.create(adapter.session(seed)));
+        for (const value of [...values, ...values.flatMap((item) => mutations(item))]) {
+          const valid = validate(value);
+          expect(adapter.check(value)).toBe(valid);
+          expect(summary(adapter.issues(value) as never)).toEqual(summary(validate.errors ?? []));
+          compared += 1;
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(5_000);
+  });
+
+  it('computes the same fingerprints as 64-bit BigInt arithmetic', () => {
+    const canonical = (value: unknown): string =>
+      Array.isArray(value)
+        ? `[${value.map(canonical).join(',')}]`
+        : value && typeof value === 'object'
+          ? `{${Object.keys(value)
+              .sort()
+              .map((key) => `${JSON.stringify(key)}:${canonical(Reflect.get(value, key))}`)
+              .join(',')}}`
+          : JSON.stringify(value);
+    const bigIntFingerprint = (value: unknown) => {
+      let hash = 0xcbf29ce484222325n;
+      for (const character of canonical(value)) {
+        hash = BigInt.asUintN(64, (hash ^ BigInt(character.codePointAt(0) ?? 0)) * 0x100000001b3n);
+      }
+      return `json-fnv1a64-v1:${hash.toString(16).padStart(16, '0')}`;
+    };
+    fc.assert(
+      fc.property(fc.jsonValue(), fc.string({ unit: 'binary' }), (value, text) => {
+        expect(fingerprint(value)).toBe(bigIntFingerprint(value));
+        expect(fingerprint(text)).toBe(bigIntFingerprint(text));
+      }),
+      { numRuns: 2000, seed: 20261006 }
+    );
+    for (const schema of crm('draft-2020-12')) {
+      expect(fingerprint(schema)).toBe(bigIntFingerprint(schema));
     }
   });
 });
