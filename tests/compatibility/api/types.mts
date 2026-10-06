@@ -55,6 +55,8 @@ import { openApiComponents, type OpenApiComponentSchema } from '@mimlet/api';
 const component: OpenApiComponentSchema = openApiComponents(document).schema('Deal', 'request');
 expectType<'draft-07' | 'draft-2019-09' | 'draft-2020-12'>(component.dialect);
 expectType<string[]>(openApiComponents(document).names());
+expectType<boolean>(component.check({ name: 'Ada' }));
+expectType<string>(component.issues({ name: 'Ada' })[0]?.instancePath ?? '');
 // @ts-expect-error Components project for a request or a response.
 openApiComponents(document).schema('Deal', 'message');
 openApi(document, { profile: 'realistic' });

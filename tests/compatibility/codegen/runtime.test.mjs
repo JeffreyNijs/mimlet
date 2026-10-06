@@ -689,6 +689,17 @@ new DealResponse().withId('d4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11').buildValidated
         [{ schemas: [{ schema: 'FacadeDto', extra: 1 }] }, /component name or/],
         [{ schemas: [{ schema: 'FacadeDto', name: 1 }] }, /component name or/],
         [{ schemas: [{ schema: 'FacadeDto', direction: 'up' }] }, /direction/],
+        [{ schemas: [7] }, /schemas\[0\] is 7\.$/],
+        [{ schemas: [[]] }, /schemas\[0\] is an array\.$/],
+        [
+          { schemas: ['DealDto', { component: 'FacadeDto', tags: [] }] },
+          /schemas\[1\] is \{"component":"FacadeDto","tags":"<array>"\}\. Did you mean \{"schema":"FacadeDto"\}\?/,
+        ],
+        [
+          { schemas: ['dealdto'] },
+          /Unknown OpenAPI component schema "dealdto"; did you mean "DealDto"\?/,
+        ],
+        [{ schemas: 'all', closedObjects: 'yes' }, /closedObjects must be true or false/],
       ])
         assert.throws(
           () => openApiBuilderTargets(nestDocument(), selection),
@@ -730,6 +741,100 @@ new DealResponse().withId('d4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11').buildValidated
           ),
         /"Odd" \(OddBuilder\): Unknown format at \/format/
       );
+    }));
+
+  it('types NestJS objects as closed with closedObjects and keeps their validation', async () =>
+    temporary(async (directory) => {
+      const run = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+      await mkdir(join(directory, 'specs'));
+      await writeFile(
+        join(directory, 'specs/deals.json'),
+        JSON.stringify(JSON.parse(JSON.stringify(nestDocument())))
+      );
+      const config = join(directory, 'builders.json');
+      const out = join(directory, 'generated');
+      // An entry that uses "name" for the component is reported with the corrected entry.
+      await writeFile(
+        config,
+        JSON.stringify({
+          openapi: {
+            document: 'specs/deals.json',
+            schemas: [{ name: 'CreateDealCommand', direction: 'request' }],
+          },
+        })
+      );
+      const wrong = run('--config', config, '--out', out, '--json');
+      assert.equal(wrong.status, 2, wrong.stdout);
+      const [diagnostic] = JSON.parse(wrong.stdout).diagnostics;
+      assert.equal(diagnostic.code, 'CLI_USAGE_ERROR');
+      assert.match(
+        diagnostic.message,
+        /schemas\[0\] is \{"name":"CreateDealCommand","direction":"request"\}\. Did you mean \{"schema":"CreateDealCommand","direction":"request"\}\?/
+      );
+      await writeFile(
+        config,
+        JSON.stringify({
+          openapi: [
+            {
+              document: 'specs/deals.json',
+              schemas: [{ schema: 'CreateDealCommand', direction: 'request' }, 'DealDto'],
+              closedObjects: true,
+            },
+          ],
+        })
+      );
+      const generated = run('--config', config, '--out', out);
+      assert.equal(generated.status, 0, generated.stderr);
+      for (const name of ['CreateDealCommandBuilder', 'DealDtoBuilder']) {
+        const content = await readFile(join(out, `${name}.ts`), 'utf8');
+        assert.equal(content.includes('[k: string]: unknown'), false, name);
+        assert.equal(content.includes(' as BuilderPatch<'), false, name);
+      }
+      await writeFile(
+        join(directory, 'closed.ts'),
+        `
+import { CreateDealCommandBuilder, type CreateDealCommandBuilderInput } from './generated/CreateDealCommandBuilder.js';
+import { DealDtoBuilder, type DealDtoBuilderInput } from './generated/DealDtoBuilder.js';
+interface CreateDealCommand {
+  title: string;
+  amount: number;
+  note?: string | null;
+  facade: { street: string; floors?: number } | null;
+  tags?: string[];
+}
+// Closed types fit the application's own DTO types in both directions.
+const command: CreateDealCommand = new CreateDealCommandBuilder().withTitle('Renewal').buildValidated();
+const input: CreateDealCommandBuilderInput = command;
+const deal: DealDtoBuilderInput = new DealDtoBuilder().withTitle('Renewal').buildValidated();
+// @ts-expect-error A key the schema does not declare is a type error.
+new CreateDealCommandBuilder().with({ titel: 'Renewal' });
+// @ts-expect-error So is a misspelled key in a nested object.
+new CreateDealCommandBuilder().withFacade({ street: 'Main street 1', flors: 2 });
+void [input, deal];
+`
+      );
+      compile(directory, [
+        'closed.ts',
+        'generated/CreateDealCommandBuilder.ts',
+        'generated/DealDtoBuilder.ts',
+      ]);
+      // Validation keeps OpenAPI's rule: undeclared properties are still accepted at runtime.
+      const { CreateDealCommandBuilder } = await import(
+        pathToFileURL(join(directory, 'compiled/generated/CreateDealCommandBuilder.js'))
+      );
+      const extra = new CreateDealCommandBuilder().replaceFactory((session) => ({
+        ...new CreateDealCommandBuilder().build(session),
+        extra: true,
+      }));
+      assert.equal(extra.buildValidated().extra, true);
+      for (const deal of new CreateDealCommandBuilder().buildValidatedList(5)) {
+        assert.deepEqual(
+          Object.keys(deal).filter(
+            (key) => !['title', 'amount', 'note', 'facade', 'tags'].includes(key)
+          ),
+          []
+        );
+      }
     }));
 
   it('generates, checks and selects OpenAPI 3.0 and 3.1 builders through the CLI', async () =>

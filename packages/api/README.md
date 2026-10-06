@@ -129,6 +129,25 @@ for OpenAPI 3.0 and `draft-2020-12` for 3.1 and 3.2. `@mimlet/codegen` uses this
 projection to emit builder classes from an OpenAPI document. Operation fixtures keep
 their own `reference<n>` definition names, so their replay identities do not change.
 
+The projection also checks data, with the validator that `openApi().schema(pointer)`
+and the operation fixtures use:
+
+```ts
+const deal = components.schema('DealDto'); // the response direction
+deal.check(await response.json()); // true or false
+deal.issues({ id: 'x', title: 1 });
+// [{ instancePath: '/id', keyword: 'format', ... }, { instancePath: '/title', keyword: 'type', ... }]
+```
+
+`check(value)` returns a boolean and `issues(value)` the JSON Schema issues, each with
+`message`, `path`, `instancePath`, `keyword` and `schemaPath`; it is empty for valid
+data. The direction applies: a response projection rejects write-only properties and a
+request projection rejects read-only ones. The validator is compiled on the first call
+and reused by that projection. Values must be JSON data, as for `check()` on operation
+fixtures: a `Date` or a property set to `undefined` is invalid, so check what goes over
+the wire, such as `JSON.parse(JSON.stringify(dto))`, rather than an object with class
+instances.
+
 ## Profiles
 
 Envelopes use the JSON generation profiles of `@mimlet/json-schema`. Optional

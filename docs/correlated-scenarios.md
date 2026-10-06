@@ -60,7 +60,8 @@ const empty = checkout.trait('empty-cart', { lines: () => [] });
 
 A replacement is a complete value of the original node type. Downstream nodes
 rerun with the replacement. Overriding a derived node replaces that derivation, so
-keep its relations explicitly: override and trait factories receive the node's
+keep its relations explicitly, or [patch the node](#patches-change-a-node-and-keep-its-derivation)
+to change only its value: override and trait factories receive the node's
 session and its declared dependencies, as `(session, dependencies)`:
 
 ```ts
@@ -82,16 +83,56 @@ third type argument, a map from node name to dependency names such as
 `Scenario<T, false, { deal: never; summary: 'deal' }>`, for exact types.
 
 Traits are named maps of node replacement factories. Conflicting traits and
-traits applied over explicit overrides fail by default. Use the explicit
+traits applied over explicit overrides or patches fail by default. Use the explicit
 `{ replaceConflicts: true }` third argument to select a later trait's value.
 Duplicate trait names are rejected. A direct `override` is always an explicit
 replacement. Trait definitions are inspected as data properties without calling
-getters. The `.describe()` result records names, dependencies, origins, and traits;
-it never includes values or application callback source.
+getters. The `.describe()` result records names, dependencies, origins, patch counts
+and traits; it never includes values or application callback source.
+
+## Patches: change a node and keep its derivation
+
+To vary one field of a derived node, an override has to repeat the derivation:
+every caller that wants a lost deal rebuilds it with the lead's key. `patch(name, patcher)`
+keeps the node's factory and changes the value it built:
+
+```ts
+const crm = createScenario({ name: 'crm' })
+  .node('lead', [], (_dependencies, session) => leads.build(session))
+  .node('deal', ['lead'], ({ lead }, session) => deals.withLeadUuid(lead.uuid).build(session))
+  .node('summary', ['deal'], ({ deal }) => ({ deal: deal.uuid, status: deal.status }));
+
+const lost = crm.patch('deal', (deal) => ({ ...deal, status: 'lost' }));
+const fixture = lost.build();
+// fixture.deal.leadUuid === fixture.lead.uuid, from the node's own factory
+// fixture.summary.status === 'lost': dependents see the patched value
+```
+
+The patcher runs after the node's factory and before any dependent node. It receives
+the value, the node's declared dependencies and the node's session, as
+`(value, dependencies, session)`, and returns the node's value with the same type, so a
+literal such as `'lost'` needs no `as const`. A session draw in a patcher continues the
+node's own stream after the factory's draws.
+
+- **Order.** Patches run in the order they were added. `patch()` returns a new scenario
+  and leaves the original unchanged.
+- **Overrides and traits.** A patch added after an override or a trait changes the
+  replacement's value. An override added after a patch replaces the whole node, patches
+  included. A trait that would replace a patched node fails with `SCENARIO_CONFLICT`
+  unless it passes `{ replaceConflicts: true }`, which also drops the patches.
+- **Async.** An async patcher makes the scenario async-only, like an async node. A
+  patcher on an async node receives the resolved value in `buildAsync()`; a synchronous
+  `build()` reports the async node before any patcher runs.
+- **Values.** Return a new value, such as a spread copy of a plain record. For a class
+  instance from `createInstanceBuilder()`, which a spread would turn into a plain object,
+  change the instance in place with `Object.assign(deal, { status: 'lost' })`: each build
+  creates a new instance, so this is safe as long as the node's factory builds a new value
+  each time. Like a factory, a patcher should not change its dependencies.
+- **Failures.** An error in a patcher is a `SCENARIO_EXECUTION` error for the node.
 
 ## Async execution, failures, and replay
 
-Promise-producing nodes, overrides, or traits yield async-only capability types.
+Promise-producing nodes, overrides, patches, or traits yield async-only capability types.
 `buildAsync` and `buildListAsync` run in dependency/item order; they do not launch
 uncontrolled parallel work. Runtime misuse of a synchronous method observes an
 accidental rejected promise before reporting the required async method.
@@ -136,7 +177,7 @@ when several relations must share generated keys or a session.
 
 A function that returns a scenario can name it the same way: `Scenario<T>` from
 `@mimlet/core`, where `T` maps each node name to its value, or `Scenario<T, true>`
-when a node, override or trait is async.
+when a node, override, patch or trait is async.
 
 ## Writing scenarios to a database
 

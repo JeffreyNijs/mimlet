@@ -1,5 +1,5 @@
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
-import type { JsonSchema, SchemaDialect } from '@mimlet/json-schema';
+import type { JsonSchema, JsonSchemaIssue, SchemaDialect } from '@mimlet/json-schema';
 import type { GenerationSession, SchemaBuilder } from '@mimlet/core';
 import {
   ApiContractError,
@@ -129,6 +129,13 @@ export interface OpenApiComponentSchema {
   readonly schema: JsonSchema;
   /** `draft-07` for OpenAPI 3.0 and `draft-2020-12` for 3.1 and 3.2. */
   readonly dialect: SchemaDialect;
+  /**
+   * Whether `value` is valid for this projection, with the validator `openApi().schema()`
+   * uses. The validator is compiled on the first `check()` or `issues()` call.
+   */
+  check(value: unknown): boolean;
+  /** The validation issues of `value` for this projection; empty when it is valid. */
+  issues(value: unknown): JsonSchemaIssue[];
 }
 const componentPointer = /^\/components\/schemas\/([^/]+)$/;
 /**
@@ -176,7 +183,18 @@ export function openApiComponents(source: unknown, options: ContractOptions = {}
         direction,
         naming
       );
-      return Object.freeze({ schema: projected.schema, dialect: projected.dialect });
+      let adapter: ReturnType<typeof jsonSchemaAdapter> | undefined;
+      const validator = () =>
+        (adapter ??= jsonSchemaAdapter(projected.schema, {
+          ...options,
+          dialect: projected.dialect,
+        }));
+      return Object.freeze({
+        schema: projected.schema,
+        dialect: projected.dialect,
+        check: (value: unknown): boolean => validator().check(value),
+        issues: (value: unknown): JsonSchemaIssue[] => validator().issues(value),
+      });
     },
   });
 }

@@ -342,6 +342,80 @@ it('projects OpenAPI component schemas into JSON builder targets', async () => {
   expect(openApiBuilderName('Deal.v2_Item')).toBe('DealV2ItemBuilder');
 });
 
+it('types objects without additionalProperties as closed with closedObjects', async () => {
+  const document = nestDocument() as ReturnType<typeof nestDocument> & {
+    components: { schemas: Record<string, unknown> };
+  };
+  document.components.schemas.Tagged = {
+    type: 'object',
+    properties: {
+      metadata: { type: 'object' },
+      settings: { type: 'object', properties: {} },
+      labels: { type: 'object', additionalProperties: { type: 'string' } },
+      facade: { $ref: '#/components/schemas/FacadeDto' },
+    },
+  };
+  const selection = { schemas: ['create-deal.command', 'Tagged'], direction: 'request' } as const;
+  const open = await emitOpenApiBuilders(document, selection);
+  const closed = await emitOpenApiBuilders(document, { ...selection, closedObjects: true });
+  const [openCommand = '', openTagged = ''] = open.map((file) => file.content);
+  const [command = '', tagged = ''] = closed.map((file) => file.content);
+  // OpenAPI's default allows additional properties: an index signature and casts in setters.
+  expect(openCommand).toContain('[k: string]: unknown;');
+  expect(openCommand).toContain('as BuilderPatch<CreateDealCommandBuilderInput>');
+  expect(openTagged).toContain('as BuilderPatch<TaggedBuilderInput>');
+  // closedObjects removes the index signatures of objects that declare properties, and the
+  // setters patch a plain Partial without a cast.
+  expect(command).toContain(
+    'export interface CreateDealCommandBuilderInput {\n  id?: never;\n  title: string;\n  note?: string | null;\n  facade: FacadeDto | null;\n}'
+  );
+  expect(command).toContain(
+    'export interface FacadeDto {\n  street: string;\n  floors?: number;\n}'
+  );
+  expect(command).toContain('return this.with({ ["title"]: value });');
+  expect(command).not.toContain(' as BuilderPatch<');
+  // A free-form object and declared additional properties stay open.
+  expect(tagged).toContain('metadata?: {\n    [k: string]: unknown;\n  };');
+  expect(tagged).toContain('settings?: {\n    [k: string]: unknown;\n  };');
+  expect(tagged).toContain('labels?: {\n    [k: string]: string;\n  };');
+  expect(tagged).not.toContain(' as BuilderPatch<');
+  // Only the types change: the embedded schema, and so generation and validation, do not.
+  const embedded = (content: string) => content.match(/^const schema = (.*);$/m)?.[1];
+  expect(embedded(command)).toBe(embedded(openCommand));
+  expect(embedded(command)).not.toContain('additionalProperties');
+  expect(
+    openApiBuilderTargets(document, { ...selection, closedObjects: true }).map(
+      (target) => target.closedObjects
+    )
+  ).toEqual([true, true]);
+  expect(
+    openApiBuilderTargets(document, selection).every((target) => !('closedObjects' in target))
+  ).toBe(true);
+  // A schema that already closes its root needs no cast either; a nullable root keeps it.
+  const [declared = { content: '' }] = await emitJsonSchemaBuilders([
+    {
+      name: 'Point',
+      schema: {
+        type: 'object',
+        properties: { x: { type: 'number' } },
+        additionalProperties: false,
+      },
+    },
+  ]);
+  expect(declared.content).toContain('return this.with({ ["x"]: value });');
+  const [nullable = { content: '' }] = await emitJsonSchemaBuilders([
+    {
+      name: 'MaybePoint',
+      schema: { type: ['object', 'null'], properties: { x: { type: 'number' } } },
+      closedObjects: true,
+    },
+  ]);
+  expect(nullable.content).toContain('as BuilderPatch<MaybePointInput>');
+  await expect(
+    emitJsonSchemaBuilders([{ name: 'Bad', schema: {}, closedObjects: 1 as never }])
+  ).rejects.toThrow('closedObjects must be true or false');
+});
+
 it('rejects invalid OpenAPI selections with the component name', async () => {
   const document = nestDocument();
   const failures: Array<readonly [() => unknown, RegExp]> = [
@@ -384,6 +458,53 @@ it('rejects invalid OpenAPI selections with the component name', async () => {
     expect(run).toThrow(CodegenError);
     expect(run).toThrow(message);
   }
+  // An entry of the wrong shape is shown with the entry it most likely means.
+  const corrections: Array<readonly [unknown, string]> = [
+    [
+      { name: 'FacadeDto', direction: 'request' },
+      'schemas[0] is {"name":"FacadeDto","direction":"request"}. Did you mean {"schema":"FacadeDto","direction":"request"}? "schema" is the component and "name" the builder class name.',
+    ],
+    [
+      { component: 'create-deal.command', name: 'CreateDeal' },
+      'Did you mean {"schema":"create-deal.command","name":"CreateDeal"}?',
+    ],
+    [{ $ref: '#/components/schemas/FacadeDto' }, 'Did you mean {"schema":"FacadeDto"}?'],
+    [
+      { schema: 'FacadeDto', direction: 'request', extra: [1] },
+      'is {"schema":"FacadeDto","direction":"request","extra":"<array>"}. Did you mean {"schema":"FacadeDto","direction":"request"}?',
+    ],
+    [{ name: 'Unknown' }, 'Did you mean {"schema":"Unknown"}?'],
+  ];
+  for (const [entry, message] of corrections) {
+    expect(() => openApiBuilderTargets(document, { schemas: [entry as never] })).toThrow(message);
+  }
+  expect(() =>
+    openApiBuilderTargets(document, { schemas: [{ schema: 'FacadeDto', extra: 1 } as never] })
+  ).not.toThrow('"name" the builder class name');
+  expect(() => openApiBuilderTargets(document, { schemas: [7 as never] })).toThrow(
+    /schemas\[0\] is 7\.$/
+  );
+  // Accessors in an entry are never called while describing it.
+  const accessor = Object.defineProperty({ name: 'FacadeDto' }, 'schema', {
+    enumerable: true,
+    get: () => {
+      throw new Error('getter called');
+    },
+  });
+  expect(() => openApiBuilderTargets(document, { schemas: [accessor as never] })).toThrow(
+    'is {"name":"FacadeDto"}'
+  );
+  expect(() =>
+    openApiBuilderTargets(document, { schemas: ['#/components/schemas/FacadeDto'] })
+  ).toThrow(
+    'Unknown OpenAPI component schema "#/components/schemas/FacadeDto"; did you mean "FacadeDto"?'
+  );
+  expect(() => openApiBuilderTargets(document, { schemas: ['facadedto'] })).toThrow(
+    'did you mean "FacadeDto"?'
+  );
+  expect(() =>
+    openApiBuilderTargets(document, { schemas: 'all', closedObjects: 'yes' as never })
+  ).toThrow('closedObjects must be true or false');
   const unknownFormat = {
     openapi: '3.1.0',
     components: { schemas: { Odd: { type: 'string', format: 'not-a-format' } } },

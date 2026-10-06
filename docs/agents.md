@@ -82,7 +82,9 @@ file, an `openapi` entry names the document file and the schemas. From code:
 <!-- recipe:openapi-codegen -->
 
 The OpenAPI 3.0 `nullable` reference becomes `Facade | null` in the generated type, and
-a request leaves out the read-only `id`.
+a request leaves out the read-only `id`. `closedObjects: true` types the objects without the
+index signature that a missing `additionalProperties` otherwise adds; validation keeps the
+document's rules.
 
 ## Use a factory when generation cannot represent a constraint
 
