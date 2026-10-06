@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-beta.6
+
+### Patch Changes
+
+- Updated dependencies [feada79]
+- Updated dependencies [feada79]
+  - @mimlet/core@0.1.0-beta.6
+
 ## 0.1.0-beta.5
 
 ### Patch Changes
