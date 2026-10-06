@@ -22,6 +22,89 @@ const singles = new Set([
   'unevaluatedItems',
 ]);
 const lists = new Set(['allOf', 'anyOf', 'oneOf']);
+/** Keywords that let an object hold properties its `properties` do not declare. */
+const openers = ['additionalProperties', 'patternProperties', 'unevaluatedProperties'];
+/**
+ * A copy of a declaration input in which every object schema that declares at least one
+ * property and none of `additionalProperties`, `patternProperties` and `unevaluatedProperties`
+ * has `additionalProperties: false`, so its declaration has no index signature. An object
+ * schema without properties (a free-form object) stays open. Only schema positions are visited.
+ */
+export function closeObjects(schema: JsonSchema): JsonSchema {
+  if (typeof schema === 'boolean') {
+    return schema;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    let next = value;
+    if ((maps.has(key) || key === 'dependencies') && value && typeof value === 'object') {
+      next = Object.fromEntries(
+        Object.entries(value as Record<string, JsonSchema | string[]>).map(([name, child]) => [
+          name,
+          Array.isArray(child) ? child : closeObjects(child),
+        ])
+      );
+    } else if (
+      (lists.has(key) || key === 'prefixItems' || key === 'items') &&
+      Array.isArray(value)
+    ) {
+      next = (value as JsonSchema[]).map(closeObjects);
+    } else if ((singles.has(key) || key === 'items') && value !== null && value !== undefined) {
+      next = closeObjects(value as JsonSchema);
+    }
+    Object.defineProperty(result, key, {
+      value: next,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  // `properties: {}` (a NestJS class without documented properties) declares nothing: closing
+  // it would give the type `{}`, which accepts any value, so it stays a free-form object.
+  const declares =
+    result.properties !== null &&
+    typeof result.properties === 'object' &&
+    !Array.isArray(result.properties) &&
+    Object.keys(result.properties).length > 0;
+  if (declares && openers.every((keyword) => result[keyword] === undefined)) {
+    result.additionalProperties = false;
+  }
+  return result;
+}
+/**
+ * Whether the declaration of `schema` is a plain object type without an index signature, so
+ * `with()` takes a `Partial` of it: an object type that declares its properties, closes them
+ * with `additionalProperties: false` and does not combine or reference other schemas.
+ */
+export function plainObjectType(schema: JsonSchema): boolean {
+  if (typeof schema !== 'object' || schema === null) {
+    return false;
+  }
+  return (
+    schema.type === 'object' &&
+    schema.additionalProperties === false &&
+    schema.properties !== null &&
+    typeof schema.properties === 'object' &&
+    !Array.isArray(schema.properties) &&
+    [
+      'patternProperties',
+      'unevaluatedProperties',
+      'allOf',
+      'anyOf',
+      'oneOf',
+      'not',
+      'if',
+      'then',
+      'else',
+      '$ref',
+      '$dynamicRef',
+      '$recursiveRef',
+      'enum',
+      'const',
+      'tsType',
+    ].every((keyword) => schema[keyword] === undefined)
+  );
+}
 interface Prepared {
   readonly schema: JsonSchema;
   readonly locations: Map<string, string>;

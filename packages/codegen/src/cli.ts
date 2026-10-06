@@ -15,7 +15,8 @@ mimlet doctor [--project directory] [--json]
 mimlet inspect --schema schema.json [--references refs.json] [--dialect draft-07|draft-2019-09|draft-2020-12] [--json]
 mimlet --version
 JSON generation config: { "builders": [...module targets], "schemas": [...JSON schema targets],
-  "openapi": { "document": "openapi.json", "schemas": "all" | ["Name", ...], "direction"?: "request" | "response" } }.
+  "openapi": { "document": "openapi.json", "schemas": "all" | ["Name" | { "schema": "Name", "name"?, "direction"? }, ...],
+    "direction"?: "request" | "response", "closedObjects"?: true } }.
 OpenAPI document paths are relative to the configuration file.
 Application modules are not executed by code generation, doctor or JSON inspection.`;
 

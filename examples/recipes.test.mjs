@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { admin } from './compiled/hero.js';
 import { code } from './compiled/factory.js';
-import { shop } from './compiled/scenario.js';
+import { shop, discounted } from './compiled/scenario.js';
 import { first, again } from './compiled/replay.js';
 import { report } from './compiled/shrinking.js';
 import { files } from './compiled/codegen.js';
@@ -105,6 +105,11 @@ test('the documented scenario preserves foreign keys and totals', () => {
   assert.equal(shop.order.customerId, shop.customer.id);
   assert.equal(shop.order.totalCents, 3000);
 });
+test('a patched scenario node keeps its derivation and reaches dependents', () => {
+  assert.equal(discounted.order.customerId, discounted.customer.id);
+  assert.equal(discounted.order.totalCents, 2500);
+  assert.deepEqual(discounted.invoice, { dueCents: 2500 });
+});
 test('the documented snapshot reproduces the next operation', () => assert.deepEqual(first, again));
 test('the documented shrinking recipe retains its dependent total', () => {
   assert.equal(report.details.failed, true);
@@ -126,6 +131,9 @@ test('OpenAPI component builders follow the request projection', () => {
   assert.match(file.content, /withTitle\(/);
   assert.doesNotMatch(file.content, /withId\(/);
   assert.match(file.content, /"profile":"realistic"/);
+  // closedObjects: no index signature in the types and no casts in the setters.
+  assert.doesNotMatch(file.content, /\[k: string\]: unknown/);
+  assert.doesNotMatch(file.content, / as BuilderPatch</);
 });
 test('the realistic profile fills optional fields with small readable values', () => {
   assert.deepEqual(Object.keys(minimalOrder).sort(), ['lines', 'reference', 'total']);
