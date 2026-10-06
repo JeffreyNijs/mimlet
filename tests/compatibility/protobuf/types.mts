@@ -15,3 +15,18 @@ const asynchronous = p.builder().transformAsync(async (v) => v);
 // @ts-expect-error Known asynchronous pipelines cannot advertise synchronous validation.
 asynchronous.buildValidated();
 void id;
+// Names, callbacks that always receive a session, and tuple lists.
+expectType<
+  SchemaBuilder<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >
+>(fromProtobuf('message X{}', 'X', { name: 'x' }));
+const [firstMessage, secondMessage] = protobufAdapter('message X{}', 'X', { name: 'x' })
+  .builder()
+  .withFactory((run) => ({ seen: run.random() }))
+  .buildList(2);
+expectType<Record<string, unknown>>(firstMessage);
+expectType<Record<string, unknown>>(secondMessage);

@@ -37,3 +37,16 @@ messages.with({ query: {} });
 // @ts-expect-error Actions use the application perspective.
 asyncApi(document).message({ action: 'publish' });
 void payload;
+// Names, callbacks that always receive a session, and tuple lists.
+const [firstRequest, secondRequest] = fromOpenApiRequest(
+  document,
+  { operationId: 'users' },
+  { name: 'users' }
+)
+  .withFactory((run) => ({ query: { page: run.integer(1, 9) } }))
+  .buildList(2);
+expectType<HttpRequestFixture>(firstRequest);
+expectType<HttpRequestFixture>(secondRequest);
+fromAsyncApiMessage(document, { action: 'receive' }, { name: 'events' }).transform((value, run) =>
+  run.boolean() ? value : value
+);

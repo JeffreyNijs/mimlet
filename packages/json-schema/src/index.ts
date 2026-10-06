@@ -516,19 +516,29 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
 export function fromJsonSchema(
   schema: JsonSchema,
   options: JsonSchemaOptions = {}
-): SchemaBuilder<unknown, unknown, [session?: GenerationSession]> {
+): SchemaBuilder<unknown, unknown, [session?: GenerationSession], [session: GenerationSession]> {
   const adapter = jsonSchemaAdapter(schema, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as unknown as SchemaBuilder<unknown, unknown, [session?: GenerationSession]>;
+  ) as unknown as SchemaBuilder<
+    unknown,
+    unknown,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >;
 }
 /** Generate encoded INPUT through Standard JSON Schema and parse once through the native validator. */
 export function fromStandardJsonSchema<S extends StandardJSONSchemaV1 & StandardSchemaV1>(
   schema: S,
   options: JsonSchemaOptions = {}
-): SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  SchemaInput<S>,
+  SchemaOutput<S>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   const properties = schema?.['~standard'];
   if (
     properties?.version !== 1 ||
@@ -547,7 +557,12 @@ export function fromStandardJsonSchema<S extends StandardJSONSchemaV1 & Standard
     schema,
     (session?: GenerationSession) => adapter.create(session) as SchemaInput<S>,
     { ...options, defaultSession: adapter.session }
-  ) as unknown as SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]>;
+  ) as unknown as SchemaBuilder<
+    SchemaInput<S>,
+    SchemaOutput<S>,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >;
 }
 /**
  * The top-level `properties` names of the schema's input JSON Schema, for a setter per field:

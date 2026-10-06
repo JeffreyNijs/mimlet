@@ -68,3 +68,22 @@ expectType<boolean>(
 arkTypeFields(type('string'));
 // @ts-expect-error A nullable root has no single prop list.
 arkTypeFields(Form.or('null'));
+
+// Names, callbacks that always receive a session, typed factory defaults and tuple lists.
+import { createTestSession, type GenerationSession } from '@mimlet/core';
+const Counter = type({ count: 'number' });
+const counters = fromArkType(Counter, { name: 'counters' }).withFactory((run) => ({
+  count: run.integer(1, 9),
+}));
+const [firstCounter, secondCounter] = counters.buildValidatedList(2);
+expectType<{ count: number }>(firstCounter);
+expectType<{ count: number }>(secondCounter);
+const counted = fromArkTypeFactory(
+  Counter,
+  (run: GenerationSession) => ({ count: run.sequence('count') }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<{ count: number }>(counted.buildValidated());
+counted.transform((value, run) => ({ count: value.count + run.integer(0, 1) }));
+// @ts-expect-error Without a default, a factory requiring a session must receive it.
+fromArkTypeFactory(Counter, (run: GenerationSession) => ({ count: run.random() })).build();

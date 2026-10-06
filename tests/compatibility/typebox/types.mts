@@ -358,14 +358,21 @@ function bothWays<S extends TObject>(schema: S, create: () => StaticEncode<S>): 
 }
 void bothWays;
 declare const eventFactory: (session?: GenerationSession) => StaticEncode<typeof Event>;
+// Explicit type arguments select both overloads; without a defaultSession the plain one applies.
+const explicitFactory: (
+  schema: typeof Event,
+  factory: typeof eventFactory,
+  options?: TypeBoxOptions
+) => TypeBoxFactoryBuilder<typeof Event, typeof eventFactory> = fromTypeBoxFactory<
+  typeof Event,
+  Record<never, never>,
+  typeof eventFactory
+>;
+void explicitFactory;
 exact<
   Equal<
-    typeof fromTypeBoxFactory<typeof Event, Record<never, never>, typeof eventFactory>,
-    (
-      schema: typeof Event,
-      factory: typeof eventFactory,
-      options?: TypeBoxOptions
-    ) => TypeBoxFactoryBuilder<typeof Event, typeof eventFactory>
+    ReturnType<typeof fromTypeBoxFactory<typeof Event, Record<never, never>, typeof eventFactory>>,
+    TypeBoxFactoryBuilder<typeof Event, typeof eventFactory>
   >
 >();
 exact<Equal<typeof events, TypeBoxBuilder<typeof Event>>>();
@@ -510,3 +517,30 @@ const nestedDogs = fluent(fluent(dogs, typeBoxFields(Pet.anyOf[1])), { withWoof:
 nestedDogs.withBark(true).withWoof(false).buildValidated();
 // @ts-expect-error Variant setters keep the branch's input type.
 nestedDogs.withWoof('loud');
+
+// Names, callbacks that always receive a session, typed factory defaults and tuple lists.
+import { createTestSession } from '@mimlet/core';
+const Counted = Type.Object({ code: Type.Integer() });
+const countedRows = fromTypeBox(Counted, { name: 'counted' }).withFactory((run) => ({
+  code: run.integer(1, 9),
+}));
+const [firstCounted, secondCounted] = countedRows.buildList(2);
+expectType<{ code: number }>(firstCounted);
+expectType<{ code: number }>(secondCounted);
+const legacyCounted = fromLegacy(Legacy.Object({ code: Legacy.Integer() }), { name: 'c' });
+legacyCounted.transform((value, run) => ({ code: value.code + run.integer(0, 1) }));
+const factoryCounted = fromTypeBoxFactory(
+  Counted,
+  (run: GenerationSession) => ({ code: run.sequence('code') }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<{ code: number }>(factoryCounted.buildValidated());
+factoryCounted.withFactory((run) => ({ code: run.random() }));
+const legacyFactoryCounted = legacyFactory(
+  Legacy.Object({ code: Legacy.Integer() }),
+  (run: GenerationSession) => ({ code: run.sequence('code') }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<{ code: number }>(legacyFactoryCounted.build());
+// @ts-expect-error Without a default, a factory requiring a session must receive it.
+fromTypeBoxFactory(Counted, (run: GenerationSession) => ({ code: run.sequence('c') })).build();

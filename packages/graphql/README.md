@@ -63,7 +63,9 @@ pure and synchronous; validation can invoke them more than once. Promise results
 are rejected and their rejections observed.
 
 Sessions reproduce generation with the same schema, operation, options, factory
-identities and **original encoded variables**. Preserve those variables and callback
+identities and **original encoded variables**. A session-less build starts from the
+adapter's seed-1 `session()`; a `name` option gives a builder its own session-less
+values. Preserve those variables and callback
 implementations alongside the replay record. Fixed field streams avoid unrelated
 field-consumption coupling; cross-version output stability is not promised.
 

@@ -531,13 +531,23 @@ export function fromOpenApiRequest(
   source: unknown,
   selector: OpenApiSelection,
   options: ContractOptions = {}
-): SchemaBuilder<HttpRequestFixture, HttpRequestFixture, [session?: GenerationSession]> {
+): SchemaBuilder<
+  HttpRequestFixture,
+  HttpRequestFixture,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return openApi(source, options).request(selector).builder();
 }
 export function fromOpenApiResponse(
   source: unknown,
   selector: OpenApiResponseSelection,
   options: ContractOptions = {}
-): SchemaBuilder<HttpResponseFixture, HttpResponseFixture, [session?: GenerationSession]> {
+): SchemaBuilder<
+  HttpResponseFixture,
+  HttpResponseFixture,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return openApi(source, options).response(selector).builder();
 }

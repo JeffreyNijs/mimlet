@@ -29,3 +29,21 @@ b.with({ age: 42 });
 fakerAdapter({});
 // @ts-expect-error Identity is computed by the adapter, not overridden by session settings.
 provider.session(42, { provider: 'other' });
+
+// An explicit defaultSession lets builds omit the session; callbacks always receive one.
+const defaulted = fromFaker((f) => ({ name: f.person.firstName() }), {
+  ...options,
+  defaultSession: () => provider.session(),
+  name: 'people',
+});
+expectType<{ name: string }>(defaulted.build());
+const [firstPerson, secondPerson] = defaulted.buildList(2);
+expectType<{ name: string }>(firstPerson);
+expectType<{ name: string }>(secondPerson);
+defaulted.withFactory((run) => ({ name: String(run.integer(1, 9)) }));
+expectType<{ age: number }>(
+  fromFakerSchema(schema, (f) => ({ age: String(f.number.int()) }), {
+    ...options,
+    defaultSession: () => provider.session(),
+  }).buildValidated()
+);

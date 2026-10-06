@@ -1,11 +1,16 @@
 import * as z from 'zod/v4/core';
 import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
+  AnyFactory,
   AsyncSchemaBuilder,
+  DefaultedSessionFor,
+  DefaultSessionFor,
   GenerationSession,
+  OptionalSessionArgs,
   SchemaBuilder,
   SchemaBuilderFor,
   SchemaFields,
+  SessionArgs,
   StandardSchemaV1,
 } from '@mimlet/core';
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
@@ -93,25 +98,32 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
 
 /**
  * The builder `fromZod(schema, options)` returns: synchronous, with the schema's input and
- * output types and an optional session. Name it as a generic helper's return type.
+ * output types and an optional session. Patch factories and transforms always receive a
+ * session. Name it as a generic helper's return type.
  */
 export type ZodBuilder<S extends z.$ZodType> = SchemaBuilder<
   z.input<S>,
   z.output<S>,
-  [session?: GenerationSession]
+  [session?: GenerationSession],
+  [session: GenerationSession]
 >;
 
 /**
  * The builder `fromZodFactory(schema, factory, options)` returns for a factory of type `F`:
  * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
  * the factory's own type as `F`. As with the function, sync or async is decided once `S` is known.
+ * Pass `true` as `Defaulted` when the options configure a `defaultSession`.
  */
 export type ZodFactoryBuilder<
   S extends z.$ZodType,
   F extends (...args: never[]) => z.input<S> | PromiseLike<z.input<S>>,
-> = SchemaBuilderFor<StandardSchemaV1<z.input<S>, z.output<S>>, F>;
+  Defaulted extends boolean = false,
+> = SchemaBuilderFor<StandardSchemaV1<z.input<S>, z.output<S>>, F, Defaulted>;
 
-/** Generate input metadata and validate synchronously through the original Zod schema. */
+/**
+ * Generate input metadata and validate synchronously through the original Zod schema. A
+ * session-less build uses the generator's seed-1 session, scoped by `options.name` if given.
+ */
 export function fromZod<S extends z.$ZodType>(source: S, options: ZodOptions = {}): ZodBuilder<S> {
   const adapter = zodAdapter(source, options);
   const { session: defaultSession } = adapter.generation();
@@ -126,7 +138,12 @@ export function fromZod<S extends z.$ZodType>(source: S, options: ZodOptions = {
 export function fromZodAsync<S extends z.$ZodType>(
   source: S,
   options: ZodOptions = {}
-): AsyncSchemaBuilder<z.input<S>, z.output<S>, [session?: GenerationSession]> {
+): AsyncSchemaBuilder<
+  z.input<S>,
+  z.output<S>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   const adapter = zodAdapter(source, options);
   const { session: defaultSession } = adapter.generation();
   return createSchemaBuilder(
@@ -136,29 +153,69 @@ export function fromZodAsync<S extends z.$ZodType>(
   );
 }
 
+/**
+ * With a `defaultSession`, builds may omit the leading session, and the factory, patch
+ * factories and transforms always receive one, so the factory may declare it as required.
+ */
+export function fromZodFactory<
+  S extends z.$ZodType,
+  F extends (session: GenerationSession) => NoInfer<z.input<S>> | PromiseLike<NoInfer<z.input<S>>>,
+>(
+  source: S,
+  factory: F,
+  options: ZodOptions & DefaultedSessionFor<F>
+): ZodFactoryBuilder<S, F, true>;
 /** Native values and opaque constraints do not need a JSON representation when using a factory. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromZodFactory<
   S extends z.$ZodType,
   F extends (...args: never[]) => NoInfer<z.input<S>> | PromiseLike<NoInfer<z.input<S>>>,
->(source: S, factory: F, options: ZodOptions = {}): ZodFactoryBuilder<S, F> {
+>(source: S, factory: F, options?: ZodOptions & DefaultSessionFor<F>): ZodFactoryBuilder<S, F>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromZodFactory(
+  source: z.$ZodType,
+  factory: AnyFactory,
+  options: ZodOptions = {}
+): unknown {
   return createSchemaBuilder(zodAdapter(source, options).standard, factory, options);
 }
 
+/** With a `defaultSession`, builds may omit the leading session; see `fromZodFactory()`. */
+export function fromZodFactoryAsync<
+  S extends z.$ZodType,
+  F extends (session: GenerationSession) => NoInfer<z.input<S>> | PromiseLike<NoInfer<z.input<S>>>,
+>(
+  source: S,
+  factory: F,
+  options: ZodOptions & DefaultedSessionFor<F>
+): AsyncSchemaBuilder<
+  z.input<S>,
+  z.output<S>,
+  OptionalSessionArgs<Parameters<F>>,
+  SessionArgs<Parameters<F>>
+>;
 /** Explicit native async validation with either a synchronous or asynchronous factory. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromZodFactoryAsync<
   S extends z.$ZodType,
   F extends (...args: never[]) => NoInfer<z.input<S>> | PromiseLike<NoInfer<z.input<S>>>,
 >(
   source: S,
   factory: F,
+  options?: ZodOptions & DefaultSessionFor<F>
+): AsyncSchemaBuilder<z.input<S>, z.output<S>, Parameters<F>>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromZodFactoryAsync(
+  source: z.$ZodType,
+  factory: AnyFactory,
   options: ZodOptions = {}
-): AsyncSchemaBuilder<z.input<S>, z.output<S>, Parameters<F>> {
+): unknown {
   // Forward the original factory tuple, while deliberately forcing async mode.
   return createSchemaBuilder(
     zodAdapter(source, options).standardAsync,
     async (...args: never[]) => factory(...args),
     options
-  ) as unknown as AsyncSchemaBuilder<z.input<S>, z.output<S>, Parameters<F>>;
+  );
 }
 
 /**

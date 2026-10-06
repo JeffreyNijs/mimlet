@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
 import * as mini from 'zod/mini';
-import { BuilderValidationError, fluent, restoreSession } from '@mimlet/core';
+import { BuilderValidationError, createTestSession, fluent, restoreSession } from '@mimlet/core';
 import { fromStandardJsonSchema, SchemaGenerationError } from '@mimlet/json-schema';
 import { defineAdapter } from '@mimlet/adapter';
 import { assertAdapterConformance } from '@mimlet/adapter/testing';
@@ -230,6 +230,50 @@ test('draws session-less list items from one default session', () => {
   assert.deepEqual(list, people.buildList(3, zodAdapter(Person).generation().session()));
   assert.deepEqual(people.buildList(3), list);
   assert.deepEqual(people.build(), list[0]);
+});
+
+test('names separate session-less values of builders over identical schemas', () => {
+  // brand() is type-only: both schemas are plain uuids at runtime, as in the adoption trial.
+  const LeadUuid = z.uuid().brand('LeadUuid');
+  const DealUuid = z.uuid().brand('DealUuid');
+  assert.equal(fromZod(LeadUuid).build(), '08b73253-dae4-4b8f-8c59-a65b32100018');
+  assert.equal(fromZod(DealUuid).build(), fromZod(LeadUuid).build());
+  const leads = fromZod(LeadUuid, { name: 'LeadUuid' });
+  const deals = fromZod(DealUuid, { name: 'DealUuid' });
+  assert.notEqual(leads.build(), deals.build());
+  assert.equal(
+    leads.build(),
+    fromZod(LeadUuid).build(createTestSession().scope('builder', 'LeadUuid'))
+  );
+  assert.equal(leads.describe().name, 'LeadUuid');
+  const session = createTestSession();
+  const [lead, deal] = [fromZod(LeadUuid).build(session), fromZod(DealUuid).build(session)];
+  assert.notEqual(lead, deal);
+  assert.equal(lead, fromZod(LeadUuid).build());
+});
+
+test('honours a typed defaultSession on factory builders and passes it to callbacks', async () => {
+  const uuid = zodAdapter(z.uuid());
+  const Row = z.object({ uuid: z.uuid() });
+  const rows = fromZodFactory(Row, (session) => ({ uuid: uuid.create(session) }), {
+    defaultSession: () => uuid.generation().session(),
+  });
+  const [first, second] = rows.buildValidatedList(2);
+  assert.notEqual(first.uuid, second.uuid);
+  const asyncRows = fromZodFactoryAsync(Row, async (session) => ({ uuid: uuid.create(session) }), {
+    defaultSession: () => uuid.generation().session(),
+    name: 'rows',
+  });
+  const [a, b] = await asyncRows.buildValidatedListAsync(2);
+  assert.notEqual(a.uuid, b.uuid);
+  const seen = [];
+  fromZod(Row)
+    .withFactory((session) => {
+      seen.push(typeof session.scope);
+      return {};
+    })
+    .buildList(2);
+  assert.deepEqual(seen, ['function', 'function']);
 });
 
 test('lists object fields for a setter per field, through pipes and factory builders', async () => {

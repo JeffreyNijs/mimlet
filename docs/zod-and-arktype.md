@@ -64,6 +64,26 @@ predicates or application-owned objects can retain their native behavior. Keep t
 schema and supply meaningful input through `fromZodFactory`,
 `fromZodFactoryAsync` or `fromArkTypeFactory`.
 
+## Distinct values for identical schemas
+
+A session-less build starts from seed 1, and generation draws from a stream chosen by
+the converted schema. Zod's `brand()` only changes the TypeScript type, so
+`fromZod(z.uuid().brand('LeadUuid'))` and `fromZod(z.uuid().brand('DealUuid'))`
+return the same uuid, as do two object schemas with the same shape. Give such
+builders a `name`, which works the same way for `fromArkType`:
+
+```ts
+const leads = fromZod(LeadUuid, { name: 'LeadUuid' });
+const deals = fromZod(DealUuid, { name: 'DealUuid' });
+```
+
+Or pass one session to every build in a test, from `createTestSession()` in
+`@mimlet/core`, so each build continues it. Patch factories and transforms always
+receive that session, or the default one. Factory builders take a typed
+`defaultSession` option, and their factory may then require the session:
+`fromZodFactory(schema, (session: GenerationSession) => ..., { defaultSession })`.
+See [sessions and replay](sessions-and-replay.md#omitted-sessions).
+
 ## Next: replay a generated fixture
 
 The [session replay guide](sessions-and-replay.md) shows the complete

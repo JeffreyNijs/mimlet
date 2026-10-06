@@ -18,8 +18,10 @@ const event = events.with({ id: 9007199254740993n }).buildValidated();
 The adapter exposes `create`, `check`, `issues`, `clone`, `encode`, `decode`,
 `standard`, `session`, `identity`, `metadata`, and `builder`. The profiles are
 `minimal`, `defaults`, `random`, and `boundary`. Generation uses explicit scoped
-sessions, never the native library's global random generator. Defaults are fresh
-per build, not shared mutable objects. Recursive unions select branches that can
+sessions, never the native library's global random generator. A session-less build
+starts from the adapter's seed-1 `session()`; pass a `name` option to give a builder
+its own session-less values, or one `createTestSession()` from `@mimlet/core` to every
+build in a test. Defaults are fresh per build, not shared mutable objects. Recursive unions select branches that can
 terminate within the depth budget; impossible required recursion fails clearly.
 
 ## Representations and validation

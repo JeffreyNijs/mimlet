@@ -1,6 +1,9 @@
 import { createSchemaBuilder } from '@mimlet/core';
 import type {
   AnyFactory,
+  DefaultedSessionFor,
+  DefaultSessionFor,
+  GenerationSession,
   SchemaBuilderConfig,
   SchemaBuilderFor,
   SchemaInput,
@@ -151,27 +154,59 @@ export function defineAdapter<S extends StandardSchemaV1, const C extends Adapte
       : null,
     limitations: Object.freeze([...limitations]),
   });
+  /**
+   * With a `defaultSession`, builds may omit the leading session, and the factory, patch
+   * factories and transforms always receive one, so the factory may declare it as required.
+   */
+  function fromFactory<
+    F extends (
+      session: GenerationSession
+    ) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
+  >(factory: F, config: SchemaBuilderConfig & DefaultedSessionFor<F>): SchemaBuilderFor<S, F, true>;
+  /** Explicit typed escape hatch: the factory supplies schema input. */
+  // eslint-disable-next-line no-redeclare -- TypeScript overload
+  function fromFactory<
+    F extends (...args: never[]) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
+  >(factory: F, config?: SchemaBuilderConfig & DefaultSessionFor<F>): SchemaBuilderFor<S, F>;
+  // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+  function fromFactory(factory: AnyFactory, config: SchemaBuilderConfig = {}): unknown {
+    return createSchemaBuilder(schema, factory as (...args: never[]) => SchemaInput<S>, config);
+  }
   return Object.freeze({
     standard: schema,
     source: definition.source,
     operations,
     inspect: (): AdapterInspection => inspection,
-    fromFactory<
-      F extends (
-        ...args: never[]
-      ) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
-    >(factory: F, config: SchemaBuilderConfig = {}): SchemaBuilderFor<S, F> {
-      return createSchemaBuilder(schema, factory, config);
-    },
+    fromFactory,
   });
 }
+/**
+ * With a `defaultSession`, builds may omit the leading session, and `create`, patch factories
+ * and transforms always receive one.
+ */
+export function fromAdapter<
+  S extends StandardSchemaV1,
+  F extends (session: GenerationSession) => SchemaInput<S> | PromiseLike<SchemaInput<S>>,
+>(
+  adapter: { readonly standard: S; readonly operations: { readonly create: F } },
+  config: SchemaBuilderConfig & DefaultedSessionFor<F>
+): SchemaBuilderFor<S, F, true>;
 /** The create capability must actually exist; a validation-only adapter is not a generator. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromAdapter<
   S extends StandardSchemaV1,
   F extends AnyFactory & ((...args: never[]) => SchemaInput<S> | PromiseLike<SchemaInput<S>>),
 >(
   adapter: { readonly standard: S; readonly operations: { readonly create: F } },
+  config?: SchemaBuilderConfig & DefaultSessionFor<F>
+): SchemaBuilderFor<S, F>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromAdapter(
+  adapter: {
+    readonly standard: StandardSchemaV1;
+    readonly operations: { readonly create: AnyFactory };
+  },
   config: SchemaBuilderConfig = {}
-): SchemaBuilderFor<S, F> {
+): unknown {
   return createSchemaBuilder(adapter.standard, adapter.operations.create, config);
 }

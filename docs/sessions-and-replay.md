@@ -1,7 +1,9 @@
 # Sessions and replay
 
 A builder is an immutable recipe. A generation session owns mutable execution
-state for one test or scenario. Never share a session across independent tests.
+state for one test or scenario. Do not share a session across independent tests,
+except deliberately, such as tests that write to one database and must not repeat
+values (see [Share one session in a test](#share-one-session-in-a-test)).
 
 ```ts
 import { createBuilder, createSession, restoreSession } from '@mimlet/core';
@@ -58,22 +60,116 @@ Only randomness and state accessed through the session receive these guarantees.
 Async callers must establish ordering themselves; automatic parallel execution,
 fixture capture, and provider-derived fingerprints are separate capabilities.
 
+## What decides the values
+
+A session's values depend on two things: its seed and the scope path you draw from.
+The fingerprint, provider and configuration identify the producer. `restoreSession()`
+compares them and rejects a snapshot from another producer with
+`INVALID_SESSION_REPLAY`, but they do not change any value: two sessions with the same
+seed draw the same streams, whatever identity they carry. Changing the identity is not
+a way to get different data; change the seed or the scope.
+
+Schema adapters scope their own draws by their generation identity (the converted
+schema, the generator version and its configuration). Builders over different schemas
+therefore draw from different streams of one session. Builders over schemas that
+convert to the same JSON Schema share a stream. That includes Zod brands: `brand()`
+only changes the TypeScript type and returns the same schema at runtime, so
+`z.uuid().brand('LeadUuid')` and `z.uuid().brand('DealUuid')` are one schema to the
+generator.
+
 ## Omitted sessions
 
 Builders whose session argument is optional (JSON Schema, Zod, ArkType, Valibot,
 TypeBox, Avro, Protobuf, GraphQL and the API contract packages) start each session-less
 call from their adapter's `session()`, seeded with `1`. One default session spans
 a whole session-less list, so `builder.buildList(3)` returns three successive values
-and equals `builder.buildList(3, adapter.session())`. Repeating the call repeats
-the list, and two separate session-less builds return the same value. Pass an
-explicit session when consecutive builds must differ or when you need a snapshot
-to replay. Factory builders opt in with the core `defaultSession` option.
+and equals `builder.buildList(3, adapter.session())`. Since only the seed and scope
+matter, that is also `builder.buildList(3, createTestSession())`.
+
+Repeating a session-less call repeats its values. Two builders over the same schema
+return the same values, and two separate builds of one builder return the same value,
+including `session.sequence()` results. When values must differ, share one session
+across the builds of a test, or give the builders names.
+
+### Share one session in a test
+
+`createTestSession(seed?)` from `@mimlet/core` creates a session with a fixed generic
+identity, so a test needs no fingerprint or provider. The seed defaults to `1`.
+Create one for each test and pass it to every build:
+
+<!-- recipe:sessions-test -->
+
+[View the tested sessions recipe](../examples/recipes/sessions-test.ts).
+
+Builds that share a session continue its streams and sequences, so values differ
+between builders and between repeated builds of one builder. A new session for each
+test keeps every test's values independent of the other tests.
+
+A database that keeps rows between tests needs values that differ across tests too.
+Give each test its own seed, such as `createTestSession(context.task.name)` from
+Vitest's `beforeEach((context) => ...)`, so random values such as uuids differ.
+Sequences restart in every new session, so for a unique column filled from
+`sequence()`, create one session for the file in `beforeAll()` instead. A file-wide
+session makes a test's values depend on the tests that ran before it in that file.
+
+Restore a test session with `restoreSession(snapshot, testSessionIdentity)`. Every
+test session has that identity, so use `createSession()` with your own fingerprint
+when a saved replay must fail after your recipe changes.
+
+### Name a builder
+
+The `name` option gives a builder its own session-less values:
+
+```ts
+const leads = fromZod(LeadUuid, { name: 'LeadUuid' });
+const deals = fromZod(DealUuid, { name: 'DealUuid' });
+// leads.build() and deals.build() are different uuids.
+```
+
+A named builder draws its session-less builds from `scope('builder', name)` of its
+default session, so `leads.build()` equals
+`leads.build(createTestSession().scope('builder', 'LeadUuid'))`. The same name over the
+same schema gives the same values, in any builder and in any order. A session you pass
+to a build is used unchanged, so a name never changes explicit-session values or a
+replay. Every builder accepts a name and `describe()` reports it; it changes values
+only where the builder has a default session.
+
+### Why session-less builds do not advance
+
+A builder could keep a hidden session and continue it on every call. A test's values
+would then depend on which tests ran before it in the same process, and running a
+test on its own (`it.only`, a name filter or a retry) would produce other data.
+Session-less builds stay pure instead: the same call returns the same values in any
+order. Pass a session when builds should continue each other.
+
+### Factory builders
+
+Factory builders opt in with the core `defaultSession` option. `createBuilder`,
+`createSchemaBuilder`, the builder classes, `fromZodFactory`, `fromZodFactoryAsync`,
+`fromArkTypeFactory`, both `fromTypeBoxFactory` entry points, `fromEffect`,
+`fromEffectAsync`, `fromEffectFactory`, `fromFaker`, `fromFakerSchema`,
+`fromArbitrary`, `fromSchemaArbitrary`, `fromAdapter` and an adapter's `fromFactory`
+accept it as a typed option. With a default session the factory may declare its
+session as required: builds may omit it, and the factory always receives one.
+
+```ts
+const rows = fromZodFactory(Row, (session: GenerationSession) => ({ uuid: uuid.create(session) }), {
+  defaultSession: () => createTestSession(),
+  name: 'rows',
+});
+const [first, second] = rows.buildValidatedList(2); // two different uuids
+```
+
+Patch factories and transforms of any builder with a default session, including
+`fromZod(schema).withFactory((session) => ...)`, receive a `GenerationSession`, not
+`GenerationSession | undefined`. Callbacks that declare `session?` still compile.
 
 TypeBox native creation does not draw from the session, so rows differ only through
 patch factories and transforms, which receive it. The TypeBox creation fill takes its
 dates from `referenceDate()`. A TypeBox fingerprint covers the schema data, not codec
 or transform callbacks.
 
-Native Effect builders have no default because the adapter cannot derive a replay
-identity for native schemas and annotations. Their types require a session, and a
-missing session raises a `TypeError` before any generation.
+Native Effect builders have no default of their own because the adapter cannot derive
+a replay identity for native schemas and annotations. Their types require a session,
+and a missing session raises a `TypeError` before any generation, unless you pass
+your own `defaultSession`.

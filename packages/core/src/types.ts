@@ -54,6 +54,13 @@ export interface BuilderConfig {
   readonly cloneInput?: <T>(value: T) => T;
   /** Allocation budget checked before invoking any factory. Default: 10,000. */
   readonly maxListSize?: number;
+  /**
+   * Names the builder, as reported by `describe()`. A builder with a default session draws
+   * its session-less builds from `defaultSession().scope('builder', name)`, so two builders
+   * with different names produce different values even for identical schemas. A session
+   * passed to a build is used unchanged. A nonempty string of at most 1024 characters.
+   */
+  readonly name?: string;
 }
 export interface SchemaBuilderConfig extends BuilderConfig {
   /** Kept separate from the factory's argument list. */
@@ -75,79 +82,171 @@ export type DefaultSessionFor<F extends AnyFactory> =
         ? DefaultSessionConfig
         : { readonly defaultSession?: never }
       : { readonly defaultSession?: never };
+/**
+ * A configured default session, for a factory whose first parameter takes a session and whose
+ * other parameters are optional. The first parameter may be required: the factory and every
+ * patch factory or transform always receive a session, and builds may omit it.
+ */
+export type DefaultedSessionFor<F extends AnyFactory> =
+  Parameters<F> extends []
+    ? never
+    : Parameters<F> extends [unknown?, ...infer Rest]
+      ? [] extends Rest
+        ? [GenerationSession] extends [Parameters<F>[0]]
+          ? { readonly defaultSession: () => GenerationSession }
+          : never
+        : never
+      : never;
+/** Build arguments when a default session fills an omitted leading session. */
+export type OptionalSessionArgs<Args extends unknown[]> = Args extends [unknown?, ...infer Rest]
+  ? [session?: GenerationSession, ...Rest]
+  : Args;
+/** What the factory, patch factories and transforms then receive: always a session. */
+export type SessionArgs<Args extends unknown[]> = Args extends [unknown?, ...infer Rest]
+  ? [session: GenerationSession, ...Rest]
+  : Args;
+type TupleOf<T, N extends number, Items extends T[]> = Items['length'] extends N
+  ? Items
+  : Items['length'] extends 64
+    ? T[]
+    : TupleOf<T, N, [...Items, T]>;
+/**
+ * The result of a list build: a tuple for a literal count up to 64, so `const [a, b] =
+ * builder.buildList(2)` types both items under `noUncheckedIndexedAccess`; an array otherwise.
+ */
+export type BuiltList<T, N extends number> = number extends N
+  ? T[]
+  : N extends number
+    ? TupleOf<T, N, []>
+    : never;
 export interface BuilderDescription {
   readonly cloneInput: boolean;
   readonly maxListSize: number;
   readonly operations: ReadonlyArray<string>;
   readonly validation: boolean;
+  /** Present when the builder was configured with a name. */
+  readonly name?: string;
 }
 
-export interface AsyncBuilder<T, Args extends unknown[] = []> {
-  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args>;
-  replace(value: T): AsyncBuilder<T, Args>;
-  withFactory(factory: (...args: Args) => BuilderPatch<T>): AsyncBuilder<T, Args>;
-  replaceFactory(factory: (...args: Args) => T): AsyncBuilder<T, Args>;
-  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args>;
-  transform(transformer: BuilderTransform<T, Args>): AsyncBuilder<T, Args>;
+/**
+ * `Args` are the build arguments. `Received` are the arguments the factory, patch factories
+ * and transforms receive; they differ only when a default session fills an omitted session.
+ */
+export interface AsyncBuilder<T, Args extends unknown[] = [], Received extends unknown[] = Args> {
+  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args, Received>;
+  replace(value: T): AsyncBuilder<T, Args, Received>;
+  withFactory(factory: (...args: Received) => BuilderPatch<T>): AsyncBuilder<T, Args, Received>;
+  replaceFactory(factory: (...args: Received) => T): AsyncBuilder<T, Args, Received>;
+  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args, Received>;
+  transform(transformer: BuilderTransform<T, Received>): AsyncBuilder<T, Args, Received>;
   transformAsync(
-    transformer: (value: T, ...args: Args) => T | PromiseLike<T>
-  ): AsyncBuilder<T, Args>;
+    transformer: (value: T, ...args: Received) => T | PromiseLike<T>
+  ): AsyncBuilder<T, Args, Received>;
   buildAsync(...args: Args): Promise<T>;
-  buildListAsync(count: number, ...args: Args): Promise<Array<T>>;
+  buildListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<T, N>>;
   describe(): BuilderDescription;
 }
-export interface Builder<T, Args extends unknown[] = []> extends AsyncBuilder<T, Args> {
-  with(patch: BuilderPatch<T>): Builder<T, Args>;
-  replace(value: T): Builder<T, Args>;
-  withFactory(factory: (...args: Args) => BuilderPatch<T>): Builder<T, Args>;
-  replaceFactory(factory: (...args: Args) => T): Builder<T, Args>;
-  omit(...keys: OptionalKeys<T>[]): Builder<T, Args>;
-  transform(transformer: BuilderTransform<T, Args>): Builder<T, Args>;
+export interface Builder<
+  T,
+  Args extends unknown[] = [],
+  Received extends unknown[] = Args,
+> extends AsyncBuilder<T, Args, Received> {
+  with(patch: BuilderPatch<T>): Builder<T, Args, Received>;
+  replace(value: T): Builder<T, Args, Received>;
+  withFactory(factory: (...args: Received) => BuilderPatch<T>): Builder<T, Args, Received>;
+  replaceFactory(factory: (...args: Received) => T): Builder<T, Args, Received>;
+  omit(...keys: OptionalKeys<T>[]): Builder<T, Args, Received>;
+  transform(transformer: BuilderTransform<T, Received>): Builder<T, Args, Received>;
   build(...args: Args): T;
-  buildList(count: number, ...args: Args): Array<T>;
+  buildList<N extends number>(count: N, ...args: Args): BuiltList<T, N>;
 }
 export interface AsyncSchemaBuilder<
   Input,
   Output,
   Args extends unknown[] = [],
-> extends AsyncBuilder<Input, Args> {
-  with(patch: BuilderPatch<Input>): AsyncSchemaBuilder<Input, Output, Args>;
-  replace(value: Input): AsyncSchemaBuilder<Input, Output, Args>;
+  Received extends unknown[] = Args,
+> extends AsyncBuilder<Input, Args, Received> {
+  with(patch: BuilderPatch<Input>): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  replace(value: Input): AsyncSchemaBuilder<Input, Output, Args, Received>;
   withFactory(
-    factory: (...args: Args) => BuilderPatch<Input>
-  ): AsyncSchemaBuilder<Input, Output, Args>;
-  replaceFactory(factory: (...args: Args) => Input): AsyncSchemaBuilder<Input, Output, Args>;
-  omit(...keys: OptionalKeys<Input>[]): AsyncSchemaBuilder<Input, Output, Args>;
-  transform(transformer: BuilderTransform<Input, Args>): AsyncSchemaBuilder<Input, Output, Args>;
+    factory: (...args: Received) => BuilderPatch<Input>
+  ): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  replaceFactory(
+    factory: (...args: Received) => Input
+  ): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  omit(...keys: OptionalKeys<Input>[]): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  transform(
+    transformer: BuilderTransform<Input, Received>
+  ): AsyncSchemaBuilder<Input, Output, Args, Received>;
   transformAsync(
-    transformer: (value: Input, ...args: Args) => Input | PromiseLike<Input>
-  ): AsyncSchemaBuilder<Input, Output, Args>;
-  usingValidation(options: StandardSchemaV1.Options): AsyncSchemaBuilder<Input, Output, Args>;
+    transformer: (value: Input, ...args: Received) => Input | PromiseLike<Input>
+  ): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  usingValidation(
+    options: StandardSchemaV1.Options
+  ): AsyncSchemaBuilder<Input, Output, Args, Received>;
   buildValidatedAsync(...args: Args): Promise<Output>;
-  buildValidatedListAsync(count: number, ...args: Args): Promise<Array<Output>>;
+  buildValidatedListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<Output, N>>;
 }
 export interface SchemaBuilder<
   Input,
   Output,
   Args extends unknown[] = [],
-> extends AsyncSchemaBuilder<Input, Output, Args> {
-  with(patch: BuilderPatch<Input>): SchemaBuilder<Input, Output, Args>;
-  replace(value: Input): SchemaBuilder<Input, Output, Args>;
-  withFactory(factory: (...args: Args) => BuilderPatch<Input>): SchemaBuilder<Input, Output, Args>;
-  replaceFactory(factory: (...args: Args) => Input): SchemaBuilder<Input, Output, Args>;
-  omit(...keys: OptionalKeys<Input>[]): SchemaBuilder<Input, Output, Args>;
-  transform(transformer: BuilderTransform<Input, Args>): SchemaBuilder<Input, Output, Args>;
-  usingValidation(options: StandardSchemaV1.Options): SchemaBuilder<Input, Output, Args>;
+  Received extends unknown[] = Args,
+> extends AsyncSchemaBuilder<Input, Output, Args, Received> {
+  with(patch: BuilderPatch<Input>): SchemaBuilder<Input, Output, Args, Received>;
+  replace(value: Input): SchemaBuilder<Input, Output, Args, Received>;
+  withFactory(
+    factory: (...args: Received) => BuilderPatch<Input>
+  ): SchemaBuilder<Input, Output, Args, Received>;
+  replaceFactory(
+    factory: (...args: Received) => Input
+  ): SchemaBuilder<Input, Output, Args, Received>;
+  omit(...keys: OptionalKeys<Input>[]): SchemaBuilder<Input, Output, Args, Received>;
+  transform(
+    transformer: BuilderTransform<Input, Received>
+  ): SchemaBuilder<Input, Output, Args, Received>;
+  usingValidation(options: StandardSchemaV1.Options): SchemaBuilder<Input, Output, Args, Received>;
   build(...args: Args): Input;
-  buildList(count: number, ...args: Args): Array<Input>;
+  buildList<N extends number>(count: N, ...args: Args): BuiltList<Input, N>;
   buildValidated(...args: Args): Output;
-  buildValidatedList(count: number, ...args: Args): Array<Output>;
+  buildValidatedList<N extends number>(count: N, ...args: Args): BuiltList<Output, N>;
 }
-export type BuilderFor<F extends AnyFactory> =
-  IsAsync<F> extends true
+/**
+ * The builder for factory `F`. With `Defaulted` (a configured default session), builds may
+ * omit the leading session and the factory and callbacks always receive one.
+ */
+export type BuilderFor<
+  F extends AnyFactory,
+  Defaulted extends boolean = false,
+> = Defaulted extends true
+  ? IsAsync<F> extends true
+    ? AsyncBuilder<
+        Awaited<ReturnType<F>>,
+        OptionalSessionArgs<Parameters<F>>,
+        SessionArgs<Parameters<F>>
+      >
+    : Builder<ReturnType<F>, OptionalSessionArgs<Parameters<F>>, SessionArgs<Parameters<F>>>
+  : IsAsync<F> extends true
     ? AsyncBuilder<Awaited<ReturnType<F>>, Parameters<F>>
     : Builder<ReturnType<F>, Parameters<F>>;
-export type SchemaBuilderFor<S extends StandardSchemaV1, F extends AnyFactory> =
-  IsAsync<F> extends true
+export type SchemaBuilderFor<
+  S extends StandardSchemaV1,
+  F extends AnyFactory,
+  Defaulted extends boolean = false,
+> = Defaulted extends true
+  ? IsAsync<F> extends true
+    ? AsyncSchemaBuilder<
+        SchemaInput<S>,
+        SchemaOutput<S>,
+        OptionalSessionArgs<Parameters<F>>,
+        SessionArgs<Parameters<F>>
+      >
+    : SchemaBuilder<
+        SchemaInput<S>,
+        SchemaOutput<S>,
+        OptionalSessionArgs<Parameters<F>>,
+        SessionArgs<Parameters<F>>
+      >
+  : IsAsync<F> extends true
     ? AsyncSchemaBuilder<SchemaInput<S>, SchemaOutput<S>, Parameters<F>>
     : SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, Parameters<F>>;

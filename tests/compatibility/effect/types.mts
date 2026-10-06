@@ -124,3 +124,26 @@ function bothWays<A, I>(source: S.Codec<A, I>, create: () => I): void {
   void back;
 }
 void bothWays;
+
+// Your own defaultSession makes the session optional; callbacks always receive one.
+import { createTestSession } from '@mimlet/core';
+const defaulted = fromEffect(schema, { defaultSession: () => createTestSession(), name: 'ages' });
+exact<
+  Equal<typeof defaulted, EffectBuilder<{ readonly age: number }, { readonly age: string }, true>>
+>();
+expectType<{ readonly age: number }>(defaulted.buildValidated());
+const [firstAge, secondAge] = defaulted.buildValidatedList(2);
+expectType<{ readonly age: number }>(firstAge);
+expectType<{ readonly age: number }>(secondAge);
+defaulted.withFactory((run) => ({ age: String(run.integer(1, 9)) }));
+expectType<Promise<{ readonly age: number }>>(
+  fromEffectAsync(schema, { defaultSession: () => createTestSession() }).buildValidatedAsync()
+);
+const defaultedFactory = fromEffectFactory(
+  schema,
+  (run: GenerationSession) => ({ age: String(run.sequence('age')) }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<{ readonly age: number }>(defaultedFactory.buildValidated());
+// @ts-expect-error Without a default, Effect builders still require a session.
+fromEffect(schema).build();
