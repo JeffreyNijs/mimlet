@@ -12,7 +12,8 @@ cross fast-check releases. Releases, including betas, are published on npm's
 `fromArbitrary(arbitrary)` returns a builder whose factory takes an explicit
 `GenerationSession`. It samples the native arbitrary using a session-derived
 32-bit seed. `fromSchemaArbitrary(schema, arbitrary)` also retains Standard Schema
-input/output typing and explicit validated builds. Ordinary builder sampling is
+input/output typing and explicit validated builds. Both accept a typed
+`defaultSession` option, after which builds may omit the session. Ordinary builder sampling is
 not a new shrinker; use the mapping functions for property-based testing.
 
 ```ts

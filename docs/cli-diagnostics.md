@@ -68,9 +68,25 @@ the message and in `missingReference`, and `schemaPath` points at the `$ref`:
 }
 ```
 
+## Generate from an OpenAPI document
+
+`generate` reads OpenAPI documents named by the configuration's `openapi` entries, at
+most 16 MB each; see [OpenAPI documents](../packages/codegen/README.md#openapi-documents).
+An unreadable document, an unknown component name, an invalid `openapi` entry or a
+component schema that cannot be prepared stops the command with exit code 2 and
+`CLI_USAGE_ERROR`. The message names the document path and, where it applies, the
+component and the schema location:
+
+```json
+{
+  "code": "CLI_USAGE_ERROR",
+  "message": "OpenAPI document \"./openapi.json\": OpenAPI component schema \"Odd\" (OddBuilder): Unknown format at /format"
+}
+```
+
 Unknown failures and malformed JSON do not print fixture/schema values by default.
-The only schema values a diagnostic repeats are keyword names, reference URIs and
-property names that form a schema location.
+The only schema values a diagnostic repeats are keyword names, reference URIs,
+component names and property names that form a schema location.
 
 ## Report and exit contracts
 

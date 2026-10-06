@@ -87,7 +87,7 @@ const dog = pets.replace({ kind: 'dog', bark: true }).build();
 // pets.with({ kind: 'dog' }) is rejected: it could omit required dog fields.
 ```
 
-This generic path is deliberately conservative; native TypeBox adapters additionally offer `fromTypeBoxVariant()` for complete branch selection. There is no runtime introspection of erased TypeScript unions. JavaScript or unsafe casts can bypass compile-time rules; validated builds remain the source of runtime schema guarantees. Partial record patches onto null, undefined, scalars, or class instances are rejected at runtime. Use `replace()` for custom classes.
+This generic path is deliberately conservative; native TypeBox adapters additionally offer `fromTypeBoxVariant()` for complete branch selection. There is no runtime introspection of erased TypeScript unions. JavaScript or unsafe casts can bypass compile-time rules; validated builds remain the source of runtime schema guarantees. Partial record patches onto null, undefined, scalars, or class instances are rejected at runtime. To build class instances, patch the record and create the instance last with `createInstanceBuilder()` (see [class instances](#class-instances-and-map)); `replace()` sets a complete value of any other kind.
 
 `omit(...keys)` accepts optional keys only. It creates a new plain record without those own properties; it does not assign undefined or null. With `exactOptionalPropertyTypes`, those three states remain distinct. Required-field omission for negative tests needs an explicitly unsafe JavaScript/cast boundary, not an incorrect ordinary return type.
 
@@ -119,11 +119,45 @@ const second = isolated.build('second');
 
 Transforms receive the current value and the factory arguments. They run in registration order and can derive correlated fields. `transform()` is synchronous. `transformAsync()` accepts asynchronous work and switches the resulting builder to async-only build capabilities. Validation is retained throughout every fluent operation.
 
+## Class instances and map()
+
+`map(mapper)` is a transform whose result may have another type. Patches keep applying to the input, builds return the mapped value, and transforms added later receive it. The builder type carries both: `Builder<T, Args, Output>`, where `Output` is `T` until a `map()`. Maps compose, run in order with the transforms, and appear as `'map'` in `describe().operations`. Schema builders have no `map()`, because their validator expects the unmapped input; a validator's own output is what `buildValidated()` returns.
+
+```ts
+const labels = createBuilder(() => ({ first: 'Ada', last: 'Lovelace' })).map(
+  (name) => `${name.first} ${name.last}`
+); // Builder<{ first: string; last: string }, [], string>
+labels.with({ first: 'Grace' }).build(); // 'Grace Lovelace'
+```
+
+`createInstanceBuilder(Class, factory, config)` builds instances of a class, such as a TypeORM entity. The factory returns the class's plain record, `InstanceInput<InstanceType<Class>>`: its public data fields, without methods and without fields typed `never`, with readonly properties optional (TypeScript types a getter without a setter like a `readonly` field). Because the class comes first, the factory is checked against the record as TypeScript reads it, so it needs no annotation and literal fields keep their types. Patches apply to the record; each build creates a new instance:
+
+```ts
+const users = fluent(
+  createInstanceBuilder(User, () => ({
+    uuid: randomUUID(),
+    email: `${randomUUID()}@example.com`,
+    firstName: 'John',
+    lastName: 'Doe',
+    deletedAt: null,
+  })),
+  ['firstName', 'lastName']
+);
+users.withFirstName('Ada').build(); // a User; user.fullName is computed by the class
+```
+
+- **Construction.** `new Class()` runs without arguments, as TypeORM and class-transformer create entities, so field initializers and `#private` fields exist. `{ construct: 'prototype' }` uses `Object.create(Class.prototype)` and runs no constructor code; the types require it for a class whose constructor takes arguments.
+- **Copying.** Each own enumerable field of the record is defined on the instance, or assigned through the class's setter. A value for a getter without a setter throws (`fullName is computed by User ...`). Copying is shallow: build related entities with their own builders.
+- **Transforms after the mapping** receive the instance and must return an instance of the class (for example by changing it with `Object.assign`); a spread copy, which would silently be a plain object, throws. A later `map()` may change the type again.
+- **Everything else stays.** Factory arguments, default sessions (also with a required session parameter), builder names, list tuples, async factories and `fluent()` setters work as for any builder. `map()` on a `fluent()` builder keeps its setters, in the runtime and in the types.
+
+`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
+
 ## Lists and limits
 
 Synchronous builders expose `build`, `buildList`, `buildAsync`, and `buildListAsync`. Schema builders add `buildValidated`, `buildValidatedList`, `buildValidatedAsync`, and `buildValidatedListAsync`. Async-only builders expose only the async variants in their types.
 
-Lists execute sequentially, preserving factory and random-state order. Counts must be non-negative safe integers within `maxListSize`, which defaults to 10,000. Checks occur before any generation or validation. A zero count does no work. Configure another budget explicitly:
+Lists execute sequentially, preserving factory and random-state order. A literal count returns a tuple, so `const [first, second] = users.buildList(2)` types both items under `noUncheckedIndexedAccess`; a count typed as `number`, or above 64, returns an array. Counts must be non-negative safe integers within `maxListSize`, which defaults to 10,000. Checks occur before any generation or validation. A zero count does no work. Configure another budget explicitly:
 
 ```ts
 const bounded = createBuilder(() => ({ id: 1 }), { maxListSize: 100 });
@@ -133,7 +167,7 @@ This budget limits list allocation, not arbitrary factory runtime, recursive sch
 
 ### Default sessions
 
-A factory whose first parameter is an optional `GenerationSession` can declare the session used when a call omits it:
+A factory whose first parameter takes a `GenerationSession` can declare the session used when a call omits it:
 
 ```ts
 import { createBuilder, createSession, type GenerationSession } from '@mimlet/core';
@@ -141,17 +175,24 @@ import { createBuilder, createSession, type GenerationSession } from '@mimlet/co
 const session = () =>
   createSession({ fingerprint: 'users/v1', provider: 'application-fixtures@1', seed: 1 });
 const users = createBuilder(
-  (execution: GenerationSession = session()) => ({ age: execution.integer(18, 80) }),
-  { defaultSession: session }
+  (execution: GenerationSession) => ({ age: execution.integer(18, 80) }),
+  {
+    defaultSession: session,
+  }
 );
 const people = users.buildList(3); // equals users.buildList(3, session())
+const older = users.withFactory((execution) => ({ age: execution.integer(60, 90) }));
 ```
 
-Each build, validated build or list call that omits the leading session (or passes `undefined`) calls `defaultSession` once and passes the result to the factory, patch factories and transforms. List items therefore continue one session instead of restarting it, while repeated session-less calls stay deterministic. An explicit session is never replaced, and an empty list creates no session. The option is type-checked: factories without an optional leading session parameter cannot declare it. Adapters with optional sessions use their own seed-1 `session()` as this default; see [Sessions and replay](https://jeffreynijs.github.io/mimlet/guide/sessions-and-replay.html#omitted-sessions).
+Each build, validated build or list call that omits the leading session (or passes `undefined`) calls `defaultSession` once and passes the result to the factory, patch factories and transforms. List items therefore continue one session instead of restarting it, while repeated session-less calls stay deterministic. An explicit session is never replaced, and an empty list creates no session. The option is type-checked: the factory's other parameters must be optional, and a factory without a leading session parameter cannot declare it. With a default, the factory may declare its session as required, and patch factories and transforms are typed as always receiving one. Adapters with optional sessions use their own seed-1 `session()` as this default; see [Sessions and replay](https://jeffreynijs.github.io/mimlet/guide/sessions-and-replay.html#omitted-sessions).
+
+The `name` option names a builder. `describe()` reports it, and a builder with a default session draws its session-less builds from `defaultSession().scope('builder', name)`, so two builders with different names produce different values even when their recipes are identical. A session passed to a build is used unchanged.
+
+`createTestSession(seed = 1)` creates a session with a fixed generic identity (`testSessionIdentity`) for sharing across the builds of a test: consecutive builds continue it instead of repeating the first value. A session's values depend only on its seed and scope path; the fingerprint, provider and configuration are checked by `restoreSession()` and do not change the values.
 
 ## Inspection and adapters
 
-`describe()` returns frozen operation names, the list budget, and whether validation is attached. It deliberately excludes fixture values and callbacks. It is a small diagnostic surface. Schema inspection belongs to the adapter SDK; replay state is exposed separately by generation sessions.
+`describe()` returns frozen operation names, the list budget, whether validation is attached and the builder's `name` if it has one. It deliberately excludes fixture values and callbacks. It is a small diagnostic surface. Schema inspection belongs to the adapter SDK; replay state is exposed separately by generation sessions.
 
 Native TypeBox packages are available in this repository:
 

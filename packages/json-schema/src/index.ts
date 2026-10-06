@@ -47,7 +47,8 @@ export interface SampleRandom {
   bool(probability?: number): boolean;
   pick<T>(values: readonly T[]): T;
 }
-export type GenerationProfile = 'minimal' | 'defaults' | 'examples' | 'random' | 'boundary';
+export type GenerationProfile =
+  'minimal' | 'defaults' | 'examples' | 'random' | 'boundary' | 'realistic';
 export interface JsonGenerationProvider {
   /** Versioned semantic identity. Change this when generation behavior changes. */
   readonly id: string;
@@ -92,6 +93,7 @@ export interface JsonSchemaIssue extends ValidationIssue {
 export { NegativeCaseError } from './cases.js';
 export type { NegativeTarget } from './cases.js';
 import { boundaryHints, checkedNegative, synchronous } from './cases.js';
+import { realisticHints, realisticIdentity, realisticValue } from './realistic.js';
 
 const YEAR_SECONDS = 365 * 24 * 60 * 60;
 /**
@@ -129,7 +131,7 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
   const source = copyJson(schema, maximum) as JsonSchema;
   const selected = dialect(source, options.dialect);
   const profile = options.profile ?? 'minimal';
-  if (!['minimal', 'defaults', 'examples', 'random', 'boundary'].includes(profile)) {
+  if (!['minimal', 'defaults', 'examples', 'random', 'boundary', 'realistic'].includes(profile)) {
     throw new TypeError('Unknown generation profile');
   }
   const references = copyJson(options.references ?? {}, maximum) as Record<string, JsonSchema>;
@@ -301,6 +303,10 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
     );
   }
   const compiled = validate;
+  const realistic =
+    profile === 'realistic' && !provider
+      ? realisticHints(sampling, normalizedReferences, maximum)
+      : undefined;
   const identity = Object.freeze({
     fingerprint: fingerprint({ schema: source, references }),
     provider: provider?.id ?? 'json-schema-faker@0.6.3+ajv@8.20.0',
@@ -319,6 +325,8 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
       extensions: options.extensionIdentity ?? '',
       keywords: Object.keys(keywords).sort(),
       annotations: annotations.slice().sort(),
+      // Only realistic configurations carry the hint version, so other identities are unchanged.
+      ...(realistic ? { realistic: realisticIdentity } : {}),
     }),
   });
   const session = (seed: SessionKey = 1): GenerationSession => createSession({ ...identity, seed });
@@ -367,6 +375,12 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
     const stream = execution.scope(identity.provider, identity.fingerprint, identity.configuration);
     let cause: unknown;
     for (let attempt = 0; attempt < maximum.maxAttempts; attempt += 1) {
+      // Realistic candidates come first: with schema examples, then without them. The second
+      // half of the attempts samples the unmodified copy, so a schema that defeats the hints
+      // still gets minimal-profile candidates.
+      const hinted =
+        realistic && attempt < Math.ceil(maximum.maxAttempts / 2) ? realistic : undefined;
+      const examples = hinted !== undefined && attempt < Math.ceil(maximum.maxAttempts / 4);
       try {
         const candidate = provider
           ? synchronous(
@@ -382,9 +396,11 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
               )
             )
           : generateSync(
-              (profile === 'boundary' && attempt === 0
-                ? boundaryHints(sampling, maximum, stream)
-                : sampling) as ProviderSchema,
+              (hinted
+                ? hinted.schema
+                : profile === 'boundary' && attempt === 0
+                  ? boundaryHints(sampling, maximum, stream)
+                  : sampling) as ProviderSchema,
               {
                 seed: stream.integer(0, 0xffffffff),
                 maxDepth: maximum.maxValueDepth,
@@ -392,14 +408,15 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
                 maxDefaultItems: profile === 'random' || profile === 'boundary' ? 3 : 0,
                 optionalsProbability: profile === 'random' ? 0.5 : profile === 'boundary' ? 1 : 0,
                 useDefaultValue: profile === 'defaults' && attempt === 0,
-                useExamplesValue: profile === 'examples' && attempt === 0,
+                useExamplesValue: (profile === 'examples' && attempt === 0) || examples,
                 failOnInvalidTypes: true,
                 validateSchemaVersion: true,
                 formats: {
                   'date-time': referenceDateTime(execution.referenceDate()),
                   ...generators,
                 },
-                outputTransform(value, node) {
+                outputTransform(sampled, node) {
+                  const value = hinted ? realisticValue(sampled, node, stream, examples) : sampled;
                   if (
                     !node ||
                     typeof node !== 'object' ||
@@ -463,7 +480,7 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
                   return output;
                 },
                 refResolver(uri) {
-                  const result = normalizedReferences.get(uri);
+                  const result = (hinted?.references ?? normalizedReferences).get(uri);
                   if (result === undefined) {
                     throw new SchemaPreparationError('Reference was not supplied in memory', '');
                   }
@@ -516,19 +533,29 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
 export function fromJsonSchema(
   schema: JsonSchema,
   options: JsonSchemaOptions = {}
-): SchemaBuilder<unknown, unknown, [session?: GenerationSession]> {
+): SchemaBuilder<unknown, unknown, [session?: GenerationSession], [session: GenerationSession]> {
   const adapter = jsonSchemaAdapter(schema, options);
   return createSchemaBuilder(
     adapter.standard,
     (session?: GenerationSession) => adapter.create(session),
     { ...options, defaultSession: adapter.session }
-  ) as unknown as SchemaBuilder<unknown, unknown, [session?: GenerationSession]>;
+  ) as unknown as SchemaBuilder<
+    unknown,
+    unknown,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >;
 }
 /** Generate encoded INPUT through Standard JSON Schema and parse once through the native validator. */
 export function fromStandardJsonSchema<S extends StandardJSONSchemaV1 & StandardSchemaV1>(
   schema: S,
   options: JsonSchemaOptions = {}
-): SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  SchemaInput<S>,
+  SchemaOutput<S>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   const properties = schema?.['~standard'];
   if (
     properties?.version !== 1 ||
@@ -547,7 +574,12 @@ export function fromStandardJsonSchema<S extends StandardJSONSchemaV1 & Standard
     schema,
     (session?: GenerationSession) => adapter.create(session) as SchemaInput<S>,
     { ...options, defaultSession: adapter.session }
-  ) as unknown as SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]>;
+  ) as unknown as SchemaBuilder<
+    SchemaInput<S>,
+    SchemaOutput<S>,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >;
 }
 /**
  * The top-level `properties` names of the schema's input JSON Schema, for a setter per field:

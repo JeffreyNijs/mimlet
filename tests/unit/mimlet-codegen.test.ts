@@ -4,10 +4,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CodegenError,
   diagnoseProject,
   emitBuilders,
   emitJsonSchemaBuilders,
+  emitOpenApiBuilders,
   inspectSchema,
+  openApiBuilderName,
+  openApiBuilderTargets,
   reportStatus,
 } from '../../packages/codegen/src/index.js';
 import type { Diagnostic } from '../../packages/codegen/src/index.js';
@@ -264,4 +268,147 @@ it('inspects only reachable references and names the one that fails', () => {
       missingReference: `${shop}Customer.json`,
     }),
   ]);
+});
+
+/** A NestJS-style OpenAPI 3.0 document as the Swagger module builds it in memory. */
+const nestDocument = () => ({
+  openapi: '3.0.0',
+  info: { title: 'Deals', version: '1.0', description: undefined },
+  servers: [{ url: 'http://localhost:3000', description: undefined }],
+  paths: {},
+  components: {
+    schemas: {
+      FacadeDto: {
+        type: 'object',
+        properties: {
+          street: { type: 'string', example: 'Main street 1' },
+          floors: { type: 'integer', format: 'int32' },
+        },
+        required: ['street'],
+      },
+      'create-deal.command': {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid', readOnly: true },
+          title: { type: 'string' },
+          note: { type: 'string', nullable: true },
+          facade: { nullable: true, allOf: [{ $ref: '#/components/schemas/FacadeDto' }] },
+        },
+        required: ['id', 'title', 'facade'],
+      },
+    },
+  },
+});
+
+it('projects OpenAPI component schemas into JSON builder targets', async () => {
+  const targets = openApiBuilderTargets(nestDocument(), {
+    schemas: [
+      'create-deal.command',
+      { schema: 'FacadeDto', name: 'Facade', direction: 'response' },
+    ],
+    direction: 'request',
+    options: { profile: 'realistic' },
+  });
+  expect(
+    targets.map(({ name, component, direction, options }) => [name, component, direction, options])
+  ).toEqual([
+    [
+      'CreateDealCommandBuilder',
+      'create-deal.command',
+      'request',
+      { dialect: 'draft-07', profile: 'realistic' },
+    ],
+    ['Facade', 'FacadeDto', 'response', { dialect: 'draft-07', profile: 'realistic' }],
+  ]);
+  const command = targets[0]!.schema as { properties: Record<string, unknown>; required: string[] };
+  expect(command.properties.id).toBe(false);
+  expect(command.required).toEqual(['title', 'facade']);
+  expect(openApiBuilderTargets(nestDocument(), { schemas: 'all' }).map((t) => t.name)).toEqual([
+    'FacadeDtoBuilder',
+    'CreateDealCommandBuilder',
+  ]);
+  const [file] = await emitOpenApiBuilders(nestDocument(), {
+    schemas: ['create-deal.command'],
+    direction: 'request',
+  });
+  expect(file!.path).toBe('CreateDealCommandBuilder.ts');
+  expect(file!.content).toContain('facade: FacadeDto | null;');
+  expect(file!.content).toContain('note?: string | null;');
+  expect(file!.content).toContain('export interface FacadeDto {');
+  // A read-only property of a request cannot be set, so it has no helper.
+  expect(file!.content).toContain('withTitle(');
+  expect(file!.content).not.toContain('withId(');
+  expect(openApiBuilderName('2fa-settings')).toBe('Schema2faSettingsBuilder');
+  expect(openApiBuilderName('Deal.v2_Item')).toBe('DealV2ItemBuilder');
+});
+
+it('rejects invalid OpenAPI selections with the component name', async () => {
+  const document = nestDocument();
+  const failures: Array<readonly [() => unknown, RegExp]> = [
+    [
+      () => openApiBuilderTargets(document, { schemas: ['Missing'] }),
+      /Unknown OpenAPI component schema "Missing"/,
+    ],
+    [() => openApiBuilderTargets(document, { schemas: 'some' as never }), /"all" or a list/],
+    [
+      () => openApiBuilderTargets(document, { schemas: [{ schema: 1 } as never] }),
+      /component name or/,
+    ],
+    [
+      () => openApiBuilderTargets(document, { schemas: 'all', direction: 'both' as never }),
+      /direction/,
+    ],
+    [() => openApiBuilderTargets(document, { schemas: 'all', extra: 1 } as never), /data-only/],
+    [
+      () =>
+        openApiBuilderTargets(document, {
+          schemas: 'all',
+          options: { dialect: 'draft-07' } as never,
+        }),
+      /generation options must be data-only/,
+    ],
+    [
+      () => openApiBuilderTargets({ swagger: '2.0' }, { schemas: 'all' }),
+      /cannot be read: Expected OpenAPI/,
+    ],
+    [
+      () =>
+        openApiBuilderTargets(
+          { openapi: '3.0.0', components: { schemas: { Bad: { $ref: '#/missing' } } } },
+          { schemas: ['Bad'] }
+        ),
+      /"Bad" cannot be projected: Reference target does not exist/,
+    ],
+  ];
+  for (const [run, message] of failures) {
+    expect(run).toThrow(CodegenError);
+    expect(run).toThrow(message);
+  }
+  const unknownFormat = {
+    openapi: '3.1.0',
+    components: { schemas: { Odd: { type: 'string', format: 'not-a-format' } } },
+  };
+  await expect(emitOpenApiBuilders(unknownFormat, { schemas: 'all' })).rejects.toThrow(
+    'OpenAPI component schema "Odd" (OddBuilder): Unknown format at /format'
+  );
+  await expect(
+    emitOpenApiBuilders(nestDocument(), { schemas: 'all' }, { select: ['Missing'] })
+  ).rejects.toThrow('Selection contains an unknown target');
+  await expect(
+    emitOpenApiBuilders(nestDocument(), {
+      schemas: [
+        { schema: 'FacadeDto', name: 'Same' },
+        { schema: 'create-deal.command', name: 'same' },
+      ],
+    })
+  ).rejects.toThrow('case-insensitive');
+  expect(
+    (
+      await emitOpenApiBuilders(
+        nestDocument(),
+        { schemas: 'all' },
+        { select: ['FacadeDtoBuilder'] }
+      )
+    ).map((file) => file.path)
+  ).toEqual(['FacadeDtoBuilder.ts']);
 });

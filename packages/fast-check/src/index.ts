@@ -10,6 +10,7 @@ import {
 import type {
   BuilderFor,
   BuilderConfig,
+  DefaultSessionConfig,
   SchemaBuilderFor,
   SchemaBuilderConfig,
   StandardSchemaV1,
@@ -55,18 +56,39 @@ function sampleOne<T>(source: Arbitrary<T>, session: GenerationSession): T {
   hermetic();
   return sample(source, { seed: session.integer(-0x80000000, 0x7fffffff), numRuns: 1 })[0] as T;
 }
+/** With a `defaultSession`, builds may omit the session that seeds each sample. */
+export function fromArbitrary<T>(
+  source: Arbitrary<T>,
+  config: BuilderConfig & Required<DefaultSessionConfig>
+): BuilderFor<(session: GenerationSession) => T, true>;
 /** Samples a real arbitrary with a session-controlled seed. Use mapFixtureArbitrary to retain shrinking. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromArbitrary<T>(
   source: Arbitrary<T>,
   config?: BuilderConfig
-): BuilderFor<(session: GenerationSession) => T> {
+): BuilderFor<(session: GenerationSession) => T>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromArbitrary<T>(source: Arbitrary<T>, config?: BuilderConfig): unknown {
   return createBuilder((session: GenerationSession) => sampleOne(source, session), config);
 }
+/** With a `defaultSession`, builds may omit the session that seeds each sample. */
+export function fromSchemaArbitrary<S extends StandardSchemaV1>(
+  schema: S,
+  source: Arbitrary<NoInfer<SchemaInput<S>>>,
+  config: SchemaBuilderConfig & Required<DefaultSessionConfig>
+): SchemaBuilderFor<S, (session: GenerationSession) => SchemaInput<S>, true>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromSchemaArbitrary<S extends StandardSchemaV1>(
   schema: S,
   source: Arbitrary<NoInfer<SchemaInput<S>>>,
   config?: SchemaBuilderConfig
-): SchemaBuilderFor<S, (session: GenerationSession) => SchemaInput<S>> {
+): SchemaBuilderFor<S, (session: GenerationSession) => SchemaInput<S>>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromSchemaArbitrary<S extends StandardSchemaV1>(
+  schema: S,
+  source: Arbitrary<NoInfer<SchemaInput<S>>>,
+  config?: SchemaBuilderConfig
+): unknown {
   return createSchemaBuilder(
     schema,
     (session: GenerationSession) => sampleOne(source, session),

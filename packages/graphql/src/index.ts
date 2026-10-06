@@ -186,7 +186,12 @@ export function fromGraphQLVariables(
   schema: string,
   operation: string,
   options: GraphQLFixtureOptions = {}
-): SchemaBuilder<Record<string, unknown>, Record<string, unknown>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return graphqlAdapter(schema, operation, options).variables.builder();
 }
 export function fromGraphQLResponse(
@@ -194,6 +199,11 @@ export function fromGraphQLResponse(
   operation: string,
   variables: Record<string, unknown> = {},
   options: GraphQLFixtureOptions = {}
-): SchemaBuilder<Record<string, unknown>, Record<string, unknown>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return graphqlAdapter(schema, operation, options).response(variables).builder();
 }

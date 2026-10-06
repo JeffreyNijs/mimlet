@@ -7,16 +7,21 @@ description: Use Mimlet to create typed test fixtures, native-schema builders, c
 
 Mimlet is a modular schema-aware test-data toolkit. This is an optional product
 skill, not permission to install dependencies, change unrelated code, or replace
-the user's chosen library. The current beta is
-`@mimlet/*@0.1.0-beta.3` on npm's `latest` tag. Inspect the installed versions
-and use the matching documented APIs.
+the user's chosen library. Mimlet betas are published on npm's `latest` tag. Read the
+installed version first (`npm ls @mimlet/core`, or `npx mimlet --version` when
+`@mimlet/codegen` is installed) and use the APIs documented for that version. The
+[releases page](https://jeffreynijs.github.io/mimlet/guide/releases.html) names the
+current train.
 
 Use `fluent(fromZod(schema), ['name'])` for direct named setters when the installed
 train is alpha.2 or newer. When the installed adapter exports a field list function
 (`zodFields`, `typeBoxFields`, `valibotFields`, `arkTypeFields`, `effectFields`,
 `standardJsonSchemaFields`; beta.1 and newer), `fluent(fromZod(schema), zodFields(schema))`
 adds a setter per field, also inside generic helpers. Keep small declarations beside
-tests; do not create builder files or a generation step unless the task needs them. Check
+tests; do not create builder files or a generation step unless the task needs them. For class
+instances such as ORM entities (newer than beta.3), use `createInstanceBuilder(Entity, factory)`
+instead of a hand-written transform; `map()` changes what builds return. See
+`docs/class-instances.md`. Check
 `docs/fluent-builders.md` and `docs/cli-diagnostics.md` for version-specific APIs.
 Do not suggest `fluent()` or `mimlet doctor`/`inspect` for alpha.1. Check diagnostic
 format/version and branch on codes, not human-readable messages. Successful
@@ -31,14 +36,18 @@ that a schema has valid generated values.
    Use the async variants when the factory or validation is asynchronous.
 3. Use native adapters for native codecs and supported creation. Standard Schema
    validation does not imply automatic generation. Supply a factory for unsupported
-   constraints instead of weakening a schema or casting away its types.
+   constraints instead of weakening a schema or casting away its types. In releases
+   after 0.1.0-beta.3, `profile: 'realistic'` gives readable values and fills optional
+   fields for adapters that generate through JSON Schema.
 4. Model relationships as scenario dependencies. For shrinking, shrink independent
    inputs and recompute foreign keys/totals from them.
 5. Use explicit seeds and compatible provider/schema/configuration identities.
    Save before an operation to reproduce it. Preserve replay errors and the original
    failing test; a seed does not control arbitrary user I/O or external state.
 6. For code generation, start with `mimlet --config builders.json --out generated
---check` when only inspecting drift. Regenerate only within the requested task.
+--check` when only inspecting drift. Regenerate only within the requested task. For
+   an OpenAPI document (releases after 0.1.0-beta.3), use an `openapi` configuration
+   entry rather than copying component schemas into JSON Schema targets.
 7. Run the relevant test and type checker. State what was verified; do not infer
    compatibility, publication or performance from an example alone.
 

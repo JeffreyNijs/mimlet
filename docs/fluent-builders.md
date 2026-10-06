@@ -24,6 +24,9 @@ records. Runtime-length inventories, index signatures, atomic values, arrays,
 nullable root objects and root object unions cannot acquire unsound partial setters.
 Use `.replace()` for variant transitions. For typed nested updates, use
 [`setPath` inside `.transform()`](generated-facades-and-paths.md#typed-nested-changes).
+`map()` keeps the setters: `fluent(builder, ['name']).map((user) => user.name)` still has
+`withName()`, and its builds return the mapped value (see
+[class instances](class-instances.md#map-change-what-builds-return)).
 Names that collide with builder/prototype methods, `then` or `toJSON` are rejected.
 
 Automatic names capitalize alphanumeric segments, matching standalone codegen.
@@ -107,6 +110,21 @@ top-level input fields; `fluent()` accepts the result. Read the names from the
 schema, never from a fixture, and list every field: a missing name would type a
 setter that does not exist at runtime. Type the result with the schema's input keys,
 for example `schemaFields(Object.keys(shape) as Extract<keyof Input, string>[])`.
+
+## Lists, names and sessions
+
+A literal list count returns a tuple, so both items of
+`const [first, second] = orders.buildValidatedList(2)` are typed without
+`| undefined` under `noUncheckedIndexedAccess`. This holds for `buildList`,
+`buildValidatedList`, their async variants and scenario lists, up to 64 items. A
+count typed as `number` returns an array as before.
+
+Named setters are unrelated to the builder `name` option. `fromZod(schema, { name })`
+and the other entry points take a name that separates the session-less values of
+builders over identical schemas; `fluent()` keeps it, along with the default session.
+`withFactory()` callbacks and transforms on a builder with a default session receive a
+`GenerationSession` that is always set. See
+[sessions and replay](sessions-and-replay.md#name-a-builder).
 
 ## Nesting combines setters
 

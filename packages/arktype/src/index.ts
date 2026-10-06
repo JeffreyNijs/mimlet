@@ -1,6 +1,9 @@
 import type { BaseType } from 'arktype';
 import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
+  AnyFactory,
+  DefaultedSessionFor,
+  DefaultSessionFor,
   GenerationSession,
   SchemaBuilder,
   SchemaBuilderFor,
@@ -53,25 +56,59 @@ export function arkTypeAdapter<S extends ArkTypeSchema>(source: S, options: ArkT
   });
 }
 
-/** Automatic generation uses input metadata; validated builds invoke the native Type once. */
+/**
+ * Automatic generation uses input metadata; validated builds invoke the native Type once. A
+ * session-less build uses the generator's seed-1 session, scoped by `options.name` if given.
+ */
 export function fromArkType<S extends ArkTypeSchema>(
   source: S,
   options: ArkTypeOptions = {}
-): SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  SchemaInput<S>,
+  SchemaOutput<S>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   const adapter = arkTypeAdapter(source, options);
   const { session: defaultSession } = adapter.generation();
   // Successful JSON preparation guarantees synchronous, non-thenable generation.
   return createSchemaBuilder(adapter.standard, adapter.create, {
     ...options,
     defaultSession,
-  }) as unknown as SchemaBuilder<SchemaInput<S>, SchemaOutput<S>, [session?: GenerationSession]>;
+  }) as unknown as SchemaBuilder<
+    SchemaInput<S>,
+    SchemaOutput<S>,
+    [session?: GenerationSession],
+    [session: GenerationSession]
+  >;
 }
 
+/**
+ * With a `defaultSession`, builds may omit the leading session, and the factory, patch
+ * factories and transforms always receive one, so the factory may declare it as required.
+ */
+export function fromArkTypeFactory<
+  S extends ArkTypeSchema,
+  F extends (
+    session: GenerationSession
+  ) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
+>(
+  source: S,
+  factory: F,
+  options: ArkTypeOptions & DefaultedSessionFor<F>
+): SchemaBuilderFor<S, F, true>;
 /** Factory arguments, native input/output types and known async factories are preserved. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromArkTypeFactory<
   S extends ArkTypeSchema,
   F extends (...args: never[]) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
->(source: S, factory: F, options: ArkTypeOptions = {}): SchemaBuilderFor<S, F> {
+>(source: S, factory: F, options?: ArkTypeOptions & DefaultSessionFor<F>): SchemaBuilderFor<S, F>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromArkTypeFactory(
+  source: ArkTypeSchema,
+  factory: AnyFactory,
+  options: ArkTypeOptions = {}
+): unknown {
   return createSchemaBuilder(arkTypeAdapter(source, options).standard, factory, options);
 }
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { readFile, stat } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { URL } from 'node:url';
 import type { BuilderTarget, JsonBuilderTarget } from './index.js';
+import type { OpenApiBuilderTarget, OpenApiSchemas } from './openapi.js';
 import type { JsonSchema, SchemaDialect } from '@mimlet/json-schema';
 import type { DiagnosticReport } from './diagnostics.js';
 
@@ -12,7 +14,9 @@ const help = `mimlet --config builders.json --out generated [--check] [--self-co
 mimlet doctor [--project directory] [--json]
 mimlet inspect --schema schema.json [--references refs.json] [--dialect draft-07|draft-2019-09|draft-2020-12] [--json]
 mimlet --version
-JSON generation config: { "builders": [...module targets], "schemas": [...JSON schema targets] }.
+JSON generation config: { "builders": [...module targets], "schemas": [...JSON schema targets],
+  "openapi": { "document": "openapi.json", "schemas": "all" | ["Name", ...], "direction"?: "request" | "response" } }.
+OpenAPI document paths are relative to the configuration file.
 Application modules are not executed by code generation, doctor or JSON inspection.`;
 
 function flagsFor(
@@ -38,16 +42,57 @@ function flagsFor(
   }
   return flags;
 }
-async function readJson(file: string, label: string): Promise<unknown> {
+async function readJson(file: string, label: string, megabytes = 2): Promise<unknown> {
   try {
     const info = await stat(file);
-    if (!info.isFile() || info.size > 2_000_000) {
+    if (!info.isFile() || info.size > megabytes * 1_000_000) {
       throw new Error('size');
     }
     return JSON.parse(await readFile(file, 'utf8')) as unknown;
   } catch {
-    throw new UsageError(`The ${label} must be a readable JSON file of at most 2 MB`);
+    throw new UsageError(`The ${label} must be a readable JSON file of at most ${megabytes} MB`);
   }
+}
+type OpenApiConfiguration = OpenApiSchemas & { readonly document: string };
+/** Read each configured OpenAPI document and project its component schemas. */
+async function openApiTargets(
+  configuration: string,
+  value: unknown
+): Promise<Array<{ readonly document: string; readonly targets: OpenApiBuilderTarget[] }>> {
+  if (value === undefined) {
+    return [];
+  }
+  const sources = (Array.isArray(value) ? value : [value]) as unknown[];
+  if (sources.length === 0 || sources.length > 100) {
+    throw new UsageError('openapi must be one source or a list of at most 100 sources');
+  }
+  const { openApiBuilderTargets } = await import('./openapi.js');
+  const result = [];
+  for (const source of sources) {
+    if (
+      !source ||
+      typeof source !== 'object' ||
+      Array.isArray(source) ||
+      typeof (source as OpenApiConfiguration).document !== 'string' ||
+      !(source as OpenApiConfiguration).document
+    ) {
+      throw new UsageError('Each openapi source needs a "document" path and "schemas"');
+    }
+    const { document, ...selection } = source as OpenApiConfiguration;
+    const parsed = await readJson(
+      resolve(dirname(resolve(configuration)), document),
+      `OpenAPI document ${JSON.stringify(document)}`,
+      16
+    );
+    try {
+      result.push({ document, targets: openApiBuilderTargets(parsed, selection) });
+    } catch (error) {
+      throw new UsageError(
+        `OpenAPI document ${JSON.stringify(document)}: ${error instanceof Error ? error.message : 'invalid input'}`
+      );
+    }
+  }
+  return result;
 }
 function printReport(report: DiagnosticReport, json: boolean): void {
   if (json) {
@@ -150,26 +195,33 @@ async function main(): Promise<void> {
   const input = (await readJson(config, 'configuration')) as {
     builders?: BuilderTarget[];
     schemas?: JsonBuilderTarget[];
+    openapi?: unknown;
   };
   if (
     !input ||
     typeof input !== 'object' ||
     Array.isArray(input) ||
-    Object.keys(input).some((key) => !['builders', 'schemas'].includes(key))
+    Object.keys(input).some((key) => !['builders', 'schemas', 'openapi'].includes(key))
   ) {
     throw new CodegenError('Invalid data-only generation configuration');
   }
+  const openapi = await openApiTargets(config, input.openapi);
   const selection =
     typeof flags.get('--select') === 'string'
       ? String(flags.get('--select')).split(',')
       : undefined;
-  const all = [...(input.builders ?? []), ...(input.schemas ?? [])];
+  const all = [
+    ...(input.builders ?? []),
+    ...(input.schemas ?? []),
+    ...openapi.flatMap((source) => source.targets),
+  ];
   if (selection?.some((name) => !all.some((target) => target.name === name))) {
     throw new CodegenError('Unknown selected builder');
   }
   const options = flags.get('--self-contained')
     ? { runtimeModule: './builder-runtime/index.js' }
     : {};
+  const { emitOpenApiTargets } = await import('./openapi.js');
   const files = [
     ...emitBuilders(
       (input.builders ?? []).filter((target) => !selection || selection.includes(target.name)),
@@ -179,8 +231,24 @@ async function main(): Promise<void> {
       (input.schemas ?? []).filter((target) => !selection || selection.includes(target.name)),
       options
     )),
-    ...(flags.get('--self-contained') ? await selfContainedRuntime() : []),
   ];
+  for (const source of openapi) {
+    try {
+      files.push(
+        ...(await emitOpenApiTargets(
+          source.targets.filter((target) => !selection || selection.includes(target.name)),
+          options
+        ))
+      );
+    } catch (error) {
+      throw new UsageError(
+        `OpenAPI document ${JSON.stringify(source.document)}: ${error instanceof Error ? error.message : 'emission failed'}`
+      );
+    }
+  }
+  if (flags.get('--self-contained')) {
+    files.push(...(await selfContainedRuntime()));
+  }
   const result = await writeGenerated(out, files, { check: flags.get('--check') === true });
   console.log(
     JSON.stringify(

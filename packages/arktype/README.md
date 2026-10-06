@@ -59,5 +59,10 @@ raises an error; a factory supplies data for constraints that cannot be synthesi
 
 Use `generation().session(seed)` for generator-owned replay identity and keep
 application schema/morph versions in the identity when output depends on opaque
-functions. The core remains free of vendor dependencies. Native declarations need
+functions. A session-less `fromArkType()` build starts from that seed-1 session, so
+two builders over Types with the same input JSON Schema return the same values. Give
+them a `name`, as in `fromArkType(Lead, { name: 'Lead' })`, or pass one
+`createTestSession()` from `@mimlet/core` to every build in a test. Patch factories and
+transforms always receive a session, and `fromArkTypeFactory` takes a typed
+`defaultSession` option. The core remains free of vendor dependencies. Native declarations need
 DOM and Node types; the schema-free core does not inherit those requirements.

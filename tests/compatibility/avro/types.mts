@@ -25,3 +25,13 @@ avroAdapter(schema, { maxNodes: '100' });
 builders.omit('id');
 // @ts-expect-error Async transforms cannot advertise synchronous builds.
 builders.transformAsync(async (value) => value).build();
+// Names, callbacks that always receive a session, and tuple lists.
+const named = fromAvro(schema, { name: 'records' }).transform((value, run: GenerationSession) =>
+  run.boolean() ? value : value
+);
+const [firstRecord, secondRecord] = named.buildList(2);
+void firstRecord;
+void secondRecord;
+avroAdapter(schema, { name: 'records' })
+  .builder()
+  .withFactory((run) => run.random());

@@ -48,3 +48,27 @@ const status: boolean = reportStatus(entries);
 void status;
 // @ts-expect-error The rule takes the diagnostics list, not a whole report.
 reportStatus(inspection);
+
+// OpenAPI component builders take data-only selections.
+import { emitOpenApiBuilders, openApiBuilderName, openApiBuilderTargets } from '@mimlet/codegen';
+import type { GeneratedFile, OpenApiBuilderTarget, OpenApiSchemas } from '@mimlet/codegen';
+declare const document: unknown;
+const selection: OpenApiSchemas = {
+  schemas: [
+    'CreateDealCommand',
+    { schema: 'DealDto', name: 'DealResponse', direction: 'response' },
+  ],
+  direction: 'request',
+  options: { profile: 'realistic', maxAttempts: 10 },
+};
+const targets: OpenApiBuilderTarget[] = openApiBuilderTargets(document, selection);
+const component: string = targets[0]!.component;
+const files: GeneratedFile[] = await emitOpenApiBuilders(document, { schemas: 'all' });
+const builderName: string = openApiBuilderName('create-deal');
+void [component, files, builderName];
+// @ts-expect-error A direction is a request or a response.
+openApiBuilderTargets(document, { schemas: 'all', direction: 'both' });
+// @ts-expect-error The dialect and references come from the document.
+openApiBuilderTargets(document, { schemas: 'all', options: { dialect: 'draft-07' } });
+// @ts-expect-error Profiles are a closed set.
+openApiBuilderTargets(document, { schemas: 'all', options: { profile: 'lifelike' } });

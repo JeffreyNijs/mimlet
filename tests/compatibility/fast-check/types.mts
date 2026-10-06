@@ -58,3 +58,17 @@ expectType<Promise<unknown>>(
   checkFixturePropertyAsync(input, async () => true, { identity, seed: 1 })
 );
 if (result.replay) replayFixtureProperty(input, () => true, result.replay, identity);
+
+// An explicit defaultSession lets builds omit the session that seeds each sample.
+const defaulted = fromArbitrary(input, {
+  defaultSession: () => createSession({ ...identity, seed: 2 }),
+});
+const [firstSample, secondSample] = defaulted.buildList(2);
+expectType<{ age: number; name: string }>(firstSample);
+expectType<{ age: number; name: string }>(secondSample);
+defaulted.withFactory((run) => ({ age: run.integer(1, 9) }));
+expectType<{ age: number }>(
+  fromSchemaArbitrary(schema, values, {
+    defaultSession: () => createSession({ ...identity, seed: 2 }),
+  }).buildValidated()
+);

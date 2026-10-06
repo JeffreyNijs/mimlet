@@ -10,6 +10,7 @@ import {
   headerName,
   headerValue,
   openApi,
+  openApiComponents,
   serializeParameter,
 } from '@mimlet/api';
 import { BuilderValidationError, restoreSession } from '@mimlet/core';
@@ -735,7 +736,7 @@ describe('schema projection and offline reference boundaries', () => {
   it('rejects active/non-JSON inputs before invoking accessors and honors budgets', () => {
     for (const bad of [
       new Date(),
-      undefined,
+      [undefined],
       NaN,
       Infinity,
       () => 1,
@@ -761,5 +762,126 @@ describe('schema projection and offline reference boundaries', () => {
     const poisoned = JSON.parse('{"openapi":"3.1.0","__proto__":{"polluted":true},"paths":{}}');
     openApi(poisoned);
     assert.equal({}.polluted, undefined);
+  });
+});
+
+/** The shape a NestJS Swagger module builds in memory: undefined fields included. */
+function nestDocument() {
+  return {
+    openapi: '3.0.0',
+    info: { title: 'Deals', version: '1.0', description: undefined, contact: {} },
+    servers: [{ url: 'http://localhost:3000', description: undefined }],
+    paths: {
+      '/deals': {
+        post: {
+          operationId: 'DealsController_create',
+          summary: undefined,
+          parameters: [
+            { name: 'dryRun', required: false, in: 'query', schema: { type: 'boolean' } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/CreateDealCommand' } },
+            },
+          },
+          responses: { 201: content({ $ref: '#/components/schemas/DealDto' }) },
+        },
+      },
+    },
+    components: {
+      securitySchemes: undefined,
+      schemas: {
+        FacadeDto: {
+          type: 'object',
+          properties: { street: { type: 'string', example: 'Main street 1' } },
+          required: ['street'],
+        },
+        CreateDealCommand: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: undefined },
+            amount: { type: 'number', minimum: 0 },
+            note: { type: 'string', nullable: true },
+            facade: { nullable: true, allOf: [{ $ref: '#/components/schemas/FacadeDto' }] },
+          },
+          required: ['title', 'amount', 'facade'],
+        },
+        DealDto: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid', readOnly: true },
+            title: { type: 'string' },
+            password: { type: 'string', writeOnly: true },
+          },
+          required: ['id', 'title', 'password'],
+        },
+      },
+    },
+  };
+}
+
+describe('framework-built documents and component schemas', () => {
+  it('treats undefined document properties as absent and names other non-JSON values', () => {
+    const live = openApi(nestDocument());
+    const serialized = openApi(JSON.parse(JSON.stringify(nestDocument())));
+    assert.deepEqual(live.operations(), serialized.operations());
+    const select = { operationId: 'DealsController_create' };
+    assert.deepEqual(live.request(select).identity, serialized.request(select).identity);
+    assert.deepEqual(
+      live.request(select).builder().buildList(3),
+      serialized.request(select).builder().buildList(3)
+    );
+    const request = live.request(select);
+    assert.equal(request.check({ body: { title: 'Deal', amount: 1, facade: null } }), true);
+    assert.equal(request.check({ body: { title: 'Deal', amount: 1, facade: undefined } }), false);
+    class Contact {}
+    const cycle = {};
+    cycle.again = { cycle };
+    for (const [value, message] of [
+      [[1, undefined], 'Expected JSON data, found undefined at /x/1'],
+      [() => 1, 'Expected JSON data, found a function at /x'],
+      [Infinity, 'Expected JSON data, found Infinity at /x'],
+      [new Date(0), 'Expected a plain JSON object, found an instance of Date at /x'],
+      [new Contact(), 'Expected a plain JSON object, found an instance of Contact at /x'],
+      [Object.create(Object.create(null)), 'found an object that is not a plain record at /x'],
+      [cycle, 'found a reference back to an enclosing value at /x/again/cycle'],
+    ])
+      assert.throws(
+        () => openApi({ ...nestDocument(), x: value }),
+        (error) => error instanceof ApiContractError && error.message.endsWith(message)
+      );
+  });
+  it('projects components with direction, nullable references and component definition names', () => {
+    const components = openApiComponents(nestDocument());
+    assert.equal(components.dialect, 'draft-07');
+    assert.deepEqual(components.names(), ['FacadeDto', 'CreateDealCommand', 'DealDto']);
+    const command = components.schema('CreateDealCommand', 'request').schema;
+    assert.deepEqual(command.properties.facade, {
+      anyOf: [{ allOf: [{ $ref: '#/definitions/FacadeDto' }] }, { type: 'null' }],
+    });
+    assert.deepEqual(Object.keys(command.definitions), ['FacadeDto']);
+    assert.deepEqual(components.schema('DealDto').schema.required, ['id', 'title']);
+    assert.deepEqual(components.schema('DealDto', 'request').schema.required, [
+      'title',
+      'password',
+    ]);
+    fail(() => components.schema('Missing'), /Unknown component schema/);
+    fail(() => components.schema('DealDto', 'both'), /direction/);
+    assert.deepEqual(openApiComponents({ openapi: '3.2.0' }).names(), []);
+    assert.equal(openApiComponents({ openapi: '3.1.0', components: {} }).dialect, 'draft-2020-12');
+    fail(() => openApiComponents({ openapi: '2.0' }));
+  });
+  it('fills optional parameters and fields with small readable values in the realistic profile', () => {
+    const request = openApi(nestDocument(), { profile: 'realistic' }).request({
+      operationId: 'DealsController_create',
+    });
+    for (const fixture of request.builder().buildValidatedList(4)) {
+      assert.equal(typeof fixture.query.dryRun, 'boolean');
+      assert.deepEqual(Object.keys(fixture.body).sort(), ['amount', 'facade', 'note', 'title']);
+      assert.deepEqual(fixture.body.facade, { street: 'Main street 1' });
+      assert.ok(fixture.body.amount >= 0 && fixture.body.amount <= 100);
+      assert.match(fixture.body.title, /^[A-Z][a-z]+( [a-z]+)*$/);
+    }
   });
 });

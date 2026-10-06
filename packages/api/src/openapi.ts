@@ -1,4 +1,5 @@
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
+import type { JsonSchema, SchemaDialect } from '@mimlet/json-schema';
 import type { GenerationSession, SchemaBuilder } from '@mimlet/core';
 import {
   ApiContractError,
@@ -110,15 +111,80 @@ function media(
   mediaType(selected);
   return { location: documents.child(from, selected), type: selected };
 }
-/** Data-only OpenAPI operation fixtures. Server descriptions are never used to make requests. */
-export function openApi(source: unknown, options: ContractOptions = {}) {
-  options = Object.freeze({ ...options });
-  const documents = new Documents(source, options);
+function version(documents: Documents): {
+  root: JsonObject & { readonly openapi: string };
+  mode: SchemaMode;
+} {
   const root = object(documents.root.value);
   if (typeof root.openapi !== 'string' || !/^3\.(0|1|2)\.[0-9]+$/.test(root.openapi)) {
     throw new ApiContractError('Expected OpenAPI 3.0, 3.1 or 3.2');
   }
-  const mode: SchemaMode = root.openapi.startsWith('3.0.') ? 'openapi-3.0' : 'openapi-3.1';
+  return {
+    root: root as JsonObject & { readonly openapi: string },
+    mode: root.openapi.startsWith('3.0.') ? 'openapi-3.0' : 'openapi-3.1',
+  };
+}
+export interface OpenApiComponentSchema {
+  /** A standalone schema; the component schemas it references are local definitions. */
+  readonly schema: JsonSchema;
+  /** `draft-07` for OpenAPI 3.0 and `draft-2020-12` for 3.1 and 3.2. */
+  readonly dialect: SchemaDialect;
+}
+const componentPointer = /^\/components\/schemas\/([^/]+)$/;
+/**
+ * Named component schemas (`#/components/schemas/<name>`) as standalone JSON Schemas, with the
+ * same projection as operation fixtures: OpenAPI 3.0 `nullable` and exclusive bounds, 3.1
+ * reference siblings, and direction-aware `readOnly`/`writeOnly` properties. Referenced
+ * components become definitions named after the component. Operations are not read.
+ */
+export function openApiComponents(source: unknown, options: ContractOptions = {}) {
+  options = Object.freeze({ ...options });
+  const documents = new Documents(source, options);
+  const { root, mode } = version(documents);
+  const components =
+    root.components === undefined ? undefined : documents.child(documents.root, 'components');
+  const schemas =
+    components === undefined || object(components.value, components.pointer).schemas === undefined
+      ? undefined
+      : documents.child(components, 'schemas');
+  const names = schemas === undefined ? [] : Object.keys(object(schemas.value, schemas.pointer));
+  const naming = (target: Located) => {
+    const match = componentPointer.exec(target.pointer);
+    const name = match?.[1]?.replace(/~1/g, '/').replace(/~0/g, '~');
+    return name !== undefined && /^[A-Za-z0-9._-]{1,128}$/.test(name) ? name : undefined;
+  };
+  return Object.freeze({
+    openapi: root.openapi,
+    dialect: (mode === 'openapi-3.0' ? 'draft-07' : 'draft-2020-12') as SchemaDialect,
+    /** Component schema names in document order. */
+    names: (): string[] => [...names],
+    /**
+     * `request` leaves out read-only properties and `response` (the default) leaves out
+     * write-only ones, as `openApi().request()` and `.response()` do.
+     */
+    schema(name: string, direction: 'request' | 'response' = 'response'): OpenApiComponentSchema {
+      if (typeof name !== 'string' || !names.includes(name) || schemas === undefined) {
+        throw new ApiContractError('Unknown component schema', '/components/schemas');
+      }
+      if (direction !== 'request' && direction !== 'response') {
+        throw new ApiContractError('Expected the request or response direction');
+      }
+      const projected = projectSchema(
+        documents,
+        documents.child(schemas, name),
+        mode,
+        direction,
+        naming
+      );
+      return Object.freeze({ schema: projected.schema, dialect: projected.dialect });
+    },
+  });
+}
+/** Data-only OpenAPI operation fixtures. Server descriptions are never used to make requests. */
+export function openApi(source: unknown, options: ContractOptions = {}) {
+  options = Object.freeze({ ...options });
+  const documents = new Documents(source, options);
+  const { root, mode } = version(documents);
   const operations: Operation[] = [];
   const ids = new Set<string>();
   for (const group of ['paths', 'webhooks']) {
@@ -531,13 +597,23 @@ export function fromOpenApiRequest(
   source: unknown,
   selector: OpenApiSelection,
   options: ContractOptions = {}
-): SchemaBuilder<HttpRequestFixture, HttpRequestFixture, [session?: GenerationSession]> {
+): SchemaBuilder<
+  HttpRequestFixture,
+  HttpRequestFixture,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return openApi(source, options).request(selector).builder();
 }
 export function fromOpenApiResponse(
   source: unknown,
   selector: OpenApiResponseSelection,
   options: ContractOptions = {}
-): SchemaBuilder<HttpResponseFixture, HttpResponseFixture, [session?: GenerationSession]> {
+): SchemaBuilder<
+  HttpResponseFixture,
+  HttpResponseFixture,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return openApi(source, options).response(selector).builder();
 }
