@@ -207,6 +207,11 @@ export async function prepare(): Promise<void> {
       'Task recipes, validation, replay, shrinking and deterministic code generation',
     ],
     ['Scenarios', 'correlated-scenarios', 'Shared identities and recomputed dependent values'],
+    [
+      'Class instances',
+      'class-instances',
+      'Entity builders that patch a record and build class instances; map()',
+    ],
     ['Try it', 'try-it', 'Edit and run Mimlet examples in a local, in-browser sandbox'],
     ['Interactive demo', 'scenario-demo', 'Run, shrink and replay a coherent order scenario'],
     ['Checkout regression', 'checkout-example', 'Find, shrink, replay and fix a checkout bug'],

@@ -105,6 +105,7 @@ export default defineConfig({
         text: 'Build your test world',
         items: [
           { text: 'Named setters', link: '/guide/fluent-builders' },
+          { text: 'Entities and class instances', link: '/guide/class-instances' },
           { text: 'CLI diagnostics', link: '/guide/cli-diagnostics' },
           { text: 'Error codes', link: '/guide/error-codes' },
           { text: 'Correlated scenarios', link: '/guide/correlated-scenarios' },

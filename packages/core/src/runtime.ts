@@ -1,3 +1,4 @@
+import { className, mappedClass, type AnyClass } from './class-instance.js';
 import { summarizeValidationIssues } from './issues.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
@@ -37,6 +38,10 @@ type Operation =
   | { readonly kind: 'omit'; readonly keys: ReadonlyArray<PropertyKey> };
 type Transform = {
   readonly asynchronous: boolean;
+  /** A map is a transform whose result may have another type. */
+  readonly kind?: 'map';
+  /** For a map made by intoClass(): the class later transforms must keep returning. */
+  readonly instanceOf?: AnyClass;
   readonly run: (value: unknown, ...args: unknown[]) => unknown;
 };
 type State = {
@@ -67,6 +72,24 @@ function merge(value: unknown, patch: unknown): unknown {
     throw new TypeError('Cannot merge between record and non-record values; use replace()');
   }
   return patch;
+}
+/**
+ * After intoClass(), a transform must return an instance of that class, so a spread copy
+ * (`{ ...user }`) cannot silently turn the built entity back into a plain object. A later map()
+ * may change the type again.
+ */
+function guard() {
+  let target: AnyClass | undefined;
+  return (transform: Transform, value: unknown): unknown => {
+    if (transform.kind === 'map') {
+      target = transform.instanceOf;
+    } else if (target !== undefined && !(value instanceof target)) {
+      throw new TypeError(
+        `A transform after intoClass(${className(target)}) returned a value that is not a ${className(target)} instance; change the instance (for example with Object.assign) or use map() to change the type`
+      );
+    }
+    return value;
+  };
 }
 function synchronous(value: unknown, asyncMethod: string): unknown {
   if (
@@ -169,18 +192,24 @@ export function makeRuntime(state: State) {
     }
     const initial = synchronous(invoke(state.factory, args), 'buildAsync()');
     let value = prepare(applyOperations(state, initial, args));
+    const check = guard();
     for (const transform of state.transforms) {
-      value = synchronous(invoke(transform.run, [value, ...args]), 'a synchronous transform');
+      value = check(
+        transform,
+        synchronous(invoke(transform.run, [value, ...args]), 'a synchronous transform')
+      );
     }
     return value;
   };
   const produceAsync = async (args: unknown[]) => {
     let value = prepare(applyOperations(state, await invoke(state.factory, args), args));
+    const check = guard();
     for (const transform of state.transforms) {
       const result = invoke(transform.run, [value, ...args]);
-      value = transform.asynchronous
-        ? await result
-        : synchronous(result, 'a synchronous transform');
+      value = check(
+        transform,
+        transform.asynchronous ? await result : synchronous(result, 'a synchronous transform')
+      );
     }
     return value;
   };
@@ -238,6 +267,21 @@ export function makeRuntime(state: State) {
       callable(run, 'transformAsync()');
       return configure({ transforms: [...state.transforms, { asynchronous: true, run }] });
     },
+    map(run: (value: unknown, ...args: unknown[]) => unknown) {
+      if (state.standard) {
+        throw new TypeError(
+          'map() is not available on schema builders: the validator expects the unmapped input'
+        );
+      }
+      callable(run, 'map()');
+      const instanceOf = mappedClass(run);
+      return configure({
+        transforms: [
+          ...state.transforms,
+          { asynchronous: false, kind: 'map', run, ...(instanceOf ? { instanceOf } : {}) },
+        ],
+      });
+    },
     build(...args: unknown[]) {
       return produce(withDefaults(args));
     },
@@ -259,8 +303,8 @@ export function makeRuntime(state: State) {
         operations: Object.freeze([
           'factory',
           ...state.operations.map(({ kind }) => kind),
-          ...state.transforms.map(({ asynchronous }) =>
-            asynchronous ? 'transformAsync' : 'transform'
+          ...state.transforms.map(
+            ({ asynchronous, kind }) => kind ?? (asynchronous ? 'transformAsync' : 'transform')
           ),
         ]),
       });

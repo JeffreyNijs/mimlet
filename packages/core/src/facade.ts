@@ -4,9 +4,6 @@ import type { GenerationSession } from './session.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
   AnyFactory,
-  AsyncBuilder,
-  AsyncSchemaBuilder,
-  Builder,
   BuilderConfig,
   BuilderDescription,
   BuilderFor,
@@ -16,7 +13,6 @@ import type {
   DefaultedSessionFor,
   DefaultSessionFor,
   OptionalKeys,
-  SchemaBuilder,
   SchemaBuilderConfig,
   SchemaBuilderFor,
   SchemaInput,
@@ -25,20 +21,28 @@ import type {
 /** Async build methods keep their own signatures, including literal-count list tuples. */
 type AsyncBuildMethod =
   'buildAsync' | 'buildListAsync' | 'buildValidatedAsync' | 'buildValidatedListAsync' | 'describe';
-/** Retarget fluent methods, including generated methods, after an async transition. */
+/**
+ * Retarget fluent methods, including generated methods, after an async transition. `map()` is
+ * typed on async builders and on `fluent()` builders, but not after a facade's
+ * `transformAsync()`: map before the async transition.
+ */
 export type AsyncFacade<T> = {
   [
-    K in Exclude<keyof T, 'build' | 'buildList' | 'buildValidated' | 'buildValidatedList'>
+    K in Exclude<keyof T, 'build' | 'buildList' | 'buildValidated' | 'buildValidatedList' | 'map'>
   ]: K extends AsyncBuildMethod
     ? T[K]
     : T[K] extends (...args: infer A) => infer R
       ? (...args: A) => R extends T ? AsyncFacade<T> : R
       : T[K];
 };
-/** `Received` are the arguments callbacks receive; see `AsyncBuilder`. */
+/**
+ * `Output` is what builds return (see `AsyncBuilder`). `Received` are the arguments callbacks
+ * receive.
+ */
 export interface AsyncBuilderFacade<
   T,
   Args extends unknown[] = [],
+  Output = T,
   Received extends unknown[] = Args,
 > {
   with(patch: BuilderPatch<T>): this;
@@ -46,28 +50,37 @@ export interface AsyncBuilderFacade<
   withFactory(factory: (...args: Received) => BuilderPatch<T>): this;
   replaceFactory(factory: (...args: Received) => T): this;
   omit(...keys: OptionalKeys<T>[]): this;
-  transform(transformer: BuilderTransform<T, Received>): this;
+  transform(transformer: BuilderTransform<Output, Received>): this;
   transformAsync(
-    transformer: (value: T, ...args: Received) => T | PromiseLike<T>
+    transformer: (value: Output, ...args: Received) => Output | PromiseLike<Output>
   ): AsyncFacade<this>;
-  buildAsync(...args: Args): Promise<T>;
-  buildListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<T, N>>;
+  buildAsync(...args: Args): Promise<Output>;
+  buildListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<Output, N>>;
   describe(): BuilderDescription;
 }
 export interface BuilderFacade<
   T,
   Args extends unknown[] = [],
+  Output = T,
   Received extends unknown[] = Args,
-> extends AsyncBuilderFacade<T, Args, Received> {
-  build(...args: Args): T;
-  buildList<N extends number>(count: N, ...args: Args): BuiltList<T, N>;
+> extends AsyncBuilderFacade<T, Args, Output, Received> {
+  /**
+   * A transform whose result may have another type. The runtime keeps every method of the
+   * facade, such as a generated class's setters; this type is the plain facade. `fluent()`
+   * builders keep their setters in the type too.
+   */
+  map<Next>(
+    mapper: (value: Output, ...args: Received) => Next
+  ): BuilderFacade<T, Args, Next, Received>;
+  build(...args: Args): Output;
+  buildList<N extends number>(count: N, ...args: Args): BuiltList<Output, N>;
 }
 export interface AsyncSchemaBuilderFacade<
   I,
   O,
   Args extends unknown[] = [],
   Received extends unknown[] = Args,
-> extends AsyncBuilderFacade<I, Args, Received> {
+> extends AsyncBuilderFacade<I, Args, I, Received> {
   usingValidation(options: StandardSchemaV1.Options): this;
   buildValidatedAsync(...args: Args): Promise<O>;
   buildValidatedListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<O, N>>;
@@ -83,17 +96,29 @@ export interface SchemaBuilderFacade<
   buildValidated(...args: Args): O;
   buildValidatedList<N extends number>(count: N, ...args: Args): BuiltList<O, N>;
 }
-export type FacadeFor<B> =
-  B extends SchemaBuilder<infer I, infer O, infer A, infer R>
-    ? SchemaBuilderFacade<I, O, A, R>
-    : B extends AsyncSchemaBuilder<infer I, infer O, infer A, infer R>
-      ? AsyncSchemaBuilderFacade<I, O, A, R>
-      : B extends Builder<infer T, infer A, infer R>
-        ? BuilderFacade<T, A, R>
-        : B extends AsyncBuilder<infer T, infer A, infer R>
-          ? AsyncBuilderFacade<T, A, R>
-          : never;
-type InputOf<B> = B extends { buildAsync(...args: never[]): Promise<infer T> } ? T : never;
+/** What a builder patches: the parameter of `replace()`, which `map()` does not change. */
+type PatchedBy<B> = B extends { replace(value: infer T): unknown } ? T : never;
+/** What its callbacks receive: the factory parameters of `withFactory()`. */
+type ReceivedBy<B> = B extends { withFactory(factory: (...args: infer R) => never): unknown }
+  ? R
+  : never;
+type Override<Inferred, Out> = [Out] extends [never] ? Inferred : Out;
+/**
+ * The facade of a builder, read from its members, so a builder, a facade and a `fluent()`
+ * builder all qualify. `Out` replaces what builds return (for `fluent()` after `map()`).
+ */
+export type FacadeFor<B, Out = never> = B extends {
+  buildValidated(...args: infer A): infer O;
+}
+  ? SchemaBuilderFacade<PatchedBy<B>, O, A, ReceivedBy<B>>
+  : B extends { buildValidatedAsync(...args: infer A): Promise<infer O> }
+    ? AsyncSchemaBuilderFacade<PatchedBy<B>, O, A, ReceivedBy<B>>
+    : B extends { build(...args: infer A): infer O }
+      ? BuilderFacade<PatchedBy<B>, A, Override<O, Out>, ReceivedBy<B>>
+      : B extends { buildAsync(...args: infer A): Promise<infer O> }
+        ? AsyncBuilderFacade<PatchedBy<B>, A, Override<O, Out>, ReceivedBy<B>>
+        : never;
+type InputOf<B> = PatchedBy<B>;
 export type BuilderConstructor<B> = new (initial?: BuilderPatch<InputOf<B>>) => FacadeFor<B>;
 
 /**
