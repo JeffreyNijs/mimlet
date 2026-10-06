@@ -257,9 +257,9 @@ it('publishes every native peer as its supported range and the matrix range as t
     [
       'packages/zod/package.json',
       (pkg) => {
-        pkg.mimlet.testedPeers.zod = '>=4.4.3 <=4.7.0';
+        pkg.mimlet.testedPeers.zod = '>=4.3.0 <=4.7.0';
       },
-      /mimlet\.testedPeers\.zod must be >=4\.4\.3 <=4\.6\.5/,
+      /mimlet\.testedPeers\.zod must be >=4\.3\.0 <=4\.6\.5/,
     ],
     [
       'packages/zod/package.json',

@@ -3,7 +3,11 @@ import { test } from 'node:test';
 import { z } from 'zod';
 import * as mini from 'zod/mini';
 import { BuilderValidationError, fluent, restoreSession } from '@mimlet/core';
-import { fromStandardJsonSchema, SchemaGenerationError } from '@mimlet/json-schema';
+import {
+  fromStandardJsonSchema,
+  SchemaGenerationError,
+  SchemaPreparationError,
+} from '@mimlet/json-schema';
 import { defineAdapter } from '@mimlet/adapter';
 import { assertAdapterConformance } from '@mimlet/adapter/testing';
 import {
@@ -81,7 +85,17 @@ test('async refinements and codecs execute through the async parser exactly once
 
 test('factory helpers retain tuples, async capabilities and values that JSON cannot represent', async () => {
   const schema = z.object({ when: z.date(), ids: z.set(z.bigint()) });
-  assert.throws(() => fromZod(schema));
+  // Conversion waits for the first build, which names the input and suggests a factory.
+  const automatic = fromZod(schema);
+  assert.throws(
+    () => automatic.build(),
+    (error) =>
+      error instanceof SchemaPreparationError &&
+      error.code === 'SCHEMA_PREPARATION_FAILED' &&
+      error.schemaPath === '/properties/when' &&
+      error.message.includes('fromZodFactory(schema, factory)') &&
+      error.cause instanceof Error
+  );
   const builder = fromZodFactory(schema, (time, id = 1n) => ({
     when: new Date(time),
     ids: new Set([id]),
@@ -137,15 +151,15 @@ test('does not retry user callback failures and applies clone/list configuration
     calls++;
     throw failure;
   });
-  assert.throws(
-    () => fromZodFactory(broken, () => 'x').buildValidated(),
-    (error) => error === failure
-  );
+  const reported = (error) =>
+    error instanceof BuilderValidationError &&
+    error.cause === failure &&
+    error.issues.length === 1 &&
+    error.issues[0].path.length === 0 &&
+    error.issues[0].message.includes('caller-owned failure');
+  assert.throws(() => fromZodFactory(broken, () => 'x').buildValidated(), reported);
   assert.equal(calls, 1);
-  await assert.rejects(
-    fromZodFactoryAsync(broken, () => 'x').buildValidatedAsync(),
-    (error) => error === failure
-  );
+  await assert.rejects(fromZodFactoryAsync(broken, () => 'x').buildValidatedAsync(), reported);
   assert.equal(calls, 2);
   let clones = 0,
     factories = 0;
@@ -255,4 +269,84 @@ test('lists object fields for a setter per field, through pipes and factory buil
   assert.equal((await asynchronous.withName('Ada').buildValidatedAsync()).name, 'Ada');
   for (const schema of [z.string(), z.union([Account, z.object({ b: z.string() })]), null])
     assert.throws(() => zodFields(schema), /Zod object schema/);
+});
+
+test('builds undefined for z.void() and z.undefined() without a generator', async () => {
+  for (const schema of [z.void(), z.undefined(), mini.void()]) {
+    const builder = fromZod(schema);
+    assert.equal(builder.build(), undefined);
+    assert.equal(builder.buildValidated(), undefined);
+    assert.deepEqual(builder.buildList(2), [undefined, undefined]);
+    assert.equal(await fromZodAsync(schema).buildValidatedAsync(), undefined);
+    assert.throws(() => zodAdapter(schema).generation(), SchemaPreparationError);
+  }
+  assert.throws(
+    () => fromZod(z.object({ reply: z.void() })).build(),
+    (error) => error instanceof SchemaPreparationError && error.schemaPath === '/properties/reply'
+  );
+});
+
+test('converts on the first build and shares the generator per schema and options', () => {
+  const Person = z.object({ name: z.string(), age: z.number().int().min(18) });
+  const shared = zodAdapter(Person).generation();
+  assert.equal(zodAdapter(Person, { maxListSize: 5 }).generation(), shared);
+  assert.notEqual(zodAdapter(Person, { profile: 'random' }).generation(), shared);
+  assert.equal(
+    zodAdapter(Person, { annotations: ['x-note'], profile: 'random' }).generation(),
+    zodAdapter(Person, { profile: 'random', annotations: ['x-note'] }).generation()
+  );
+  assert.deepEqual(fromZod(Person).buildList(2), fromZod(Person).buildList(2, shared.session()));
+  const pattern = fromZod(z.string().regex(/^]$/));
+  assert.throws(() => pattern.build(), SchemaPreparationError);
+  // A conversion failure without a known location, and a thrown value that is not an Error.
+  const opaque = z.string();
+  opaque._zod.toJSONSchema = () => {
+    throw 'opaque';
+  };
+  assert.throws(
+    () => fromZod(opaque).build(),
+    (error) =>
+      error instanceof SchemaPreparationError &&
+      error.schemaPath === '' &&
+      error.cause === 'opaque' &&
+      error.message.includes('fromZodFactory(schema, factory)')
+  );
+});
+
+test('reports thrown ZodErrors and non-Error values from transforms as validation failures', () => {
+  const Lead = z.object({ id: z.string(), source: z.string() });
+  const parsing = Lead.transform((lead) => ({
+    ...lead,
+    source: z.enum(['teamleader']).parse(lead.source),
+  }));
+  assert.throws(
+    () => fromZodFactory(parsing, () => ({ id: '1', source: 'hubspot' })).buildValidated(),
+    (error) =>
+      error instanceof BuilderValidationError &&
+      error.cause instanceof z.ZodError &&
+      error.issues[0].code === 'invalid_value'
+  );
+  const reporting = Lead.transform((lead, ctx) => {
+    ctx.addIssue({ code: 'custom', path: ['source'], message: 'Unsupported lead source' });
+    return z.NEVER;
+  });
+  assert.throws(
+    () => fromZodFactory(reporting, () => ({ id: '1', source: 'hubspot' })).buildValidated(),
+    /1 issue at source/
+  );
+  const text = z.string().transform(() => {
+    throw 'text';
+  });
+  assert.throws(
+    () => fromZodFactory(text, () => 'x').buildValidated(),
+    (error) => error instanceof BuilderValidationError && error.cause === 'text'
+  );
+  assert.throws(
+    () =>
+      fromZodFactory(
+        z.string().refine(async () => true),
+        () => 'x'
+      ).buildValidated(),
+    (error) => !(error instanceof BuilderValidationError) && /parseAsync/.test(error.message)
+  );
 });

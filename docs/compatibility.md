@@ -14,7 +14,7 @@ executable source of truth.
 | Standard JSON Schema | v1 interface                           | Input conversion plus generation; input/output types retained.                                                | Must also supply Standard Schema to validate native output; opaque refinements can reject generated input.                |
 | TypeBox              | `typebox` 1.3.34                       | Native minimal/default creation with a deterministic fill, complete anyOf-branch selection, custom factories. | Strict checking, root/field Codec handling, named contexts; no lossy JSON conversion.                                     |
 | Legacy TypeBox       | `@sinclair/typebox` 0.34.48–0.34.52    | Separate native minimal/default creation with the same fill, and anyOf selection.                             | Native Transform, references, recursion, Date and format cases. Native version semantics are not rewritten.               |
-| Zod                  | 4.4.3–4.6.5                            | Dedicated Zod/Mini builders, input JSON generation and typed factories.                                       | Native parsing/codecs; explicit async path avoids the Standard entry probe.                                               |
+| Zod                  | 4.3.0–4.6.5                            | Dedicated Zod/Mini builders, input JSON generation and typed factories.                                       | Native parsing/codecs; explicit async path avoids the Standard entry probe.                                               |
 | Valibot              | 1.5.0; converter 1.8.0                 | Native adapter converts synchronous schema input.                                                             | Original parsing/transformations. Async/native-only schemas use a factory with Standard Schema.                           |
 | ArkType              | 2.2.5–2.2.7 (2.2.5 through alpha.3)    | Dedicated builders, input JSON generation and native typed factories.                                         | Native morphs/scopes and input checks retained; no private AST dependency.                                                |
 | Effect               | 4.0.0–4.0.1 (3.22.2 through alpha.3)   | Native decoded arbitrary re-encoded as input; sync/async factory escape hatches.                              | Native input/output arbitraries, codecs and Effect 4's own arbitrary engine and shrinking (fast-check 3 through alpha.3). |
@@ -161,7 +161,7 @@ Each native adapter has two ranges for its library:
 
 | Adapter                  | Library             | Supported (peer)  | Tested                |
 | ------------------------ | ------------------- | ----------------- | --------------------- |
-| `@mimlet/zod`            | `zod`               | `>=4.4.3 <5`      | `>=4.4.3 <=4.6.5`     |
+| `@mimlet/zod`            | `zod`               | `>=4.3.0 <5`      | `>=4.3.0 <=4.6.5`     |
 | `@mimlet/valibot`        | `valibot`           | `>=1.5.0 <2`      | `1.5.0`               |
 | `@mimlet/arktype`        | `arktype`           | `>=2.2.5 <3`      | `>=2.2.5 <=2.2.7`     |
 | `@mimlet/effect`         | `effect`            | `>=4.0.0 <5`      | `>=4.0.0 <=4.0.1`     |
@@ -205,6 +205,14 @@ Alpha.1 used exact peer pins. Alpha.2 widened Zod to `>=4.4.3 <=4.6.5` and legac
 TypeBox to `>=0.34.48 <=0.34.52`. Alpha.4 widened ArkType to `>=2.2.5 <=2.2.7` and
 Faker to `>=10.5.0 <=10.6.0`; alpha.3 pinned them to 2.2.5 and 10.5.0. Until
 `0.1.0-beta.2`, the peer range was the tested range.
+
+The release after `0.1.0-beta.3` lowers the Zod minimum to `4.3.0`, tested from
+4.3.0 through 4.6.5. Zod 4.3 assigns `async` and `direction` to the parse context it
+receives, which failed on the adapter's frozen `parseOptions`; the adapter now passes
+each parse its own copy. Older releases were probed and stay outside the range:
+4.2.x has no `z.exactOptional()`, which the conformance suite uses, and 4.0.x–4.1.x
+name the Draft 7 conversion target `draft-7` rather than `draft-07`, so the adapter
+does not compile against them (4.0.x also has no codecs).
 
 Modern TypeBox starts at `1.3.34`. Probing 1.3.30–1.3.33 found that a property
 named `a/b~c` is reported as `/a/b~c` rather than the unambiguous JSON Pointer

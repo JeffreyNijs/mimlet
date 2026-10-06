@@ -58,6 +58,11 @@ expectType<string>(native.encode(new Date()));
 expectType<Promise<Date>>(native.decodeAsync('2026-01-01'));
 // @ts-expect-error Encoding consumes native schema output, not input.
 native.encode('wrong');
+const empty = fromZod(z.void());
+expectType<void>(empty.buildValidated());
+expectType<undefined>(fromZod(z.undefined()).build());
+// @ts-expect-error A void builder does not produce a value.
+expectType<string>(empty.build());
 const small = fromZod(mini.object({ name: mini.string() }));
 expectType<{ name: string }>(small.buildValidated());
 
