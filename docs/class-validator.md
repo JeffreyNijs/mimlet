@@ -85,6 +85,25 @@ The factory's return type is `DtoInput<CreateOrderCommand>`: the DTO's data fiel
 recursively for nested DTOs, without methods and without fields typed `never`. It comes
 from the class, so the factory needs no annotation and a wrong value is a type error.
 
+A key that is not a payload field is a type error too: a misspelled field, a field typed
+`never` or a method, also inside nested DTOs and arrays of them. TypeScript on its own does
+not report extra keys of an object that a function returns, and `build()` would send them, so
+only the pipe's `forbidNonWhitelisted` would catch the typo in an e2e test:
+
+```ts
+fromClassValidator(CreateRoleCommand, () => ({ name: 'Admin', nmae: 'x' }));
+// error: Type 'string' is not assignable to type '"nmae is not a field of the class"'.
+fromClassValidator(ViewRolesQuery, () => ({ search: 'x' }));
+// error (search?: never): Type 'string' is not assignable to type
+// '"search is typed never in the class and cannot be set"'.
+```
+
+The check covers async factories, factories with arguments or a session, block bodies and
+spreads. A nested type without known keys (`object`, `Record<string, unknown>`) accepts any
+key, and a factory declared to return exactly `DtoInput<T>`, as in a generic helper, is not
+checked. `.with()` and the `fluent()` setters check their object literals as TypeScript
+always does.
+
 ```ts
 // A unit test of the use case
 const command = createOrderCommandBuilder.withProductCount(3).buildValidated();
@@ -131,7 +150,38 @@ await request(app.getHttpServer())
 ```
 
 Fields typed `never`, such as `sort?: never` with `@Equals(undefined)`, are not part of
-`DtoInput`, so the builder cannot set them by accident; `.with({ sort })` is a type error.
+`DtoInput`, so the builder cannot set them by accident: a factory that returns one and
+`.with({ sort })` are type errors.
+
+### Bind the options once
+
+With several query builders, `{ ...validationPipeOptions, wire: qs }` repeats in each one.
+`withClassValidatorDefaults(options)` binds options once and returns `fromClassValidator`,
+`fromClassValidatorAsync` and `classValidatorSchema` with them applied:
+
+```ts
+// test/builders/dto.ts
+import qs from 'qs';
+import { withClassValidatorDefaults } from '@mimlet/class-validator';
+
+export const body = withClassValidatorDefaults(validationPipeOptions);
+export const query = withClassValidatorDefaults({ ...validationPipeOptions, wire: qs });
+
+// src/orders/view-orders/tests/view-orders.query.builder.ts
+export const viewOrdersQueryBuilder = fluent(
+  query.fromClassValidator(ViewOrdersQuery, () => ({})),
+  ['search', 'statuses', 'pagination']
+);
+```
+
+A call's own options override the defaults key by key, so
+`query.fromClassValidator(Dto, factory, { transform: false })` returns the payload; an option
+object such as `transformOptions` replaces the default one instead of merging with it. The
+builders have the same types as the unbound functions return, so `ClassValidatorBuilder<T, F>`
+still names them, and `transform: false` in the defaults types `buildValidated()` as the
+payload. `defaults` holds the bound options, frozen, for deriving other defaults. `async`,
+`name` and `defaultSession` belong to one builder and are rejected as defaults; pass them per
+call. The functions do not use `this`, so they can be destructured.
 
 ## 4. Async constraints and groups
 
@@ -156,7 +206,7 @@ const adminInvite = invites.usingValidation({ libraryOptions: { groups: ['admin'
 
 Listing fields in `fluent()` is explicit and always matches the class. To skip the list,
 `classValidatorFields(Dto)` collects the decorated properties, inherited ones included, and
-the fields `new Dto()` defines:
+the data fields `new Dto()` defines:
 
 ```ts
 const builder = fluent(
@@ -165,9 +215,20 @@ const builder = fluent(
 );
 ```
 
+class-validator metadata cannot see TypeScript types, so a field typed `never` that has a
+decorator, such as `sort?: never` with `@Equals(undefined)`, is in the list. Its type says so
+(`ClassValidatorFieldNames<Dto>` includes it), and `fluent()` gives it no typed setter. Leave
+such fields out with `exclude`, whose names are checked against the class:
+
+```ts
+classValidatorFields(ViewOrdersQuery, { exclude: ['sort'] }); // pagination, search, statuses
+```
+
 It is **experimental**: TypeScript cannot compare the list with the class, so a field that
 has no decorator and is not emitted as a class field (with `useDefineForClassFields` off, as
-for `target` below ES2022) gets a typed setter that does not exist at runtime.
+for `target` below ES2022) gets a typed setter that does not exist at runtime. When it finds
+no field at all, as for a DTO without decorators compiled that way, it throws instead of
+returning an empty list that its type would not describe.
 
 ## 6. Entities next to DTOs
 

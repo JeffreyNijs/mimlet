@@ -151,7 +151,7 @@ users.withFirstName('Ada').build(); // a User; user.fullName is computed by the 
 - **Transforms after the mapping** receive the instance and must return an instance of the class (for example by changing it with `Object.assign`); a spread copy, which would silently be a plain object, throws. A later `map()` may change the type again.
 - **Everything else stays.** Factory arguments, default sessions (also with a required session parameter), builder names, list tuples, async factories and `fluent()` setters work as for any builder. `map()` on a `fluent()` builder keeps its setters, in the runtime and in the types.
 
-`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
+`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. For adapter authors, `KnownFieldsFactory<F, Shape, Class>` is the unknown-key check on the factory (a parameter typed `F & KnownFieldsFactory<F, Shape>`), and `KnownNestedFieldsFactory` also checks nested records and arrays; a factory declared to return exactly `Shape`, as in a generic helper, is not checked. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
 
 ## Lists and limits
 
@@ -199,7 +199,9 @@ const lost = crm.patch('deal', (deal) => ({ ...deal, status: 'lost' }));
 lost.build().summary.status; // 'lost': dependent nodes see the patched value
 ```
 
-A patcher receives `(value, dependencies, session)` and returns a value of the node's type. Patches run in order after the node's factory, override or trait; a later override or trait replaces the node and its patches. See [correlated scenarios](https://jeffreynijs.github.io/mimlet/guide/correlated-scenarios.html).
+A patcher receives `(value, dependencies, session)` and returns a value of the node's type. Patches run in order after the node's factory, override or trait; a later override or trait replaces the node and its patches.
+
+For a class instance, such as an entity from `createInstanceBuilder()`, pass the changed fields instead: `crm.patch('deal', { status: 'sent' })`. The fields are type-checked against the node's data fields, so a misspelled key is a compile error. Each build copies the value with the same prototype and own properties and sets the fields the way `createInstanceBuilder()` sets a record's fields (setters run, a getter without a setter fails), so the node stays a `Deal` and the factory's value is never changed. No constructor runs for the copy, so `#private` fields do not exist on it. A patcher function that returns a plain object, such as a spread copy, for a class instance fails the node. See [correlated scenarios](https://jeffreynijs.github.io/mimlet/guide/correlated-scenarios.html#patch-fields-of-class-instances).
 
 ## Inspection and adapters
 

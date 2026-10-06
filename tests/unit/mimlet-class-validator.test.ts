@@ -31,14 +31,18 @@ import {
   type AsyncSchemaBuilder,
   type GenerationSession,
   type SchemaBuilder,
+  type SchemaFields,
+  type StandardSchemaV1,
 } from '../../packages/core/src/index.js';
 import {
   classValidatorFields,
   classValidatorSchema,
   fromClassValidator,
   fromClassValidatorAsync,
+  withClassValidatorDefaults,
   type AsyncClassValidatorBuilder,
   type ClassValidatorBuilder,
+  type ClassValidatorFieldNames,
   type DtoClass,
   type DtoInput,
   type Wire,
@@ -253,6 +257,228 @@ describe('payload and validated DTO', () => {
   });
 });
 
+class ReportQuery {
+  format?: 'csv' | 'json';
+  range?: { from: string; to: string };
+  meta?: Record<string, unknown>;
+  filter?: object;
+  sort?: never;
+}
+class OrderBatch {
+  orders?: CreateOrderCommand[];
+}
+
+describe('keys the payload does not have', () => {
+  it('reports misspelled keys and fields typed never in factories without an annotation', () => {
+    // build() would send the misspelled key; only the pipe's forbidNonWhitelisted rejects it.
+    const misspelled = fromClassValidator(
+      CreateOrderCommand,
+      // @ts-expect-error A misspelled field.
+      () => ({ title: 'Windows', titel: 'Doors' })
+    );
+    const sent = misspelled.build();
+    expect(sent).toEqual({ title: 'Windows', titel: 'Doors' });
+    const piped = fromClassValidator(CreateOrderCommand, () => sent, pipe);
+    expect(failure(() => piped.buildValidated()).message).toMatch(/at titel/);
+    // @ts-expect-error A field typed never cannot be set.
+    fromClassValidator(ViewOrdersQuery, () => ({ search: 'ramp', sort: 'name' }));
+    // @ts-expect-error Nor can a method.
+    fromClassValidator(CreateOrderCommand, () => ({ title: 'x', describe: () => 'x' }));
+    // @ts-expect-error The same in an async factory.
+    fromClassValidatorAsync(InviteUser, async () => ({
+      email: 'a@b.c',
+      firstName: 'A',
+      lastName: 'B',
+    }));
+    // @ts-expect-error The same in an async factory of the sync builder.
+    fromClassValidator(InviteUser, async () => ({ email: 'a@b.c', firstName: 'A', emial: '' }));
+    // @ts-expect-error The same for a query with its wire.
+    fromClassValidator(ViewOrdersQuery, () => ({ statuses: [Side.BACK], serach: 'ramp' }), {
+      ...pipe,
+      wire: queryLike,
+    });
+    fromClassValidator(
+      LocationCommand,
+      // @ts-expect-error The same with factory arguments and a default session.
+      (session?: GenerationSession) => ({ side: Side.BACK, floor: session ? 1 : 0, flor: 1 }),
+      { defaultSession: () => createSession({ fingerprint: 'f', provider: 'p@1', seed: 1 }) }
+    );
+    // @ts-expect-error The same after a spread, in a block body.
+    fromClassValidator(CreateOrderCommand, () => {
+      const base = { title: 'Windows' };
+      return { ...base, productCont: 2 };
+    });
+    // @ts-expect-error The same in one branch of a conditional.
+    fromClassValidator(CreateOrderCommand, (doors?: boolean) =>
+      doors ? { title: 'Doors', count: 1 } : { title: 'Windows' }
+    );
+  });
+
+  it('checks nested DTOs and arrays of them', () => {
+    // @ts-expect-error A misspelled field of a nested DTO.
+    fromClassValidator(CreateOrderCommand, () => ({
+      location: { side: Side.FRONT, floor: 1, flor: 1 },
+    }));
+    const roles = [{ roleUuid: 'r-1', permissions: ['read'], permission: [] }];
+    // @ts-expect-error A misspelled field in an array of nested DTOs.
+    fromClassValidator(UpdateRoles, () => ({ roles }));
+    // @ts-expect-error A nested plain object type is checked too.
+    fromClassValidator(ReportQuery, () => ({ range: { from: 'a', to: 'b', until: 'c' } }));
+    // Nested types without known keys (object, records) accept any key.
+    const report = fromClassValidator(ReportQuery, () => ({
+      format: 'csv',
+      range: { from: '2026-01-01', to: '2026-02-01' },
+      meta: { source: 'test' },
+      filter: { anything: true },
+    }));
+    expect(report.build().format).toBe('csv');
+    // A nested class instance has methods: function-valued keys are not checked.
+    const order = Object.assign(new CreateOrderCommand(), { title: 'x' });
+    const batches = fromClassValidator(OrderBatch, () => ({ orders: [order] }));
+    expect(batches.build().orders?.[0]).toBe(order);
+  });
+
+  it('keeps literal types, annotated factories and generic helpers', () => {
+    // Literals need no `as const`, and a wrong literal is still an error.
+    fromClassValidator(ReportQuery, () => ({ format: 'json' }));
+    // @ts-expect-error A literal outside the union.
+    fromClassValidator(ReportQuery, () => ({ format: 'xml' }));
+    const annotated = (): DtoInput<CreateOrderCommand> => ({ title: 'Windows' });
+    expect(fromClassValidator(CreateOrderCommand, annotated).build()).toEqual({ title: 'Windows' });
+    const asyncHelper = <T extends object>(dto: DtoClass<T>, make: () => Promise<DtoInput<T>>) =>
+      fromClassValidatorAsync(dto, make);
+    expectTypeOf(
+      asyncHelper(LocationCommand, async () => ({ side: null, floor: 1 }))
+    ).toEqualTypeOf<AsyncSchemaBuilder<DtoInput<LocationCommand>, LocationCommand, []>>();
+  });
+
+  it('rejects unknown keys in with() and has no setters for them', () => {
+    const commands = fluent(
+      fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows' })),
+      ['title', 'location']
+    );
+    // @ts-expect-error with() checks its object literal.
+    commands.with({ titel: 'Doors' });
+    // @ts-expect-error Nested object literals too.
+    commands.with({ location: { side: Side.FRONT, floor: 1, flor: 2 } });
+    // @ts-expect-error A setter exists only for a listed field.
+    expect(commands.withTitel).toBeUndefined();
+    // @ts-expect-error Setter values keep the nested type.
+    commands.withLocation({ side: Side.FRONT, floor: 1, flor: 2 });
+  });
+});
+
+describe('bound defaults', () => {
+  it('applies the defaults to every builder and lets each call override them', () => {
+    const body = withClassValidatorDefaults(pipe);
+    expect(body.defaults).toEqual(pipe);
+    expect(Object.isFrozen(body.defaults)).toBe(true);
+    const query = withClassValidatorDefaults({ ...body.defaults, wire: queryLike });
+    const queries = query.fromClassValidator(ViewOrdersQuery, () => ({
+      pagination: { limit: 5, offset: 10 },
+    }));
+    expectTypeOf(queries).toEqualTypeOf<
+      SchemaBuilder<DtoInput<ViewOrdersQuery>, ViewOrdersQuery, []>
+    >();
+    const factory = () => ({ title: 'Windows' });
+    expectTypeOf(body.fromClassValidator(CreateOrderCommand, factory)).toEqualTypeOf<
+      ClassValidatorBuilder<CreateOrderCommand, typeof factory>
+    >();
+    const value = queries.buildValidated();
+    expect(value).toBeInstanceOf(ViewOrdersQuery);
+    // The query wire sent strings, which @Type(() => Number) converted back.
+    expect(value.pagination).toEqual(Object.assign(new Pagination(), { limit: 5, offset: 10 }));
+    // The pipe's whitelisting comes from the defaults.
+    expect(failure(() => queries.with({ extra: 1 } as never).buildValidated()).message).toMatch(
+      /at extra/
+    );
+    // A call's options override the defaults, and its types follow them.
+    const plain = query.fromClassValidator(ViewOrdersQuery, () => ({}), { transform: false });
+    expectTypeOf(plain.buildValidated()).toEqualTypeOf<DtoInput<ViewOrdersQuery>>();
+    expect(plain.buildValidated()).not.toBeInstanceOf(ViewOrdersQuery);
+    const { fromClassValidator: bodyBuilder } = body;
+    expect(bodyBuilder(CreateOrderCommand, factory).buildValidated()).toBeInstanceOf(
+      CreateOrderCommand
+    );
+    // @ts-expect-error Bound builders check the factory's keys too.
+    body.fromClassValidator(CreateOrderCommand, () => ({ title: 'x', titel: 'y' }));
+  });
+
+  it('types outputs from transform: false in the defaults', async () => {
+    const plain = withClassValidatorDefaults({ transform: false, wire: false });
+    const located = plain.fromClassValidator(LocationCommand, () => ({ side: null, floor: 1 }));
+    expectTypeOf(located.buildValidated()).toEqualTypeOf<DtoInput<LocationCommand>>();
+    expect(located.buildValidated()).toEqual({ side: null, floor: 1 });
+    const instances = plain.fromClassValidator(LocationCommand, () => ({ side: null, floor: 1 }), {
+      transform: true,
+    });
+    expectTypeOf(instances.buildValidated()).toEqualTypeOf<LocationCommand>();
+    expect(instances.buildValidated()).toBeInstanceOf(LocationCommand);
+    const invites = plain.fromClassValidatorAsync(InviteUser, () => ({
+      email: 'taken@example.com',
+      firstName: 'Ada',
+    }));
+    expectTypeOf(invites).toEqualTypeOf<
+      AsyncSchemaBuilder<DtoInput<InviteUser>, DtoInput<InviteUser>, []>
+    >();
+    await expect(invites.buildValidatedAsync()).rejects.toThrow(/1 issue at email/);
+    const asInstances = plain.fromClassValidatorAsync(
+      InviteUser,
+      () => ({ email: 'free@example.com', firstName: 'Ada' }),
+      { transform: true }
+    );
+    expect(await asInstances.buildValidatedAsync()).toBeInstanceOf(InviteUser);
+    const schema = plain.classValidatorSchema(LocationCommand);
+    expectTypeOf(schema).toEqualTypeOf<
+      StandardSchemaV1<DtoInput<LocationCommand>, DtoInput<LocationCommand>>
+    >();
+    expect(schema['~standard'].validate({ side: null, floor: 2 })).toEqual({
+      value: { side: null, floor: 2 },
+    });
+    const transformed = plain.classValidatorSchema(LocationCommand, { transform: true });
+    expectTypeOf(transformed).toEqualTypeOf<
+      StandardSchemaV1<DtoInput<LocationCommand>, LocationCommand>
+    >();
+    expectTypeOf(
+      plain.classValidatorSchema(LocationCommand, { transform: false, whitelist: true })
+    ).toEqualTypeOf<StandardSchemaV1<DtoInput<LocationCommand>, DtoInput<LocationCommand>>>();
+  });
+
+  it('keeps per-builder options per call and rejects invalid defaults', () => {
+    for (const key of ['async', 'name', 'defaultSession']) {
+      expect(() => withClassValidatorDefaults({ [key]: undefined } as never)).toThrow(
+        new RegExp(`${key} is not a default`)
+      );
+    }
+    expect(() => withClassValidatorDefaults(null as never)).toThrow(/requires an options object/);
+    expect(() => withClassValidatorDefaults([] as never)).toThrow(/requires an options object/);
+    let sent = 0;
+    const counting: Wire = {
+      stringify: (value: unknown) => {
+        sent++;
+        return JSON.stringify(value);
+      },
+      parse: (text) => JSON.parse(text) as unknown,
+    };
+    const bound = withClassValidatorDefaults({ wire: counting });
+    // An undefined option keeps the default.
+    bound.classValidatorSchema(Pagination, { wire: undefined } as never)['~standard'].validate({
+      limit: 1,
+      offset: 0,
+    });
+    expect(sent).toBe(1);
+    const named = bound.fromClassValidator(LocationCommand, () => ({ side: null, floor: 1 }), {
+      name: 'locations',
+    });
+    expect(named.describe().name).toBe('locations');
+    expect(() =>
+      bound.fromClassValidator(LocationCommand, () => ({ side: null, floor: 1 }), {
+        async: true,
+      } as never)
+    ).toThrow(/fromClassValidatorAsync/);
+  });
+});
+
 describe('the wire', () => {
   it('sends query strings as strings, which @Type() converts back', () => {
     const queries = fluent(
@@ -351,6 +577,18 @@ describe('pipe options', () => {
     })['~standard'].validate(shared);
     expect((piped as { value: unknown }).value).not.toBe(shared);
     expect((piped as { value: unknown }).value).toEqual(shared);
+  });
+
+  it('gives a builder name to the builder, not to class-validator', () => {
+    const shared = { title: 'Windows' };
+    const named = fromClassValidator(CreateOrderCommand, () => shared, {
+      transform: false,
+      wire: false,
+      name: 'orders',
+    });
+    expect(named.describe().name).toBe('orders');
+    // With no validator option set, the pipe returns the payload itself.
+    expect(named.buildValidated()).toBe(shared);
   });
 
   it('passes transformOptions to class-transformer', () => {
@@ -526,6 +764,52 @@ describe('classValidatorFields (experimental)', () => {
     );
     expect([...classValidatorFields(Profile)]).toEqual(['name', 'note']);
     expect(profiles.withNote('n').buildValidated().note).toBe('n');
+  });
+
+  it('types the fields typed never it may list, and leaves out the excluded fields', () => {
+    // class-validator metadata cannot see types: sort is typed never and decorated.
+    expectTypeOf(classValidatorFields(ViewOrdersQuery)).toEqualTypeOf<
+      SchemaFields<'pagination' | 'search' | 'statuses' | 'sort'>
+    >();
+    expectTypeOf<ClassValidatorFieldNames<ViewOrdersQuery, 'sort'>>().toEqualTypeOf<
+      'pagination' | 'search' | 'statuses'
+    >();
+    const fields = classValidatorFields(ViewOrdersQuery, { exclude: ['sort'] });
+    expectTypeOf(fields).toEqualTypeOf<SchemaFields<'pagination' | 'search' | 'statuses'>>();
+    expect([...fields].sort()).toEqual(['pagination', 'search', 'statuses']);
+    const queries = fluent(
+      fromClassValidator(ViewOrdersQuery, () => ({})),
+      fields
+    );
+    // @ts-expect-error No setter, at runtime either.
+    expect(queries.withSort).toBeUndefined();
+    expect(queries.withSearch('ramp').build()).toEqual({ search: 'ramp' });
+    // @ts-expect-error Excluded names are fields of the DTO.
+    classValidatorFields(ViewOrdersQuery, { exclude: ['sortt'] });
+    // A field that holds a function is not payload data, as in DtoInput.
+    class Handler {
+      name!: string;
+      handle = (): string => this.name;
+    }
+    decorate(Handler, { name: [IsString()] });
+    expectTypeOf(classValidatorFields(Handler)).toEqualTypeOf<SchemaFields<'name'>>();
+    expect([...classValidatorFields(Handler)]).toEqual(['name']);
+  });
+
+  it('throws instead of returning a list its type does not describe', () => {
+    class Undecorated {
+      declare title: string;
+      declare productCount: number;
+    }
+    expect(() => classValidatorFields(Undecorated)).toThrow(
+      /classValidatorFields\(Undecorated\) found no fields/
+    );
+    expect(() => classValidatorFields(Profile, { exclude: ['name', 'note'] })).toThrow(
+      /excludes every field it found/
+    );
+    expect(() => classValidatorFields(Profile, { exclude: 'name' } as never)).toThrow(
+      /exclude must be an array of field names/
+    );
   });
 
   it('rejects classes it cannot create', () => {

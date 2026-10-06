@@ -42,6 +42,7 @@ import {
   classValidatorSchema,
   fromClassValidator,
   fromClassValidatorAsync,
+  withClassValidatorDefaults,
 } from '@mimlet/class-validator';
 
 const require = createRequire(import.meta.url);
@@ -178,6 +179,16 @@ async function throughSchema(dto, payload, options, wire) {
     ? { messages: result.issues.map(pipeMessage).sort() }
     : { value: result.value };
 }
+/** The same with the options bound once, as an application binds its pipe's options. */
+async function throughBoundSchema(dto, payload, options, wire) {
+  const schema = withClassValidatorDefaults({ ...options, wire }).classValidatorSchema(dto, {
+    async: true,
+  });
+  const result = await schema['~standard'].validate(payload);
+  return result.issues
+    ? { messages: result.issues.map(pipeMessage).sort() }
+    : { value: result.value };
+}
 
 const withProtoKey = JSON.parse('{"__proto__": {"polluted": true}, "title": "Windows"}');
 const cases = [
@@ -267,6 +278,7 @@ for (const [version, nest] of [
             const actual = await throughSchema(dto, payload, options, wire);
             // deepStrictEqual compares prototypes too: a DTO instance must match an instance.
             assert.deepStrictEqual(actual, expected);
+            assert.deepStrictEqual(await throughBoundSchema(dto, payload, options, wire), expected);
             if (options === trialPipe) assert.equal('value' in actual, valid, name);
           });
         }
@@ -366,14 +378,84 @@ describe('builders from the packed package', () => {
     assert.match(failure(() => queries.withSearch('').buildValidated()).message, /at search/);
   });
 
+  it('binds options once for every builder', async () => {
+    const body = withClassValidatorDefaults(trialPipe);
+    assert.deepEqual(body.defaults, trialPipe);
+    assert.ok(Object.isFrozen(body.defaults));
+    const query = withClassValidatorDefaults({ ...body.defaults, wire: qs });
+    const queries = query.fromClassValidator(ViewOrderIndexQuery, () => ({
+      pagination: { limit: 5, offset: 10 },
+    }));
+    const value = queries.buildValidated();
+    assert.ok(value.pagination instanceof PaginatedOffsetQuery);
+    assert.deepEqual({ ...value.pagination }, { limit: 5, offset: 10 });
+    assert.match(failure(() => queries.with({ extra: 1 }).buildValidated()).message, /at extra/);
+    // A call's options override the defaults; undefined keeps the default.
+    const plain = query.fromClassValidator(ViewOrderIndexQuery, () => ({}), {
+      transform: false,
+      wire: undefined,
+      name: 'queries',
+    });
+    assert.equal(plain.describe().name, 'queries');
+    assert.ok(!(plain.buildValidated() instanceof ViewOrderIndexQuery));
+    const { fromClassValidatorAsync: asyncBody } = body;
+    const invites = asyncBody(InviteUserCommand, () => ({
+      email: 'taken@example.com',
+      firstName: 'Ada',
+    }));
+    await assert.rejects(invites.buildValidatedAsync(), /1 issue at email/);
+    assert.throws(
+      () => body.fromClassValidator(InviteUserCommand, () => ({}), { async: true }),
+      /fromClassValidatorAsync/
+    );
+    for (const key of ['async', 'name', 'defaultSession']) {
+      assert.throws(() => withClassValidatorDefaults({ [key]: undefined }), /is not a default/);
+    }
+    assert.throws(() => withClassValidatorDefaults(null), /requires an options object/);
+  });
+
+  it('lists fields without the excluded ones and rejects what it cannot list', () => {
+    // sort is typed never in the application and decorated with Equals(undefined).
+    assert.deepEqual([...classValidatorFields(ViewOrderIndexQuery)].sort(), [
+      'pagination',
+      'search',
+      'sort',
+      'statuses',
+    ]);
+    const fields = classValidatorFields(ViewOrderIndexQuery, { exclude: ['sort'] });
+    assert.deepEqual([...fields].sort(), ['pagination', 'search', 'statuses']);
+    const queries = fluent(
+      fromClassValidator(ViewOrderIndexQuery, () => ({}), { ...trialPipe, wire: qs }),
+      fields
+    );
+    assert.equal(queries.withSort, undefined);
+    assert.deepEqual(queries.withSearch('ramp').build(), { search: 'ramp' });
+    class Handler {
+      name;
+      handle = () => this.name;
+    }
+    decorate(Handler, { name: [IsString()] });
+    assert.deepEqual([...classValidatorFields(Handler)], ['name']);
+    class Undecorated {}
+    assert.throws(() => classValidatorFields(Undecorated), /Undecorated\) found no fields/);
+    assert.throws(
+      () => classValidatorFields(Handler, { exclude: ['name'] }),
+      /excludes every field it found/
+    );
+    assert.throws(() => classValidatorFields(Handler, { exclude: 'name' }), /array of field names/);
+  });
+
   it('keeps payloads, transform: false, groups and default sessions', () => {
     const shared = { title: 'Windows', extra: true };
     const plain = fromClassValidator(CreateOrderCommand, () => shared, {
       transform: false,
       wire: false,
       maxListSize: 5,
+      name: 'orders',
     });
+    // The builder name is a builder option, not a validator option, so the payload comes back.
     assert.equal(plain.buildValidated(), shared);
+    assert.equal(plain.describe().name, 'orders');
     const whitelisted = fromClassValidator(CreateOrderCommand, () => shared, {
       transform: false,
       wire: false,

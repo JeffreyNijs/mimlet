@@ -1,6 +1,13 @@
 import { createTestSession } from './session.js';
 import type { GenerationSession } from './session.js';
 import type { BuiltList } from './types.js';
+import {
+  classInstance,
+  classNameOf,
+  copyWithFields,
+  patchFields,
+  type InstanceInput,
+} from './class-instance.js';
 
 export interface ScenarioOptions {
   readonly name?: string;
@@ -56,6 +63,30 @@ type Replacements<T, D> = {
 type ReplacementResult<P> = {
   [K in keyof P]: P[K] extends (...args: never[]) => infer R ? R : never;
 }[keyof P];
+/** Values without fields to set: arrays, built-in objects with internal state and functions. */
+type Unpatchable =
+  | ReadonlyArray<unknown>
+  | Date
+  | RegExp
+  | Error
+  | ReadonlyMap<unknown, unknown>
+  | ReadonlySet<unknown>
+  | ArrayBuffer
+  | ArrayBufferView
+  | PromiseLike<unknown>
+  | ((...args: never[]) => unknown);
+/**
+ * The fields `patch(name, fields)` can set on a node's value: any of its data fields, read as
+ * `InstanceInput` reads a class (no methods, no fields typed `never`). A value that is not a
+ * record or a class instance has none.
+ */
+export type ScenarioPatchFields<V> = V extends Unpatchable
+  ? never
+  : V extends object
+    ? Partial<InstanceInput<V>>
+    : never;
+/** A function is a patcher: it has `Symbol.hasInstance`, which a record of fields never sets. */
+type PatchObject<V> = ScenarioPatchFields<V> & { readonly [Symbol.hasInstance]?: never };
 
 interface ScenarioOperations<T extends object, Async extends boolean, D> {
   /** Dependencies must already exist, making cycles and forward references impossible. */
@@ -95,6 +126,8 @@ interface ScenarioOperations<T extends object, Async extends boolean, D> {
    * value. It receives the value, the node's declared dependencies and the node's session, and
    * returns the node's value, such as `(deal) => ({ ...deal, status: 'lost' })`. Patches run
    * in the order they were added; a later override or trait replaces the node and its patches.
+   * When the value was a class instance, returning a plain object (such as a spread copy)
+   * fails the build: pass the changed fields instead, as `patch(name, { status: 'lost' })`.
    */
   patch<
     K extends Names<T>,
@@ -107,6 +140,15 @@ interface ScenarioOperations<T extends object, Async extends boolean, D> {
     name: K,
     patcher: F
   ): Scenario<T, Either<Async, MayBeAsync<ReturnType<F>>>, D>;
+  /**
+   * Set fields of the value a node built and keep its derivation, as
+   * `crm.patch('deal', { status: 'lost' })`. The fields are checked against the node's type, so
+   * a misspelled key is a compile error. Each build copies the value with the fields set and
+   * never changes the original: the copy keeps the prototype, so a class instance stays an
+   * instance of its class, and a field with a setter on the class is assigned through it. The
+   * fields are read once, when `patch()` is called.
+   */
+  patch<K extends Names<T>>(name: K, fields: PatchObject<T[K]>): Scenario<T, Async, D>;
   /** Named presets reject conflicting node replacements unless explicitly authorized. */
   trait<P extends Replacements<T, D>>(
     name: string,
@@ -191,6 +233,25 @@ function install(target: object, name: string, value: unknown): void {
     configurable: true,
   });
 }
+/**
+ * A patcher that returns a plain object for a class instance would silently drop the class
+ * (TypeScript accepts a spread copy of a class without methods), so the build fails instead.
+ */
+function patched(node: string, before: unknown, after: unknown): unknown {
+  if (
+    classInstance(before) &&
+    typeof after === 'object' &&
+    after !== null &&
+    !Array.isArray(after) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(after) as object | null)
+  ) {
+    const name = classNameOf(before);
+    throw new TypeError(
+      `A patch of ${node} returned a plain object in place of a ${name} instance; pass the changed fields, as in patch('${node}', { ... }), to keep the class, or return a ${name}`
+    );
+  }
+  return after;
+}
 function synchronous(value: unknown): unknown {
   if (
     value !== null &&
@@ -232,7 +293,10 @@ function makeScenario(definition: Definition) {
         const [dependencies, scoped] = inputs(node, values, session);
         let value = synchronous(Reflect.apply(node.factory, undefined, [dependencies, scoped]));
         for (const patcher of node.patches) {
-          value = synchronous(Reflect.apply(patcher, undefined, [value, dependencies, scoped]));
+          const result = synchronous(
+            Reflect.apply(patcher, undefined, [value, dependencies, scoped])
+          );
+          value = patched(node.name, value, result);
         }
         install(values, node.name, value);
       } catch (cause) {
@@ -248,7 +312,12 @@ function makeScenario(definition: Definition) {
         const [dependencies, scoped] = inputs(node, values, session);
         let value: unknown = await Reflect.apply(node.factory, undefined, [dependencies, scoped]);
         for (const patcher of node.patches) {
-          value = await Reflect.apply(patcher, undefined, [value, dependencies, scoped]);
+          const result: unknown = await Reflect.apply(patcher, undefined, [
+            value,
+            dependencies,
+            scoped,
+          ]);
+          value = patched(node.name, value, result);
         }
         install(values, node.name, value);
       } catch (cause) {
@@ -299,8 +368,24 @@ function makeScenario(definition: Definition) {
         ),
       });
     },
-    patch(name: string, patcher: Patcher) {
-      callable(patcher);
+    patch(name: string, patch: unknown) {
+      let patcher: Patcher;
+      if (typeof patch === 'function') {
+        patcher = patch as Patcher;
+      } else {
+        let fields: ReturnType<typeof patchFields>;
+        try {
+          fields = patchFields(patch);
+        } catch (cause) {
+          throw new ScenarioError(
+            'SCENARIO_DEFINITION',
+            cause instanceof Error ? cause.message : 'Invalid scenario patch',
+            name,
+            cause
+          );
+        }
+        patcher = (value) => copyWithFields(value, fields);
+      }
       const index = indexOf(name);
       return makeScenario({
         ...definition,
