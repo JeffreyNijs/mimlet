@@ -28,8 +28,8 @@ generation and native library integrations are opt-in.
 
 The dedicated Zod and ArkType adapters are included in `0.1.0-alpha.1`. Follow the
 [tested recipes](zod-and-arktype.md), or retain the core and Standard JSON Schema path
-when those interfaces already meet your needs. The class-validator adapter is new in
-source and ships in the release after `0.1.0-beta.4`; see the [NestJS DTO guide](class-validator.md).
+when those interfaces already meet your needs. The class-validator adapter was first
+published as `0.1.0-beta.4`; see the [NestJS DTO guide](class-validator.md).
 
 ## Validation, conversion and generation are different
 

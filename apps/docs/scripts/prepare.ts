@@ -224,7 +224,7 @@ export async function prepare(): Promise<void> {
     [
       'NestJS DTOs',
       'class-validator',
-      'class-validator DTO payloads and the instances ValidationPipe produces, after beta.4',
+      'class-validator DTO payloads and the instances ValidationPipe produces',
     ],
     [
       'Replay',

@@ -61,7 +61,7 @@ matching package README. `examples/recipes/` contains the actual typed examples;
 `pnpm test:examples` compiles and executes them against isolated tarballs.
 
 For DTO classes validated with class-validator (NestJS), `@mimlet/class-validator`
-(newer than beta.4; check that it is installed) builds payloads with `build()` and the
+(0.1.0-beta.4 and newer; check that it is installed) builds payloads with `build()` and the
 DTO instances `ValidationPipe` produces with `buildValidated()`:
 `fromClassValidator(Dto, factory, validationPipeOptions)`, with `wire: qs` for query
 DTOs and `fromClassValidatorAsync` for async constraints. See `docs/class-validator.md`.
