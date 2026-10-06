@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.1.0-beta.5
+
+### Minor Changes
+
+- 659949f: Add `scenario.patch(name, patcher)` to change the value a scenario node built while keeping
+  its factory and dependencies: `crm.patch('deal', (deal) => ({ ...deal, status: 'lost' }))`
+  keeps the deal's lead key and generated values, and nodes that depend on the deal see the
+  patched value. The patcher receives `(value, dependencies, session)` and returns a value of
+  the node's type. Patches run in order after the node's factory, override or trait. A later
+  override replaces the node and its patches, and a trait that would replace a patched node
+  fails with `SCENARIO_CONFLICT` unless it passes `{ replaceConflicts: true }`. An async
+  patcher makes the scenario async-only. `describe()` reports each node's `patches` count.
+- eca2898: When a Zod `.transform()`, refinement or other callback throws during
+  `buildValidated()`, the `BuilderValidationError` message now says which callback threw:
+  `Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDto`.
+  The callback is named by its function name, or by its location when it is anonymous.
+
+  A `ZodError` thrown by a stricter parse of the whole DTO inside an application
+  transformer keeps its paths, as before, so the message names the field
+  (`1 issue at source`). A parse of a single value, such as
+  `z.literal('teamleader').parse(dto.source)`, has no path in Zod; the issue stays at the
+  root with Zod's message, and the field is not guessed from the rejected value.
+
+  When the schema has exactly one callback at a fixed location, such as
+  `z.object({ createdAt: z.string().transform(parseDate) })`, an error thrown there now
+  gets that location as its path (`createdAt`), and a `ZodError` from a transform on
+  `deal` gets it as a prefix (`deal.source`). With several callbacks the one that threw is
+  unknown, so nothing is prefixed and the message lists them. The original error is still
+  the `cause`.
+
+  `BuilderValidationError` accepts a second argument, `{ cause, detail }`. The detail is
+  appended to the message after a semicolon and is cut at 200 characters.
+
+  The builder `name` option no longer gives a Zod builder a generator of its own, so
+  `fromZod(schema, { name })` builders of one schema share it. Values are unchanged.
+
+### Patch Changes
+
+- 659949f: `createInstanceBuilder(Class, factory)` now reports a key the class does not declare, such as
+  a misspelled field, as a compile error in a factory without a return type annotation:
+  `createInstanceBuilder(User, () => ({ ...base, isSystemAdmn: true }))` fails with
+  `Type 'boolean' is not assignable to type '"isSystemAdmn is not a field of the class"'`.
+  TypeScript does not check extra keys of a returned object literal on its own, so these keys
+  used to compile and were copied onto the instance. Literal fields still keep their types
+  without `as const`, and the check covers async factories, factories with arguments or a
+  session, and spreads. Methods and private fields are reported the same way. The check is
+  compile-time only; at runtime every key of the record is still copied.
+
 ## 0.1.0-beta.4
 
 ### Minor Changes
