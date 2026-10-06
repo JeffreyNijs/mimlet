@@ -60,3 +60,14 @@ people.withNick(undefined);
 standardJsonSchemaFields({} as Typed<string, string>);
 // @ts-expect-error Raw JSON Schema has no typed input to name setters after.
 standardJsonSchemaFields(document);
+
+// Names, callbacks that always receive a session, and tuple lists.
+const namedUsers = fromStandardJsonSchema(schema, { name: 'users' }).withFactory((run) => ({
+  age: String(run.integer(1, 9)),
+}));
+const [firstUser, secondUser] = namedUsers.buildValidatedList(2);
+expectType<{ age: number }>(firstUser);
+expectType<{ age: number }>(secondUser);
+fromJsonSchema(document, { name: 'raw' }).transform((value, run) => (run.boolean() ? value : 1));
+// @ts-expect-error A builder name is a string.
+fromJsonSchema(document, { name: 7 });

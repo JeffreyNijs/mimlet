@@ -7,6 +7,10 @@ import * as AST from 'effect/SchemaAST';
 import effectPackage from 'effect/package.json' with { type: 'json' };
 import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
+  AnyFactory,
+  DefaultedSessionFor,
+  DefaultSessionConfig,
+  DefaultSessionFor,
   GenerationSession,
   SchemaBuilder,
   AsyncSchemaBuilder,
@@ -154,45 +158,83 @@ export function effectAdapter<A, I>(source: Schema.Codec<A, I>, options: EffectO
 }
 /**
  * The builder `fromEffect(schema, options)` returns for a `Schema.Codec<A, I>`: synchronous,
- * with encoded input `I`, decoded output `A` and a required session.
+ * with encoded input `I`, decoded output `A` and a required session. With `Defaulted` (a
+ * configured `defaultSession`), builds may omit the session.
  */
-export type EffectBuilder<A, I> = SchemaBuilder<I, A, [session: GenerationSession]>;
+export type EffectBuilder<A, I, Defaulted extends boolean = false> = SchemaBuilder<
+  I,
+  A,
+  Defaulted extends true ? [session?: GenerationSession] : [session: GenerationSession],
+  [session: GenerationSession]
+>;
 
 /**
  * The builder `fromEffectFactory(schema, factory, options)` returns for a factory of type `F`:
  * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
  * the factory's own type as `F`. As with the function, sync or async is decided once `I` is known.
+ * Pass `true` as `Defaulted` when the options configure a `defaultSession`.
  */
 export type EffectFactoryBuilder<
   A,
   I,
   F extends (...args: never[]) => I | PromiseLike<I>,
-> = SchemaBuilderFor<StandardSchemaV1<I, A>, F>;
+  Defaulted extends boolean = false,
+> = SchemaBuilderFor<StandardSchemaV1<I, A>, F, Defaulted>;
+type DefaultedEffectOptions = EffectOptions & Required<DefaultSessionConfig>;
 
-/** Deterministic native generation requires an explicit session; codecs must encode synchronously. */
+/**
+ * With your own `defaultSession`, builds may omit the session. The adapter has no default of
+ * its own because native schemas cannot be fingerprinted for replay.
+ */
 export function fromEffect<A, I>(
   source: Schema.Codec<A, I>,
-  options: EffectOptions = {}
-): EffectBuilder<A, I> {
+  options: DefaultedEffectOptions
+): EffectBuilder<A, I, true>;
+/** Deterministic native generation requires an explicit session; codecs must encode synchronously. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
+export function fromEffect<A, I>(
+  source: Schema.Codec<A, I>,
+  options?: EffectOptions
+): EffectBuilder<A, I>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromEffect<A, I>(source: Schema.Codec<A, I>, options: EffectOptions = {}): unknown {
   const adapter = effectAdapter(source, options);
-  return createSchemaBuilder(adapter.standard, adapter.create, options) as unknown as EffectBuilder<
-    A,
-    I
-  >;
+  return createSchemaBuilder(adapter.standard, adapter.create, options);
 }
+/** With your own `defaultSession`, builds may omit the session; see `fromEffect()`. */
+export function fromEffectAsync<A, I>(
+  source: Schema.Codec<A, I>,
+  options: DefaultedEffectOptions
+): AsyncSchemaBuilder<I, A, [session?: GenerationSession], [session: GenerationSession]>;
 /** Native asynchronous generation and encoding, followed by asynchronous-capable decoding only when requested. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
+export function fromEffectAsync<A, I>(
+  source: Schema.Codec<A, I>,
+  options?: EffectOptions
+): AsyncSchemaBuilder<I, A, [session: GenerationSession]>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
 export function fromEffectAsync<A, I>(
   source: Schema.Codec<A, I>,
   options: EffectOptions = {}
-): AsyncSchemaBuilder<I, A, [session: GenerationSession]> {
+): unknown {
   const adapter = effectAdapter(source, options);
-  return createSchemaBuilder(
-    adapter.standard,
-    adapter.createAsync,
-    options
-  ) as unknown as AsyncSchemaBuilder<I, A, [session: GenerationSession]>;
+  return createSchemaBuilder(adapter.standard, adapter.createAsync, options);
 }
+/**
+ * With a `defaultSession`, builds may omit the leading session, and the factory, patch
+ * factories and transforms always receive one, so the factory may declare it as required.
+ */
+export function fromEffectFactory<
+  A,
+  I,
+  F extends (session: GenerationSession) => NoInfer<I> | PromiseLike<NoInfer<I>>,
+>(
+  source: Schema.Codec<A, I>,
+  factory: F,
+  options: EffectOptions & DefaultedSessionFor<F>
+): EffectFactoryBuilder<A, I, F, true>;
 /** Escape hatch for one-way codecs, service-provided data or unsupported native arbitrary derivation. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromEffectFactory<
   A,
   I,
@@ -200,9 +242,19 @@ export function fromEffectFactory<
 >(
   source: Schema.Codec<A, I>,
   factory: F,
+  options?: EffectOptions & DefaultSessionFor<F>
+): EffectFactoryBuilder<A, I, F>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromEffectFactory<A, I>(
+  source: Schema.Codec<A, I>,
+  factory: AnyFactory,
   options: EffectOptions = {}
-): EffectFactoryBuilder<A, I, F> {
-  return createSchemaBuilder(effectAdapter(source, options).standard, factory, options);
+): unknown {
+  return createSchemaBuilder(
+    effectAdapter(source, options).standard,
+    factory as (...args: never[]) => I,
+    options
+  );
 }
 
 /**

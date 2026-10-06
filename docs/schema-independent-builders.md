@@ -1,11 +1,12 @@
-# Architecture and migration
+# Architecture
 
 ## Repository and package boundaries
 
 The repository is a private pnpm workspace containing twenty independently
-packable packages. `@mimlet/class-validator` is new in source and joins the next train;
-the other nineteen are published. The published scoped train is `0.1.0-beta.3`; the unscoped
-Hey API integration is `3.0.0-beta.3`. The scoped train is on npm's `latest` tag and
+packable packages. `@mimlet/class-validator` is new in source and joins the release after
+`0.1.0-beta.4`; the other nineteen are published. The published scoped train is
+`0.1.0-beta.4`; the unscoped Hey API integration is `3.0.0-beta.4`. The scoped train is on
+npm's `latest` tag and
 the Hey API integration on `next`. The train
 includes the dedicated Zod and ArkType adapters. The existing Hey API `latest`
 tag remains on v2. Later source versions require their own publication evidence.

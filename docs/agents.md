@@ -5,8 +5,8 @@ explicit validation, supported deterministic generation, coherent scenarios and
 checked replay. These capabilities can reduce the need to invent fixture structures
 and debugging workflows; no measured productivity or model-preference claim is implied.
 
-**Release status:** published beta, `@mimlet/*@0.1.0-beta.3` and
-`hey-api-builders@3.0.0-beta.3`. The toolkit is on npm's `latest` tag and the Hey API
+**Release status:** published beta, `@mimlet/*@0.1.0-beta.4` and
+`hey-api-builders@3.0.0-beta.4`. The toolkit is on npm's `latest` tag and the Hey API
 integration on `next`. Follow
 [Getting started](getting-started.md) for matching install commands or source
 development. Check the project's installed versions before applying an example.
@@ -74,6 +74,15 @@ when regeneration is intended. Add `--self-contained` for the canonical embedded
 runtime. Generated-file ownership prevents overwriting handwritten edits.
 
 The CLI comes from `@mimlet/codegen`; `@mimlet/core` supplies the runtime. See the [codegen reference](../packages/codegen/README.md).
+
+For an API described by OpenAPI, such as a NestJS backend, generate builders for its
+component schemas instead of copying them into JSON Schema targets. In a configuration
+file, an `openapi` entry names the document file and the schemas. From code:
+
+<!-- recipe:openapi-codegen -->
+
+The OpenAPI 3.0 `nullable` reference becomes `Facade | null` in the generated type, and
+a request leaves out the read-only `id`.
 
 ## Use a factory when generation cannot represent a constraint
 

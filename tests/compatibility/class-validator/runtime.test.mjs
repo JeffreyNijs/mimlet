@@ -31,6 +31,7 @@ import {
 import { Transform, Type } from 'class-transformer';
 import {
   BuilderValidationError,
+  createInstanceBuilder,
   createSchemaBuilder,
   createSession,
   fluent,
@@ -311,6 +312,29 @@ describe('builders from the packed package', () => {
       'productCount',
       'title',
     ]);
+  });
+
+  it('works next to entity builders from the core', () => {
+    class Order {
+      uuid;
+      title;
+      productCount;
+      get label() {
+        return `${this.title} x${this.productCount}`;
+      }
+    }
+    const orders = fluent(
+      createInstanceBuilder(Order, () => ({ uuid: 'o-1', title: 'Windows', productCount: 2 })),
+      ['title', 'productCount']
+    );
+    const order = orders.withProductCount(5).build();
+    const command = commands.withTitle(` ${order.title} `).buildValidated();
+    assert.ok(order instanceof Order);
+    assert.equal(order.label, 'Windows x5');
+    assert.ok(command instanceof CreateOrderCommand);
+    assert.equal(command.title, order.title);
+    // Schema builders, including this adapter's, have no map(): the DTO is the output.
+    assert.throws(() => fromClassValidator(CreateOrderCommand, () => ({})).map((value) => value));
   });
 
   it('reports array indexes as numbers', () => {

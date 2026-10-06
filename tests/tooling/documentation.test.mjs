@@ -9,6 +9,7 @@ import {
   checkPackageIndex,
   checkWorkspacePackageCommands,
   checkDocumentation,
+  checkSkillVersion,
 } from '../../scripts/check-documentation.ts';
 
 async function fixture(markdown, run) {
@@ -70,4 +71,24 @@ it('checks literal workspace directories in shell examples after package renames
     /missing workspace package: mimlet/
   );
   checkWorkspacePackageCommands('```ts\nconst example = "packages/not-a-command";\n```', ['core']);
+});
+
+it('keeps the agent skill from naming a stale current release', () => {
+  // The published 0.1.0-beta.3 skill still called beta.2 the current beta.
+  const stale = 'The current beta is\n`@mimlet/*@0.1.0-beta.2` on npm.';
+  assert.throws(() => checkSkillVersion(stale, '0.1.0-beta.3'), /names 0\.1\.0-beta\.2/);
+  checkSkillVersion(stale.replace('beta.2', 'beta.3'), '0.1.0-beta.3');
+  assert.throws(
+    () => checkSkillVersion('Install `@mimlet/zod@0.1.0-beta.1`.', '0.1.0-beta.3'),
+    /names 0\.1\.0-beta\.1/
+  );
+  assert.throws(
+    () => checkSkillVersion('The current release is 0.2.0.', '0.1.0-beta.3'),
+    /names 0\.2\.0/
+  );
+  // Historical availability notes and version-free instructions are fine.
+  checkSkillVersion(
+    'Read the installed version first. Available in releases after 0.1.0-beta.3; beta.1 and newer.',
+    '0.1.0-beta.4'
+  );
 });

@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/protobuf",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "private": false,
   "description": "Lossless native Protobuf fixture generation, verification and binary codecs with offline schema resolution.",
   "type": "module",
@@ -34,7 +34,7 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-protobuf.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.3",
+    "@mimlet/core": "0.1.0-beta.4",
     "protobufjs": "8.8.0"
   },
   "engines": {

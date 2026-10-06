@@ -548,7 +548,7 @@ describe('schema and generation boundaries', () => {
       accessor,
       cyclic,
       { default: () => 1 },
-      { default: undefined },
+      { default: [undefined] },
       { default: NaN },
       { default: new Date() },
       { default: 1n },
@@ -642,5 +642,202 @@ describe('schema and generation boundaries', () => {
     assert.equal(jsonSchemaAdapter(true).issues(new Date())[0].keyword, 'jsonData');
     for (const value of [new Date(), () => 1, 'too long', NaN])
       assert.throws(() => b.replace(value).buildValidated(), BuilderValidationError);
+  });
+  it('leaves undefined schema properties out and names non-JSON schema values', () => {
+    const adapter = jsonSchemaAdapter({ type: 'integer', title: undefined, minimum: 1 });
+    assert.deepEqual(adapter.source, { type: 'integer', minimum: 1 });
+    assert.equal(adapter.check({ id: undefined }), false);
+    class Shape {}
+    for (const [schema, message] of [
+      [{ enum: [1, undefined] }, /^Expected JSON data, found undefined at \/enum\/1$/],
+      [{ default: () => 1 }, /^Expected JSON data, found a function at \/default$/],
+      [{ default: Symbol('x') }, /^Expected JSON data, found a symbol at \/default$/],
+      [{ maximum: -Infinity }, /^Expected JSON data, found -Infinity at \/maximum$/],
+      [{ const: new Shape() }, /found an instance of Shape at \/const$/],
+      [{ const: Object.create(Object.create(null)) }, /found an object that is not a plain record/],
+    ])
+      assert.throws(() => jsonSchemaAdapter(schema), { name: 'SchemaPreparationError', message });
+  });
+});
+
+describe('the realistic profile', () => {
+  const realistic = (schema, options = {}) =>
+    jsonSchemaAdapter(schema, { profile: 'realistic', ...options });
+  const sample = (adapter, count = 8) =>
+    Array.from({ length: count }, (_, seed) => {
+      const value = adapter.create(adapter.session(seed));
+      assert.equal(adapter.check(value), true, JSON.stringify(value));
+      return value;
+    });
+  const between = (value, low, high) =>
+    assert.ok(value >= low && value <= high, `${value} is not within ${low}..${high}`);
+
+  it('narrows wide or open number ranges and keeps declared bounds', () => {
+    const cases = [
+      [{ type: 'integer' }, 1, 100],
+      [{ type: 'number', minimum: 0 }, 1, 100],
+      [
+        { type: ['integer', 'null'], minimum: -9007199254740991, maximum: 9007199254740991 },
+        1,
+        100,
+      ],
+      [{ type: 'integer', minimum: 0, maximum: 10 }, 0, 10],
+      [{ type: 'number', maximum: -5 }, -104, -5],
+      [{ type: 'integer', exclusiveMaximum: 1 }, -98, 0],
+      [{ type: 'integer', minimum: 5000 }, 5000, 5099],
+      [{ type: 'number', exclusiveMinimum: 200, exclusiveMaximum: 100000 }, 200, 299],
+      [{ type: 'number', exclusiveMinimum: 0, maximum: 1e9 }, 1, 100],
+      [{ type: 'integer', multipleOf: 7 }, 7, 98],
+      // No multiple of 1000 lies in the preferred window, so the declared range is kept.
+      [{ type: 'integer', multipleOf: 1000, minimum: 0, maximum: 1e7 }, 0, 1e7],
+    ];
+    for (const [schema, low, high] of cases)
+      for (const value of sample(realistic(schema))) between(value, low, high);
+    for (const value of sample(realistic({ type: 'number', multipleOf: 0.5 })))
+      assert.equal(value % 0.5, 0);
+    // Decimals have two places unless rounding would leave the declared range.
+    for (const value of sample(realistic({ type: 'number' })))
+      assert.equal(Math.round(value * 100) / 100, value);
+    for (const value of sample(realistic({ type: 'number', minimum: 0.001, maximum: 0.004 })))
+      between(value, 0.001, 0.004);
+    for (const value of sample(realistic({ type: 'number', exclusiveMinimum: 0, maximum: 0.004 })))
+      assert.ok(value > 0 && value <= 0.004);
+  });
+
+  it('generates readable strings and leaves formats, patterns and enums to the provider', () => {
+    for (const value of sample(realistic({ type: 'string' })))
+      assert.match(value, /^[A-Z][a-z]+(?: [a-z]+){0,2}$/);
+    for (const value of sample(realistic({ type: 'string', minLength: 40 }))) {
+      assert.equal(value.length >= 40, true);
+      assert.match(value, /^[A-Z][a-z ]+$/);
+    }
+    for (const value of sample(realistic({ type: 'string', maxLength: 2 })))
+      assert.match(value, /^[A-Z][a-z]?$/);
+    assert.deepEqual(sample(realistic({ type: 'string', maxLength: 0 }), 2), ['', '']);
+    for (const value of sample(realistic({ type: 'string', minLength: 7, maxLength: 7 })))
+      assert.equal(value.length, 7);
+    for (const value of sample(realistic({ type: 'string', format: 'uuid' })))
+      assert.match(value, /^[0-9a-f-]{36}$/);
+    for (const value of sample(realistic({ type: 'string', pattern: '^[0-9]{4}$' })))
+      assert.match(value, /^[0-9]{4}$/);
+    for (const value of sample(realistic({ enum: ['lower_case', 'x'] })))
+      assert.ok(['lower_case', 'x'].includes(value));
+    for (const value of sample(realistic({ type: 'string', contentMediaType: 'text/plain' })))
+      assert.equal(typeof value, 'string');
+    for (const value of sample(realistic({ type: ['integer', 'string'] }), 16))
+      assert.ok(typeof value === 'number' || /^[A-Z][a-z]+(?: [a-z]+)*$/.test(value));
+  });
+
+  it('fills optional fields, nullable values and short arrays without unbounded recursion', () => {
+    const schema = {
+      $id: 'https://example.test/order.json',
+      type: 'object',
+      properties: {
+        note: { type: ['string', 'null'] },
+        status: { oneOf: [{ enum: ['open', 'closed'] }, { type: ['null'] }] },
+        hidden: false,
+        lines: { type: 'array', items: { $ref: '#/$defs/line' } },
+        tuple: { type: 'array', prefixItems: [{ type: 'boolean' }], items: false },
+        empty: { type: 'array', items: false },
+        tags: { type: 'array', items: { type: 'string' }, maxItems: 0 },
+        found: { type: 'array', contains: { const: 1 } },
+        parent: { $ref: '#' },
+        enum: { $ref: '#/$defs/line' },
+      },
+      $defs: {
+        line: { type: 'object', properties: { label: { type: 'string', maxLength: 12 } } },
+      },
+    };
+    for (const value of sample(realistic(schema))) {
+      assert.deepEqual(Object.keys(value).sort(), [
+        'empty',
+        'enum',
+        'found',
+        'lines',
+        'note',
+        'status',
+        'tags',
+        'tuple',
+      ]);
+      assert.equal(typeof value.note, 'string');
+      assert.ok(['open', 'closed'].includes(value.status));
+      between(value.lines.length, 1, 3);
+      for (const line of value.lines) assert.equal(typeof line.label, 'string');
+      assert.equal(value.tuple.length, 1);
+      assert.deepEqual(value.empty, []);
+      assert.deepEqual(value.tags, []);
+    }
+    // Too many optional properties for maxProperties: only the required ones are forced.
+    for (const value of sample(
+      realistic({
+        type: 'object',
+        properties: { a: { type: 'string' }, b: { type: 'string' } },
+        required: ['a'],
+        maxProperties: 1,
+      })
+    ))
+      assert.deepEqual(Object.keys(value), ['a']);
+    // A nested $id changes reference resolution, so its references are never forced.
+    const nested = realistic({
+      type: 'object',
+      properties: { item: { $ref: 'https://example.test/item.json' } },
+      $defs: { item: { $id: 'https://example.test/item.json', type: 'object' } },
+    });
+    for (const value of sample(nested)) assert.deepEqual(value, {});
+    // Reference documents get the same hints; a cycle through them stays optional.
+    const references = {
+      'https://example.test/a.json': {
+        type: 'object',
+        properties: { name: { type: 'string' }, b: { $ref: 'b.json' } },
+      },
+      'https://example.test/b.json': {
+        $id: 'https://example.test/b.json',
+        type: 'object',
+        properties: { a: { $ref: 'https://example.test/a.json' }, size: { type: 'integer' } },
+      },
+    };
+    for (const value of sample(realistic({ $ref: 'https://example.test/a.json' }, { references })))
+      assert.deepEqual(Object.keys(value), ['name']);
+    for (const value of sample(realistic({ $ref: 'https://example.test/b.json' }, { references })))
+      between(value.size, 1, 100);
+  });
+
+  it('uses examples first, then falls back to unhinted candidates', () => {
+    const examples = realistic({ type: 'integer', examples: [12345] });
+    assert.deepEqual(sample(examples, 3), [12345, 12345, 12345]);
+    const invalid = realistic({ type: 'integer', maximum: 10, examples: [12345] });
+    for (const value of sample(invalid)) assert.ok(value <= 10);
+    const conflicting = realistic({
+      type: 'object',
+      properties: { a: { type: 'boolean' }, b: { type: 'boolean' } },
+      oneOf: [{ required: ['a'] }, { required: ['b'] }],
+    });
+    for (const value of sample(conflicting)) assert.equal(Object.keys(value).length, 1);
+    const single = realistic(
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { maxAttempts: 1 }
+    );
+    assert.deepEqual(Object.keys(single.create()), ['a']);
+  });
+
+  it('records the profile in the replay identity without changing other profiles', () => {
+    const schema = { type: 'object', properties: { id: { type: 'integer' } } };
+    const minimal = jsonSchemaAdapter(schema);
+    const lifelike = realistic(schema);
+    assert.equal(lifelike.identity.fingerprint, minimal.identity.fingerprint);
+    assert.notEqual(lifelike.identity.configuration, minimal.identity.configuration);
+    assert.equal(
+      minimal.identity.configuration,
+      jsonSchemaAdapter(schema, { profile: 'minimal' }).identity.configuration
+    );
+    const session = lifelike.session(3);
+    const snapshot = session.snapshot();
+    const value = lifelike.create(session);
+    assert.deepEqual(lifelike.create(restoreSession(snapshot, lifelike.identity)), value);
+    assert.throws(() => restoreSession(snapshot, minimal.identity));
+    assert.deepEqual(
+      fromJsonSchema(schema, { profile: 'realistic' }).buildList(3),
+      fromJsonSchema(schema, { profile: 'realistic' }).buildList(3)
+    );
   });
 });

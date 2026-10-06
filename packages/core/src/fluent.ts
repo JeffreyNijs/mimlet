@@ -3,7 +3,18 @@ import type { FacadeFor } from './facade.js';
 import type { AnyFactory, BuilderDescription, BuilderPatch } from './types.js';
 
 type Source = { buildAsync: AnyFactory; describe(): BuilderDescription };
-type Input<B extends Source> = Awaited<ReturnType<B['buildAsync']>>;
+/** The record setters patch: the parameter of `replace()`, which `map()` does not change. */
+type Input<B extends Source> = B extends { replace(value: infer I): unknown }
+  ? I
+  : Awaited<ReturnType<B['buildAsync']>>;
+/** What the wrapped builder's builds return. */
+type Built<B extends Source> = Awaited<ReturnType<B['buildAsync']>>;
+/** What the wrapped builder's callbacks receive. */
+type ReceivedBy<B> = B extends { withFactory(factory: (...args: infer R) => never): unknown }
+  ? R
+  : never;
+/** Schema builders have no `map()`: their validator's output is what `buildValidated()` returns. */
+type Validates<B> = B extends { buildValidatedAsync: AnyFactory } ? true : false;
 type PatchKey<I> = [I] extends [object]
   ? string extends keyof I
     ? never
@@ -93,6 +104,7 @@ type Capability =
   | 'omit'
   | 'transform'
   | 'transformAsync'
+  | 'map'
   | 'usingValidation'
   | 'build'
   | 'buildAsync'
@@ -131,17 +143,27 @@ type Forwarded<F, B, Self> = F extends (...args: infer A) => infer R
  * applies: it repeats an inner setter for the same field or replaces a class method (another
  * field throws at runtime).
  */
-export type FluentBuilder<B extends Source, S extends Selection<Input<B>>> = FacadeFor<B> & {
-  [M in keyof Kept<B> as M extends keyof FieldMap<S> ? never : M]: Forwarded<
-    Kept<B>[M],
-    B,
-    FluentBuilder<B, S>
-  >;
-} & {
-  [M in keyof FieldMap<S>]: (
-    value: SetterValue<Input<B>, FieldMap<S>[M] & keyof Input<B>>
-  ) => FluentBuilder<B, S>;
-};
+export type FluentBuilder<
+  B extends Source,
+  S extends Selection<Input<B>>,
+  O = Built<B>,
+> = (Validates<B> extends true
+  ? unknown
+  : {
+      /** A transform whose result may have another type; the setters stay. See `Builder.map()`. */
+      map<Next>(mapper: (value: O, ...args: ReceivedBy<B>) => Next): FluentBuilder<B, S, Next>;
+    }) &
+  FacadeFor<B, O> & {
+    [M in keyof Kept<B> as M extends keyof FieldMap<S> ? never : M]: Forwarded<
+      Kept<B>[M],
+      B,
+      FluentBuilder<B, S, O>
+    >;
+  } & {
+    [M in keyof FieldMap<S>]: (
+      value: SetterValue<Input<B>, FieldMap<S>[M] & keyof Input<B>>
+    ) => FluentBuilder<B, S, O>;
+  };
 
 /**
  * The complete list of a schema's top-level input fields, read from the schema itself by an
@@ -181,13 +203,25 @@ type SchemaFieldMap<B extends Source, K extends string, M = AutoFieldMap<K>> = {
  * Named setters for every field a schema lists, minus the names `fluent()` skips. Methods of
  * the wrapped builder, such as the setters of an inner fluent() call, are kept.
  */
-export type FluentFieldsBuilder<B extends Source, K extends string> = FacadeFor<B> & {
-  [M in keyof Kept<B>]: Forwarded<Kept<B>[M], B, FluentFieldsBuilder<B, K>>;
-} & {
-  [M in keyof SchemaFieldMap<B, K>]: (
-    value: SetterValue<Input<B>, SchemaFieldMap<B, K>[M] & keyof Input<B>>
-  ) => FluentFieldsBuilder<B, K>;
-};
+export type FluentFieldsBuilder<
+  B extends Source,
+  K extends string,
+  O = Built<B>,
+> = (Validates<B> extends true
+  ? unknown
+  : {
+      /** A transform whose result may have another type; the setters stay. */
+      map<Next>(
+        mapper: (value: O, ...args: ReceivedBy<B>) => Next
+      ): FluentFieldsBuilder<B, K, Next>;
+    }) &
+  FacadeFor<B, O> & {
+    [M in keyof Kept<B>]: Forwarded<Kept<B>[M], B, FluentFieldsBuilder<B, K, O>>;
+  } & {
+    [M in keyof SchemaFieldMap<B, K>]: (
+      value: SetterValue<Input<B>, SchemaFieldMap<B, K>[M] & keyof Input<B>>
+    ) => FluentFieldsBuilder<B, K, O>;
+  };
 
 /**
  * For adapter authors: mark `names` as the complete list of a schema's top-level input fields.

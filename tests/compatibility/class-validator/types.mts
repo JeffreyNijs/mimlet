@@ -1,8 +1,10 @@
 import qs from 'qs';
 import {
+  createInstanceBuilder,
   createSchemaBuilder,
   fluent,
   type AsyncSchemaBuilder,
+  type InstanceInput,
   type SchemaBuilder,
 } from '@mimlet/core';
 import {
@@ -101,4 +103,30 @@ expectType<UpdateLocationCommand>(
   commandBuilder(UpdateLocationCommand, () => ({ side: null, floor: 1 })).buildValidated()
 );
 classValidatorSchema(CreateOrderCommand, { wire: JSON });
+
+// Entities from the core next to DTOs: the two record types differ on purpose.
+class Order {
+  uuid!: string;
+  location?: UpdateLocationCommand;
+  readonly total!: number;
+  get label(): string {
+    return this.uuid;
+  }
+}
+expectExact<
+  InstanceInput<Order>,
+  { uuid: string; location?: UpdateLocationCommand; total?: number; label?: string }
+>(true);
+expectExact<
+  DtoInput<Order>,
+  {
+    uuid: string;
+    location?: { side: Side | null; floor: number | null };
+    total: number;
+    label: string;
+  }
+>(true);
+expectType<Order>(createInstanceBuilder(Order, () => ({ uuid: 'o-1' })).build());
+// @ts-expect-error Schema builders have no map().
+orders.map((value) => value);
 classValidatorSchema(CreateOrderCommand, { wire: false });

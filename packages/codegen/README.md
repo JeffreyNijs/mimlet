@@ -2,9 +2,9 @@
 
 Emit deterministic named builder classes from typed factory modules, configured
 builder modules, Standard Schema plus a factory, Standard JSON Schema, TypeBox
-(both lines), Valibot, Effect, or raw JSON Schema. Application modules are not
-executed while emitting source. Their declarations are resolved when the consumer
-compiles the generated TypeScript.
+(both lines), Valibot, Effect, raw JSON Schema, or the component schemas of an
+OpenAPI document. Application modules are not executed while emitting source. Their
+declarations are resolved when the consumer compiles the generated TypeScript.
 
 ```ts
 const files = emitBuilders([
@@ -32,10 +32,12 @@ mimlet --config builders.json --out generated --check
 mimlet --config builders.json --out generated --self-contained --select UserBuilder
 ```
 
-The configuration has `builders` and/or `schemas` arrays matching the public API.
-Module specifiers are relative to the generated files, not the configuration.
-Selection defines the desired generated file set. Native schema fields can be
-specified explicitly; existing typed `.with()` works without property helpers.
+The configuration has `builders` and/or `schemas` arrays matching the public API,
+and an optional `openapi` entry (see below). Module specifiers are relative to the
+generated files, not the configuration. Selection defines the desired generated file
+set. Native schema fields can be specified explicitly; existing typed `.with()` works
+without property helpers. A JSON schema property that cannot be set (its schema is
+`false`, such as a read-only property of a request) gets no `withX()` helper.
 
 Each generated `withX()` helper accepts exactly what `.with()` accepts for that
 property, like core `fluent()` setters. With `exactOptionalPropertyTypes`, an optional
@@ -63,6 +65,67 @@ run rewrites the generated files it owns that you have not edited; commit the re
 It still refuses to overwrite a hand-edited generated file.
 
 Individual package manifests are versioned with the coordinated release train; publication is a separate operation.
+
+## OpenAPI documents
+
+Builders for the component schemas (`#/components/schemas/<name>`) of an OpenAPI 3.0,
+3.1 or 3.2 document use the projection of `@mimlet/api`: OpenAPI 3.0 `nullable` (also
+NestJS's `{ nullable: true, allOf: [{ $ref }] }`) and exclusive bounds, 3.1 reference
+siblings, references between components, and request or response handling of
+`readOnly` and `writeOnly`. Raw OpenAPI component schemas are not JSON Schema, so
+passing them to `emitJsonSchemaBuilders` fails on keywords such as `nullable`.
+
+Add an `openapi` entry to the CLI configuration:
+
+```json
+{
+  "openapi": {
+    "document": "./openapi.json",
+    "schemas": [
+      "CreateDealCommand",
+      { "schema": "DealDto", "name": "DealResponse", "direction": "response" }
+    ],
+    "direction": "request",
+    "options": { "profile": "realistic" }
+  }
+}
+```
+
+| Field       | Meaning                                                                                                                                                                                            |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `document`  | A JSON OpenAPI document of at most 16 MB. The path is relative to the configuration file. Convert a YAML document to JSON first.                                                                   |
+| `schemas`   | `"all"`, or a list of component names and `{ "schema", "name"?, "direction"? }` entries.                                                                                                           |
+| `name`      | The builder class name. The default is the component name in PascalCase plus `Builder`: `create-deal.command` becomes `CreateDealCommandBuilder`, with input type `CreateDealCommandBuilderInput`. |
+| `direction` | `"response"` (the default) leaves out `writeOnly` properties, `"request"` leaves out `readOnly` ones. An entry's direction overrides the document's.                                               |
+| `options`   | Data-only generation settings for every builder of the document: `profile`, `maxArrayLength`, `maxStringLength`, `maxValueDepth` and `maxAttempts`.                                                |
+
+`openapi` can also be a list of such entries, one per document. Each generated file
+contains the projected schema with the components it references as definitions, and
+TypeScript declarations named after those components (`facade: FacadeDto | null`).
+`--check`, `--select` and generated-file ownership work as for other builders: a changed
+document is reported as `GENERATED_FILES_OUTDATED`. An unreadable document, an unknown
+component or a component schema that cannot be prepared stops the command with exit
+code 2 and a `CLI_USAGE_ERROR` that names the document and the component. For example,
+`OpenAPI document "./openapi.json": OpenAPI component schema "Odd" (OddBuilder): Unknown format at /format`.
+
+From code, `emitOpenApiBuilders(document, selection, emitOptions?)` takes the parsed
+document, or the object a framework builds in memory: properties whose value is
+`undefined` are left out. The selection is the same as the `openapi` entry without
+`document`. For example, in a NestJS script that already creates the application:
+
+```ts
+const document = SwaggerModule.createDocument(app, config);
+const files = await emitOpenApiBuilders(document, {
+  schemas: ['CreateDealCommand'],
+  direction: 'request',
+  options: { profile: 'realistic' },
+});
+await writeGenerated('./test/builders', files);
+```
+
+`openApiBuilderTargets(document, selection)` returns the JSON builder targets, with
+their `component` and `direction`, for `emitJsonSchemaBuilders`.
+`openApiBuilderName(component)` returns the default class name.
 
 ## Local diagnostics
 

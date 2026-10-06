@@ -598,7 +598,8 @@ export function asyncApi(source: unknown, supplied: AsyncApiOptions = {}) {
         }) as unknown as SchemaBuilder<
           MessageFixture,
           MessageFixture,
-          [session?: GenerationSession]
+          [session?: GenerationSession],
+          [session: GenerationSession]
         >,
       metadata: Object.freeze({
         operationId: operation.id,
@@ -672,6 +673,11 @@ export function fromAsyncApiMessage(
   source: unknown,
   selector: MessageSelector = {},
   options: AsyncApiOptions = {}
-): SchemaBuilder<MessageFixture, MessageFixture, [session?: GenerationSession]> {
+): SchemaBuilder<
+  MessageFixture,
+  MessageFixture,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return asyncApi(source, options).message(selector).builder();
 }

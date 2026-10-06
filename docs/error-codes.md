@@ -50,6 +50,11 @@ reference, `reference` names that reference and the path is relative to it. When
 `$ref` resolves to nothing, `missingReference` names the target and `schemaPath`
 points at the `$ref`. References the schema does not reach are not prepared.
 
+`@mimlet/zod` throws the same `SchemaPreparationError` on the first build of a `fromZod()`
+builder when Zod cannot convert the schema's input to JSON Schema, for example for
+`z.date()`. `schemaPath` then points into the converted input schema, and `cause` is
+Zod's error.
+
 ## Protocol packages
 
 | Package            | Class                  | Code                      | When                                                                                     |

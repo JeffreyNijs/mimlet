@@ -47,8 +47,16 @@ createSchemaBuilderClass(
 );
 // @ts-expect-error A default session would replace an unrelated first argument.
 createBuilder((id?: string) => ({ id }), { defaultSession });
-// @ts-expect-error Factories requiring a session must receive it explicitly.
-createBuilder((session: GenerationSession) => session.random(), { defaultSession });
+// With a default session, a factory may declare its session as required: it always gets one.
+const required = createBuilder((session: GenerationSession) => session.random(), {
+  defaultSession,
+});
+expectType<number>(required.build());
+expectType<number>(required.build(session));
+// @ts-expect-error Factories requiring a session without a default must receive it explicitly.
+createBuilder((session: GenerationSession) => session.random()).build();
+// @ts-expect-error Other required parameters cannot follow a defaulted session.
+createBuilder((session: GenerationSession, label: string) => label, { defaultSession });
 // @ts-expect-error A factory without parameters has no session to default.
 createSchemaBuilder(personSchema, () => ({ age: 1 }), { defaultSession });
 // @ts-expect-error The default is a session factory, not a shared session.

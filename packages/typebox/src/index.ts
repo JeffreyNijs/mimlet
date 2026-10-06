@@ -8,6 +8,9 @@ import {
   schemaFields,
 } from '@mimlet/core';
 import type {
+  AnyFactory,
+  DefaultedSessionFor,
+  DefaultSessionFor,
   GenerationSession,
   SchemaBuilder,
   SchemaBuilderConfig,
@@ -177,30 +180,38 @@ export function typeBoxAdapter<S extends TSchema, C extends TProperties = Record
 
 /**
  * The builder `fromTypeBox(schema, options)` returns: synchronous, with encoded input, decoded
- * output and an optional session. Name it as a generic helper's return type.
+ * output and an optional session. Patch factories and transforms always receive a session.
+ * Name it as a generic helper's return type.
  */
 export type TypeBoxBuilder<
   S extends TSchema,
   C extends TProperties = Record<never, never>,
-> = SchemaBuilder<StaticEncode<S, C>, StaticDecode<S, C>, [session?: GenerationSession]>;
+> = SchemaBuilder<
+  StaticEncode<S, C>,
+  StaticDecode<S, C>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+>;
 
 /**
  * The builder `fromTypeBoxFactory(schema, factory, options)` returns for a factory of type `F`:
  * the factory's arguments, and synchronous build methods unless `F` returns a promise. Pass
  * the factory's own type as `F`. As with the function, sync or async is decided once `S` is known.
+ * Pass `true` as `Defaulted` when the options configure a `defaultSession`.
  */
 export type TypeBoxFactoryBuilder<
   S extends TSchema,
   F extends (...args: never[]) => StaticEncode<S, C> | PromiseLike<StaticEncode<S, C>>,
   C extends TProperties = Record<never, never>,
-> = SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F>;
+  Defaulted extends boolean = false,
+> = SchemaBuilderFor<StandardSchemaV1<StaticEncode<S, C>, StaticDecode<S, C>>, F, Defaulted>;
 
 /**
  * Generate native TypeBox defaults. This is deterministic creation, not random sampling.
  * Native creation is synchronous, so the builder type is concrete: generic helpers over an
  * unresolved schema keep the synchronous build methods after `with()` or `withFactory()`.
- * A session-less build or list uses the adapter's seed-1 session, so `withFactory()` and
- * transforms can draw distinct values for list items from it.
+ * A session-less build or list uses the adapter's seed-1 session, scoped by `options.name` if
+ * given, so `withFactory()` and transforms can draw distinct values for list items from it.
  */
 export function fromTypeBox<S extends TSchema, C extends TProperties = Record<never, never>>(
   schema: S,
@@ -214,7 +225,25 @@ export function fromTypeBox<S extends TSchema, C extends TProperties = Record<ne
   ) as TypeBoxBuilder<S, C>;
 }
 
+/**
+ * With a `defaultSession`, builds may omit the leading session, and the factory, patch
+ * factories and transforms always receive one, so the factory may declare it as required.
+ */
+export function fromTypeBoxFactory<
+  S extends TSchema,
+  C extends TProperties = Record<never, never>,
+  F extends (
+    session: GenerationSession
+  ) => NoInfer<StaticEncode<S, C>> | PromiseLike<NoInfer<StaticEncode<S, C>>> = (
+    session: GenerationSession
+  ) => StaticEncode<S, C>,
+>(
+  schema: S,
+  factory: F,
+  options: TypeBoxOptions<C> & DefaultedSessionFor<F>
+): TypeBoxFactoryBuilder<S, F, C, true>;
 /** Use a custom sync/async factory without losing encoded/decoded types or arguments. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromTypeBoxFactory<
   S extends TSchema,
   C extends TProperties = Record<never, never>,
@@ -224,7 +253,17 @@ export function fromTypeBoxFactory<
     S,
     C
   >,
->(schema: S, factory: F, options: TypeBoxOptions<C> = {}): TypeBoxFactoryBuilder<S, F, C> {
+>(
+  schema: S,
+  factory: F,
+  options?: TypeBoxOptions<C> & DefaultSessionFor<F>
+): TypeBoxFactoryBuilder<S, F, C>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromTypeBoxFactory(
+  schema: TSchema,
+  factory: AnyFactory,
+  options: TypeBoxOptions = {}
+): unknown {
   return createSchemaBuilder(typeBoxAdapter(schema, options).standard, factory, options);
 }
 
@@ -342,7 +381,8 @@ export type TypeBoxVariantBuilder<
 > = SchemaBuilder<
   StaticEncode<S['anyOf'][I], C>,
   StaticDecode<S, C>,
-  [session?: GenerationSession]
+  [session?: GenerationSession],
+  [session: GenerationSession]
 >;
 
 /** Safe discriminated-union selection: generate the entire branch before applying patches. */

@@ -28,6 +28,7 @@
     "typebox",
     "fast-check",
     "json-schema",
+    "api",
     "codegen",
     "zod",
     "arktype"

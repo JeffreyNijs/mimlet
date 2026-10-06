@@ -45,13 +45,13 @@ When a value still cannot be created, `BuilderGenerationError` names its locatio
 `fromTypeBox()` and `fromTypeBoxVariant()` builders take an optional `GenerationSession`. Native creation does not draw from it, but patch factories and transforms do, and a session-less list shares one seed-1 session from `typeBoxAdapter(schema).session()`:
 
 ```ts
-import type { GenerationSession } from '@mimlet/core';
-
-const users = fromTypeBox(Type.Object({ id: Type.Number() })).withFactory(
-  (session?: GenerationSession) => ({ id: session?.sequence('user', 1) ?? 0 })
-);
+const users = fromTypeBox(Type.Object({ id: Type.Number() })).withFactory((session) => ({
+  id: session.sequence('user', 1),
+}));
 users.buildValidatedList(3); // ids 1, 2 and 3, the same on every run
 ```
+
+Patch factories and transforms always receive a session. Two builders over the same schema share the default stream; give them a `name`, as in `fromTypeBox(schema, { name: 'users' })`, for different session-less values, or pass one `createTestSession()` to every build in a test.
 
 `typeBoxAdapter(schema).identity` fingerprints the schema and `references`, the creation provider and the fill configuration for replay. Transform callbacks cannot be fingerprinted.
 
@@ -59,7 +59,7 @@ The adapter's `check` uses native checking without coercion. Successful validati
 
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession], [session: GenerationSession]>`, also for a schema type parameter; the last argument types what patch factories and transforms receive. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
 
 A helper's return type can stay inferred. When a lint rule such as `@typescript-eslint/explicit-function-return-type` requires one, name the builder the helper returns. Each type is exactly what its function returns, also for a schema type parameter:
 

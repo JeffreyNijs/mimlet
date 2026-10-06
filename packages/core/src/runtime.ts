@@ -1,3 +1,4 @@
+import { className, mappedClass, type AnyClass } from './class-instance.js';
 import { summarizeValidationIssues } from './issues.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
@@ -37,6 +38,10 @@ type Operation =
   | { readonly kind: 'omit'; readonly keys: ReadonlyArray<PropertyKey> };
 type Transform = {
   readonly asynchronous: boolean;
+  /** A map is a transform whose result may have another type. */
+  readonly kind?: 'map';
+  /** For a map made by intoClass(): the class later transforms must keep returning. */
+  readonly instanceOf?: AnyClass;
   readonly run: (value: unknown, ...args: unknown[]) => unknown;
 };
 type State = {
@@ -48,6 +53,7 @@ type State = {
   readonly validationOptions?: StandardSchemaV1.Options;
   readonly maxListSize: number;
   readonly defaultSession?: () => unknown;
+  readonly name?: string;
 };
 
 function plainRecord(value: unknown): value is Record<PropertyKey, unknown> {
@@ -66,6 +72,24 @@ function merge(value: unknown, patch: unknown): unknown {
     throw new TypeError('Cannot merge between record and non-record values; use replace()');
   }
   return patch;
+}
+/**
+ * After intoClass(), a transform must return an instance of that class, so a spread copy
+ * (`{ ...user }`) cannot silently turn the built entity back into a plain object. A later map()
+ * may change the type again.
+ */
+function guard() {
+  let target: AnyClass | undefined;
+  return (transform: Transform, value: unknown): unknown => {
+    if (transform.kind === 'map') {
+      target = transform.instanceOf;
+    } else if (target !== undefined && !(value instanceof target)) {
+      throw new TypeError(
+        `A transform after intoClass(${className(target)}) returned a value that is not a ${className(target)} instance; change the instance (for example with Object.assign) or use map() to change the type`
+      );
+    }
+    return value;
+  };
 }
 function synchronous(value: unknown, asyncMethod: string): unknown {
   if (
@@ -146,9 +170,21 @@ export function makeRuntime(state: State) {
       ? synchronous(invoke(state.cloneInput, [value]), 'a synchronous input clone')
       : value;
   // An omitted leading session gets a fresh default per top-level call; none outlives the call.
+  // A named builder draws from its own scope of that session.
+  const fresh = (create: () => unknown) => {
+    const session = invoke(create, []);
+    if (state.name === undefined) {
+      return session;
+    }
+    const scope = (session as { scope?: unknown } | null | undefined)?.scope;
+    if (typeof scope !== 'function') {
+      throw new TypeError('defaultSession must return a GenerationSession');
+    }
+    return Reflect.apply(scope, session, ['builder', state.name]);
+  };
   const withDefaults = (args: unknown[]) =>
     state.defaultSession && args[0] === undefined
-      ? [invoke(state.defaultSession, []), ...args.slice(1)]
+      ? [fresh(state.defaultSession), ...args.slice(1)]
       : args;
   const produce = (args: unknown[]) => {
     if (state.transforms.some((transform) => transform.asynchronous)) {
@@ -156,18 +192,24 @@ export function makeRuntime(state: State) {
     }
     const initial = synchronous(invoke(state.factory, args), 'buildAsync()');
     let value = prepare(applyOperations(state, initial, args));
+    const check = guard();
     for (const transform of state.transforms) {
-      value = synchronous(invoke(transform.run, [value, ...args]), 'a synchronous transform');
+      value = check(
+        transform,
+        synchronous(invoke(transform.run, [value, ...args]), 'a synchronous transform')
+      );
     }
     return value;
   };
   const produceAsync = async (args: unknown[]) => {
     let value = prepare(applyOperations(state, await invoke(state.factory, args), args));
+    const check = guard();
     for (const transform of state.transforms) {
       const result = invoke(transform.run, [value, ...args]);
-      value = transform.asynchronous
-        ? await result
-        : synchronous(result, 'a synchronous transform');
+      value = check(
+        transform,
+        transform.asynchronous ? await result : synchronous(result, 'a synchronous transform')
+      );
     }
     return value;
   };
@@ -225,6 +267,21 @@ export function makeRuntime(state: State) {
       callable(run, 'transformAsync()');
       return configure({ transforms: [...state.transforms, { asynchronous: true, run }] });
     },
+    map(run: (value: unknown, ...args: unknown[]) => unknown) {
+      if (state.standard) {
+        throw new TypeError(
+          'map() is not available on schema builders: the validator expects the unmapped input'
+        );
+      }
+      callable(run, 'map()');
+      const instanceOf = mappedClass(run);
+      return configure({
+        transforms: [
+          ...state.transforms,
+          { asynchronous: false, kind: 'map', run, ...(instanceOf ? { instanceOf } : {}) },
+        ],
+      });
+    },
     build(...args: unknown[]) {
       return produce(withDefaults(args));
     },
@@ -239,14 +296,15 @@ export function makeRuntime(state: State) {
     },
     describe(): BuilderDescription {
       return Object.freeze({
+        ...(state.name === undefined ? {} : { name: state.name }),
         maxListSize: state.maxListSize,
         cloneInput: state.cloneInput !== undefined,
         validation: state.standard !== undefined,
         operations: Object.freeze([
           'factory',
           ...state.operations.map(({ kind }) => kind),
-          ...state.transforms.map(({ asynchronous }) =>
-            asynchronous ? 'transformAsync' : 'transform'
+          ...state.transforms.map(
+            ({ asynchronous, kind }) => kind ?? (asynchronous ? 'transformAsync' : 'transform')
           ),
         ]),
       });
@@ -285,6 +343,12 @@ export function initializeRuntime(
   if (config.defaultSession !== undefined) {
     callable(config.defaultSession, 'defaultSession');
   }
+  if (
+    config.name !== undefined &&
+    (typeof config.name !== 'string' || !config.name || config.name.length > 1024)
+  ) {
+    throw new TypeError('A builder name must be a nonempty string of at most 1024 characters');
+  }
   const maxListSize = config.maxListSize ?? 10_000;
   checkCount(maxListSize, 0xffffffff);
   const standard = schema?.['~standard'];
@@ -302,6 +366,7 @@ export function initializeRuntime(
     maxListSize,
     ...(config.cloneInput ? { cloneInput: config.cloneInput } : {}),
     ...(config.defaultSession ? { defaultSession: config.defaultSession } : {}),
+    ...(config.name === undefined ? {} : { name: config.name }),
     ...(standard ? { standard } : {}),
     ...(validationOptions ? { validationOptions: Object.freeze({ ...validationOptions }) } : {}),
   });

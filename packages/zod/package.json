@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/zod",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "private": false,
   "description": "Native Zod fixture builders with typed factories and input/output semantics.",
   "type": "module",
@@ -21,11 +21,11 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "zod": ">=4.4.3 <5"
+    "zod": ">=4.3.0 <5"
   },
   "mimlet": {
     "testedPeers": {
-      "zod": ">=4.4.3 <=4.6.5"
+      "zod": ">=4.3.0 <=4.6.5"
     }
   },
   "repository": {
@@ -39,11 +39,11 @@
     "typecheck": "pnpm type-check",
     "type-check": "tsc --noEmit",
     "lint": "eslint src",
-    "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-zod.test.ts"
+    "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-zod.test.ts tests/unit/mimlet-zod-generated.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.3",
-    "@mimlet/json-schema": "0.1.0-beta.3"
+    "@mimlet/core": "0.1.0-beta.4",
+    "@mimlet/json-schema": "0.1.0-beta.4"
   },
   "engines": {
     "node": ">=22.18.0"

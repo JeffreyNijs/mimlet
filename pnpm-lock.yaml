@@ -15,6 +15,7 @@ overrides:
   js-yaml@4: 4.3.2
   vitepress>vite: 6.4.3
   brace-expansion@5: 5.0.12
+  source-map-js: 1.2.2
 
 importers:
 
@@ -168,25 +169,25 @@ importers:
   packages/adapter:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
 
   packages/api:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
 
   packages/arktype:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
     devDependencies:
       arktype:
@@ -196,7 +197,7 @@ importers:
   packages/avro:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       avsc:
         specifier: 5.7.9
@@ -205,7 +206,7 @@ importers:
   packages/class-validator:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       class-transformer:
@@ -217,11 +218,14 @@ importers:
 
   packages/codegen:
     dependencies:
+      '@mimlet/api':
+        specifier: 0.1.0-beta.4
+        version: link:../api
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
       json-schema-to-typescript:
         specifier: 16.0.0
@@ -237,7 +241,7 @@ importers:
   packages/consumers:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
 
   packages/core: {}
@@ -245,7 +249,7 @@ importers:
   packages/effect:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       effect:
@@ -255,7 +259,7 @@ importers:
   packages/faker:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       '@faker-js/faker':
@@ -265,7 +269,7 @@ importers:
   packages/fast-check:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       fast-check:
@@ -275,7 +279,7 @@ importers:
   packages/graphql:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       graphql:
         specifier: 17.0.2
@@ -299,7 +303,7 @@ importers:
   packages/json-schema:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       ajv:
         specifier: 8.20.0
@@ -314,16 +318,16 @@ importers:
   packages/playground:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
 
   packages/protobuf:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       protobufjs:
         specifier: 8.8.0
@@ -332,7 +336,7 @@ importers:
   packages/typebox:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       typebox:
@@ -342,7 +346,7 @@ importers:
   packages/typebox-legacy:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
     devDependencies:
       '@sinclair/typebox':
@@ -352,10 +356,10 @@ importers:
   packages/valibot:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
       '@valibot/to-json-schema':
         specifier: 1.8.0
@@ -368,10 +372,10 @@ importers:
   packages/zod:
     dependencies:
       '@mimlet/core':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../core
       '@mimlet/json-schema':
-        specifier: 0.1.0-beta.3
+        specifier: 0.1.0-beta.4
         version: link:../json-schema
     devDependencies:
       zod:
@@ -2624,10 +2628,6 @@ packages:
     resolution: {integrity: sha512-kUMbT1oBJCpgrnKoSr0o6wPtvRWT9W9UKvGLwfJYO2WuahZRHOpEyL1ckyMGgMWh0UdpmaoFqKKD29WTomNEGA==}
     engines: {node: '>=8'}
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
-    engines: {node: '>=0.10.0'}
-
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
@@ -4115,7 +4115,7 @@ snapshots:
       estree-walker: 2.0.2
       magic-string: 0.30.21
       postcss: 8.5.26
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   '@vue/compiler-ssr@3.5.43':
     dependencies:
@@ -5213,8 +5213,6 @@ snapshots:
   skin-tone@2.0.0:
     dependencies:
       unicode-emoji-modifier-base: 1.0.0
-
-  source-map-js@1.2.1: {}
 
   source-map-js@1.2.2: {}
 

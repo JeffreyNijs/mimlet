@@ -4,6 +4,7 @@ import fakerPackage from '@faker-js/faker/package.json' with { type: 'json' };
 import { createBuilder, createSchemaBuilder, createSession } from '@mimlet/core';
 import type {
   BuilderFor,
+  DefaultSessionConfig,
   GenerationSession,
   SchemaBuilderConfig,
   SchemaBuilderFor,
@@ -113,15 +114,41 @@ function prepare<F extends FakerFactory>(factory: F, options: FakerOptions) {
     factory(adapter.instance(session), session) as ReturnType<F>;
 }
 
+type DefaultedFakerOptions = FakerOptions & Required<DefaultSessionConfig>;
+
+/**
+ * With a `defaultSession`, such as `() => fakerAdapter(options).session()`, builds may omit
+ * the session; the factory, patch factories and transforms always receive one.
+ */
+export function fromFaker<F extends FakerFactory>(
+  factory: F,
+  options: DefaultedFakerOptions
+): BuilderFor<(session: GenerationSession) => ReturnType<F>, true>;
 /** Explicit sessions make list generation and independent test runs reproducible. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromFaker<F extends FakerFactory>(
   factory: F,
   options: FakerOptions
-): BuilderFor<(session: GenerationSession) => ReturnType<F>> {
+): BuilderFor<(session: GenerationSession) => ReturnType<F>>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromFaker(factory: FakerFactory, options: FakerOptions): unknown {
   return createBuilder(prepare(factory, options), options);
 }
 
+/** With a `defaultSession`, builds may omit the session; see `fromFaker()`. */
+export function fromFakerSchema<
+  S extends StandardSchemaV1,
+  F extends (
+    faker: Faker,
+    session: GenerationSession
+  ) => NoInfer<SchemaInput<S>> | PromiseLike<NoInfer<SchemaInput<S>>>,
+>(
+  schema: S,
+  factory: F,
+  options: DefaultedFakerOptions
+): SchemaBuilderFor<S, (session: GenerationSession) => ReturnType<F>, true>;
 /** Generate schema input with Faker, then optionally run the original validator exactly once. */
+// eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fromFakerSchema<
   S extends StandardSchemaV1,
   F extends (
@@ -132,6 +159,12 @@ export function fromFakerSchema<
   schema: S,
   factory: F,
   options: FakerOptions
-): SchemaBuilderFor<S, (session: GenerationSession) => ReturnType<F>> {
+): SchemaBuilderFor<S, (session: GenerationSession) => ReturnType<F>>;
+// eslint-disable-next-line no-redeclare -- TypeScript overload implementation
+export function fromFakerSchema(
+  schema: StandardSchemaV1,
+  factory: FakerFactory,
+  options: FakerOptions
+): unknown {
   return createSchemaBuilder(schema, prepare(factory, options), options);
 }

@@ -44,7 +44,9 @@ unknown fixture fields are rejected. No process-global native settings are chang
 Profiles are minimal (required fields only), random, boundary, and declared defaults.
 Lists/maps have a configured bounded length. Recursive optional messages terminate;
 required recursion exceeding the budget fails. Sessions preserve deterministic
-field streams for the same schema/options/provider version. Metadata exposes field
+field streams for the same schema/options/provider version. A session-less build
+starts from the adapter's seed-1 `session()`; a `name` option gives a builder its own
+session-less values. Metadata exposes field
 numbers, presence, oneofs and service method types/streaming flags without creating
 an RPC client. Field names are preserved by default; `keepCase: false` opts into
 native camelCase naming.

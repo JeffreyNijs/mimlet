@@ -2,8 +2,8 @@
 
 `@mimlet/class-validator` builds test data for the commands and queries of an API that
 validates requests with class-validator, such as a NestJS application with a global
-`ValidationPipe`. It is new in source and joins the next published train; it is not part
-of `0.1.0-beta.3`.
+`ValidationPipe`. It is new in source and ships in the release after `0.1.0-beta.4`; it is
+not part of `0.1.0-beta.4`. The examples use the `@mimlet/core` API of the same train.
 
 One builder serves both kinds of test:
 
@@ -167,6 +167,37 @@ const builder = fluent(
 It is **experimental**: TypeScript cannot compare the list with the class, so a field that
 has no decorator and is not emitted as a class field (with `useDefineForClassFields` off, as
 for `target` below ES2022) gets a typed setter that does not exist at runtime.
+
+## 6. Entities next to DTOs
+
+A use case test usually needs both: a command the controller would receive, and the entities
+already in the database. Commands come from this adapter; entities, which no validator
+checks, come from `createInstanceBuilder()` in `@mimlet/core`, which patches the entity's
+record and builds an instance (see [entities and class instances](class-instances.md)):
+
+```ts
+// src/orders/tests/order.entity.builder.ts
+export const orderBuilder = fluent(
+  createInstanceBuilder(Order, () => ({
+    uuid: randomUUID(),
+    title: 'Windows',
+    productCount: 2,
+    status: OrderStatus.DRAFT,
+    deletedAt: null,
+  })),
+  ['title', 'productCount', 'status']
+);
+
+// src/orders/update-order/tests/update-order.use-case.unit.test.ts
+const order = orderBuilder.withStatus(OrderStatus.SENT).build(); // an Order instance
+const command = updateOrderCommandBuilder.withProductCount(3).buildValidated(); // a DTO
+await useCase.execute(order.uuid, command);
+```
+
+The two record types differ on purpose. `DtoInput<Dto>` is a request payload: nested DTOs
+become plain objects, and a `readonly` field stays required. `InstanceInput<Entity>` is the
+entity's own fields: relations keep their class types (build them with their own builders),
+and readonly properties are optional, so a computed getter needs no value.
 
 ## How closely it follows the pipe
 

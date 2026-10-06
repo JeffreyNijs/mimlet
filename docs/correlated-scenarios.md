@@ -34,7 +34,15 @@ const fixture = checkout.build(session);
 
 Each factory receives only its declared dependencies and a session view scoped by
 scenario name and node name. Adding an independent node does not consume another
-node's random stream. Dependencies are shallow-readonly and their container is
+node's random stream. Scenarios with the same name and node names draw from the same
+streams, so give each scenario its own name.
+
+`build()`, `buildList()` and their async variants take the session as an optional
+argument, like the schema builders. Without one, each call uses a fresh
+`createTestSession()` (seed `1`), so `checkout.build()` equals
+`checkout.build(createTestSession())` and a session-less `buildList(3)` returns three
+successive fixtures from one shared session. Pass a session to continue it across
+scenarios and builders in a test, or to take a snapshot for replay. Dependencies are shallow-readonly and their container is
 frozen, but values are not copied: relationships intentionally preserve identity.
 Treat dependency values as input and do not mutate them from dependent factories.
 Factories remain responsible for fresh values; `cloneFixture`, `withFactory`, and
@@ -51,8 +59,27 @@ const empty = checkout.trait('empty-cart', { lines: () => [] });
 ```
 
 A replacement is a complete value of the original node type. Downstream nodes
-rerun with the replacement. Overriding a derived node itself is an explicit way
-to replace that derivation, so its original relation no longer applies.
+rerun with the replacement. Overriding a derived node replaces that derivation, so
+keep its relations explicitly: override and trait factories receive the node's
+session and its declared dependencies, as `(session, dependencies)`:
+
+```ts
+const deals = createScenario({ name: 'deals' })
+  .node('deal', [], (_dependencies, session) => ({ uuid: dealUuids.build(session) }))
+  .node('summary', ['deal'], ({ deal }) => ({ uuid: deal.uuid, total: 0 }));
+
+const busy = deals.override('summary', (session, { deal }) => ({
+  uuid: deal.uuid, // still the deal's key
+  total: session.integer(10, 99),
+}));
+```
+
+The dependencies are the same frozen container the original node receives, typed
+with the node's declared dependencies. A replacement that ignores them, such as
+`() => value`, still works. A scenario type declared by hand as `Scenario<T>` does not
+know each node's dependencies, so its replacements see every node as optional; add the
+third type argument, a map from node name to dependency names such as
+`Scenario<T, false, { deal: never; summary: 'deal' }>`, for exact types.
 
 Traits are named maps of node replacement factories. Conflicting traits and
 traits applied over explicit overrides fail by default. Use the explicit
