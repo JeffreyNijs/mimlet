@@ -394,3 +394,111 @@ test('reports thrown ZodErrors and non-Error values from transforms as validatio
     (error) => !(error instanceof BuilderValidationError) && /parseAsync/.test(error.message)
   );
 });
+
+test('names the Zod callback that threw and places it when it is the only one', () => {
+  const StrictLead = z.object({ id: z.string(), source: z.literal('teamleader') });
+  const LeadTransformer = {
+    fromDto: (dto) => StrictLead.parse(dto),
+    fromSource: (dto) => ({ ...dto, source: z.literal('teamleader').parse(dto.source) }),
+  };
+  const Lead = z.object({ id: z.string(), source: z.string() });
+  const lead = () => ({ id: '1', source: 'hubspot' });
+  const failure = (schema, value) => {
+    try {
+      fromZodFactory(schema, () => value).buildValidated();
+    } catch (error) {
+      assert.ok(error instanceof BuilderValidationError);
+      return error;
+    }
+    assert.fail('Expected a validation failure');
+  };
+  const whole = failure(Lead.transform(LeadTransformer.fromDto), lead());
+  assert.equal(
+    whole.message,
+    'Schema validation failed: 1 issue at source; thrown by the Zod transform fromDto'
+  );
+  assert.ok(whole.cause instanceof z.ZodError);
+  const single = failure(Lead.transform(LeadTransformer.fromSource), lead());
+  assert.equal(
+    single.message,
+    'Schema validation failed: 1 issue at (root); thrown by the Zod transform fromSource'
+  );
+  assert.equal(single.issues[0].message, 'Invalid input: expected "teamleader"');
+
+  // Every kind of schema is inspected; only the throwing transform has a callback.
+  const thrown = new Error('bad date');
+  const parseDate = () => {
+    throw thrown;
+  };
+  const Everything = z.object({
+    at: z.string().transform(parseDate),
+    list: z.array(z.string()),
+    pair: z.tuple([z.string()], z.number()),
+    map: z.record(z.string(), z.number()),
+    union: z.union([z.string(), z.number()]).optional().nullable(),
+    both: z.intersection(z.object({ a: z.string() }), z.object({ b: z.string() })).default({
+      a: '',
+      b: '',
+    }),
+    lazy: z.lazy(() => z.string()).readonly(),
+    kind: z.enum(['a', 'b']).catch('a'),
+    literal: z.literal('x'),
+    pattern: z.templateLiteral(['id-', z.number()]),
+  });
+  const value = {
+    at: 'x',
+    list: [],
+    pair: ['a'],
+    map: {},
+    union: null,
+    both: { a: '', b: '' },
+    lazy: 's',
+    kind: 'a',
+    literal: 'x',
+    pattern: 'id-1',
+  };
+  const everything = failure(Everything, value);
+  assert.equal(
+    everything.message,
+    'Schema validation failed: 1 issue at at; thrown by the Zod transform parseDate'
+  );
+  assert.deepEqual(everything.issues, [
+    { message: 'The Zod transform parseDate threw Error: bad date', path: ['at'] },
+  ]);
+  assert.equal(everything.cause, thrown);
+
+  // Several callbacks: none is chosen, each is listed, and anonymous ones by location.
+  const several = Everything.extend({
+    code: z.codec(z.string(), z.string(), { decode: (text) => text, encode: (text) => text }),
+    upper: z.string().overwrite((text) => text.toUpperCase()),
+    checked: z.string().superRefine(() => {}),
+    custom: z.custom(() => true),
+    items: z.array(
+      z
+        .string()
+        .transform(function bound(text) {
+          return text;
+        })
+        .transform(parseDate.bind(null))
+    ),
+  });
+  const listed = failure(several, {
+    ...value,
+    code: 'c',
+    upper: 'u',
+    checked: 'k',
+    custom: 1,
+    items: [],
+  });
+  assert.equal(
+    listed.message,
+    'Schema validation failed: 1 issue at (root); thrown by one of the Zod callbacks transform parseDate, codec decode, overwrite at upper and 4 more'
+  );
+  assert.equal(listed.issues[0].message, 'A Zod transform or refinement threw Error: bad date');
+  // Zod Mini has the same structure.
+  const mini_ = mini.object({ at: mini.pipe(mini.string(), mini.transform(parseDate)) });
+  assert.equal(
+    failure(mini_, { at: 'x' }).message,
+    'Schema validation failed: 1 issue at at; thrown by the Zod transform parseDate'
+  );
+});

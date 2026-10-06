@@ -70,14 +70,51 @@ leads.buildValidated(); // z.output<typeof Lead>: what LeadTransformer.fromDto r
 
 Zod lets an error thrown by a `.transform()`, `.refine()` or other callback escape the
 parse with no path. The validated build methods report it as a
-`BuilderValidationError` with the original error as its `cause`. A thrown `ZodError`
-(for example from `.parse()` inside the transform) keeps its issues, with paths
-relative to that inner parse; any other error becomes one issue at the root. Zod's
-own async error, thrown when a synchronous build meets an async refinement, still
-passes through unchanged.
+`BuilderValidationError` with the original error as its `cause`, and the message says
+which callback threw it. A thrown `ZodError` (for example from `.parse()` inside the
+transform) keeps its issues and their paths, which are relative to that inner parse;
+any other error becomes one issue. Zod's own async error, thrown when a synchronous
+build meets an async refinement, still passes through unchanged.
 
-To have the error name the field, report it through Zod instead of throwing. Issues
-added with `ctx.addIssue()` keep their path:
+An application transformer that parses the whole DTO with a stricter schema gets
+the field from Zod:
+
+```ts
+const StrictLeadDeal = zLeadDealResponse.extend({ source: z.literal('teamleader') });
+class LeadDealTransformer {
+  static fromDto(dto: z.output<typeof zLeadDealResponse>) {
+    return toLeadDeal(StrictLeadDeal.parse(dto));
+  }
+}
+const LeadDeal = zLeadDealResponse.transform(LeadDealTransformer.fromDto);
+const leadDeals = fluent(fromZod(LeadDeal), zodFields(LeadDeal));
+// BuilderValidationError: Schema validation failed: 1 issue at source; thrown by the Zod transform fromDto
+leadDeals.withSource('hubspot').buildValidated();
+```
+
+A parse of a single value, such as `z.literal('teamleader').parse(dto.source)`, has no
+path: Zod does not know which field the value came from, and Mimlet does not guess it
+from the rejected value. The issue stays at the root, keeps Zod's message (see it with
+`formatValidationIssues(error, { messages: true })`), and the error names the transform:
+
+```text
+BuilderValidationError: Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDto
+```
+
+The callback is named by its function name, or by its location for an anonymous
+function (`thrown by the Zod transform at deal`). This is read from the schema's
+structure, so it is exact only when the schema has one callback: transforms,
+preprocessors, codecs, refinements, overwrites and `z.custom()` count; default and
+catch values do not. Then a thrown error also gets that callback's location as a path
+prefix, for example `createdAt` for `z.object({ createdAt: z.string().transform(parseDate) })`
+or `deal.source` for a `ZodError` at `source` from a transform on `deal`. A callback
+inside a list, a record or a recursive schema has no single location, so no prefix
+is added. When the schema has several callbacks, the one that threw is unknown and
+the message lists them instead:
+`thrown by one of the Zod callbacks transform parseDate, refinement knownLead, transform toLead`.
+
+To have the error name the field in every case, report it through Zod instead of
+throwing. Issues added with `ctx.addIssue()` keep their path:
 
 ```ts
 const Lead = zLeadIndexResponse.transform((dto, ctx) => {
@@ -209,12 +246,19 @@ Creating an automatic builder does no conversion work: `fromZod()` and
 input JSON Schema and compiles the generator. That generator is cached per schema
 object and generation options, so every adapter and builder of the same schema
 shares it; Hey API's per-operation aliases of a component schema are the same object.
-Options that only configure the builder (`maxListSize`, `cloneInput`,
+Options that only configure the builder (`name`, `maxListSize`, `cloneInput`,
 `validationOptions`, `parseOptions`) do not prevent sharing; options holding
 functions or schemas (`provider`, `keywords`, `formats`, `references`) give the
 builder its own generator. A module that creates many builders at load time stays
 cheap, and you pay for conversion only for the schemas you build. Values, sessions
 and replay identities are the same as when generation was prepared up front.
+
+Below that, `@mimlet/json-schema` reuses a prepared generator for equal converted
+content, so different schema objects with the same input share the compiled
+validator too: `zLead.transform(a)` and `zLead.transform(b)`, Hey API schemas that are
+equal but not the same object, and a schema module that a test runner loads again in
+the same process. See [shared preparation](../json-schema/README.md#shared-preparation)
+for the key, the memory bound and how to turn it off.
 
 Conversion supports Draft 7 and Draft 2020-12. It throws for unrepresentable native
 values rather than converting them to an unconstrained schema. Because conversion
@@ -241,6 +285,20 @@ The generation identity covers the converted input and generator configuration.
 Keep application schema/codec versions in your replay identity when output depends
 on opaque functions. Native conversion and callbacks are trusted application code;
 generation budgets do not sandbox them. DOM types are needed by Zod's declarations.
+
+### Start-up cost in test runners
+
+Vitest runs each spec file in a new worker by default (`isolate: true`), so each file
+converts and compiles the schemas it builds again; nothing carries over from the
+previous file, also not through the shared preparation above. In a new worker the
+first build costs the most (about 70 ms for a large generated response schema on an
+Apple M5, mostly loading and warming up the validator), and each further schema
+about 5 to 30 ms depending on its size. Validators are shared within the worker, so
+the JSON Schema meta-schema is compiled once per worker instead of once per schema.
+Building fewer distinct schemas per file keeps the cost down. With `isolate: false`,
+Vitest keeps modules between the files that run in one worker, so their builders and
+generators are reused; use it only where your tests do not depend on fresh module
+state. `node scripts/benchmark-zod.ts` in the repository measures both cases.
 
 ## Generated Hey API schemas
 

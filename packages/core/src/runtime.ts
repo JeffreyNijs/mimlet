@@ -9,14 +9,29 @@ import type {
   ValidationIssue,
 } from './types.js';
 
+export interface BuilderValidationErrorOptions extends ErrorOptions {
+  /**
+   * Where the rejection came from, appended to the message after a semicolon, for example
+   * `thrown by the Zod transform fromDto`. An adapter writes it from schema structure such as
+   * callback names; it must not contain the rejected value. At most 200 characters are kept.
+   */
+  readonly detail?: string;
+}
 export class BuilderValidationError extends Error {
   readonly code = 'VALIDATION_FAILED';
   declare readonly issues: ReadonlyArray<ValidationIssue>;
-  constructor(issues: ReadonlyArray<ValidationIssue>) {
+  constructor(issues: ReadonlyArray<ValidationIssue>, options?: BuilderValidationErrorOptions) {
     // Native issue messages and extension fields can contain the fixture itself.
     // The message names only the issue count and paths; the original issues stay
     // available for deliberate inspection, not default logging.
-    super(summarizeValidationIssues(issues));
+    const detail =
+      typeof options?.detail === 'string'
+        ? options.detail.replace(/\s+/g, ' ').trim().slice(0, 200)
+        : '';
+    super(
+      `${summarizeValidationIssues(issues)}${detail ? `; ${detail}` : ''}`,
+      options && 'cause' in options ? { cause: options.cause } : undefined
+    );
     this.name = 'BuilderValidationError';
     Object.defineProperty(this, 'issues', { value: issues, enumerable: false });
   }

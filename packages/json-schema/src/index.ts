@@ -16,6 +16,9 @@ import type {
   StandardSchemaV1,
   ValidationIssue,
 } from '@mimlet/core';
+import { exactJson, generatorStore } from './shared.js';
+export { clearGeneratorCache, configureGeneratorCache } from './shared.js';
+export type { GeneratorCacheOptions, GeneratorCacheState } from './shared.js';
 import {
   clipUri,
   copyJson,
@@ -125,6 +128,211 @@ function issues(errors: ErrorObject[] | null | undefined): JsonSchemaIssue[] {
     schemaPath: error.schemaPath,
   }));
 }
+type Validator = InstanceType<typeof Ajv>;
+type CompiledValidator = ReturnType<Validator['compile']>;
+/** A validator and the supplied references it resolves, for one dialect and set of extensions. */
+interface ValidatorContext {
+  readonly validator: Validator;
+  readonly knownFormats: ReadonlySet<string>;
+  readonly extensions: ReadonlySet<string>;
+  readonly normalizedReferences: ReadonlyMap<string, JsonSchema>;
+  /** Supplied references that could not be prepared, reported only when the schema uses one. */
+  readonly unprepared: ReadonlyMap<string, () => SchemaPreparationError>;
+  /** Shared by every preparation with the same context key; compiled schemas are removed. */
+  readonly shared: boolean;
+  /** Schemas compiled so far; a shared context is replaced after `schemasPerValidator`. */
+  compiled: number;
+}
+/** Amortizes the meta-schema compilation (several milliseconds) while bounding retained schemas. */
+const schemasPerValidator = 32;
+/** Everything a generator derives from its schema, references and generation options. */
+interface Prepared {
+  readonly sampling: JsonSchema;
+  readonly normalizedReferences: ReadonlyMap<string, JsonSchema>;
+  readonly compiled: CompiledValidator;
+  readonly realistic: ReturnType<typeof realisticHints> | undefined;
+  readonly identity: Readonly<{ fingerprint: string; provider: string; configuration: string }>;
+}
+
+function createValidatorContext(
+  selected: SchemaDialect,
+  maximum: Required<SchemaLimits>,
+  keywords: Readonly<Record<string, (constraint: unknown, value: unknown) => boolean>>,
+  annotations: ReadonlyArray<string>,
+  customFormats: NonNullable<JsonSchemaOptions['formats']>,
+  references: Readonly<Record<string, JsonSchema>>,
+  shared: boolean
+): ValidatorContext {
+  const validator = new (selected === 'draft-07'
+    ? Ajv
+    : selected === 'draft-2019-09'
+      ? Ajv2019
+      : Ajv2020)({
+    allErrors: true,
+    strict: true,
+    strictSchema: false,
+    strictTypes: false,
+    strictRequired: false,
+    strictTuples: false,
+    allowUnionTypes: true,
+    allowMatchingProperties: true,
+    ownProperties: true,
+    coerceTypes: false,
+    useDefaults: false,
+    removeAdditional: false,
+    validateFormats: true,
+    logger: false,
+  }) as Validator;
+  // ajv-formats is CommonJS; NodeNext represents its default through the module type.
+  const addFormats = formatsModule as unknown as (instance: Ajv) => void;
+  addFormats(validator);
+  const extensions = new Set<string>();
+  for (const name of [...Object.keys(keywords), ...annotations]) {
+    if (
+      !/^[A-Za-z_$][A-Za-z0-9_$-]{0,127}$/.test(name) ||
+      ['__proto__', 'prototype', 'constructor'].includes(name) ||
+      validator.getKeyword(name) ||
+      extensions.has(name)
+    ) {
+      throw new TypeError(
+        'Extensions must be unique safe names and cannot override built-in keywords'
+      );
+    }
+    extensions.add(name);
+    if (Object.hasOwn(keywords, name)) {
+      const check = keywords[name];
+      if (typeof check !== 'function') {
+        throw new TypeError('Custom keywords require a synchronous validator');
+      }
+      validator.addKeyword({
+        keyword: name,
+        errors: false,
+        validate(constraint: unknown, value: unknown) {
+          const result = synchronous(check(constraint, value));
+          if (typeof result !== 'boolean') {
+            throw new TypeError('Custom keywords must return a boolean');
+          }
+          return result;
+        },
+      });
+    } else {
+      validator.addKeyword({ keyword: name, valid: true });
+    }
+  }
+  for (const [name, format] of Object.entries(customFormats)) {
+    if (!format || typeof format.validate !== 'function' || typeof format.generate !== 'function') {
+      throw new TypeError('Formats require synchronous validate and generate functions');
+    }
+    const validate = format.validate;
+    validator.addFormat(name, {
+      type: 'string',
+      validate(value: string) {
+        const result = synchronous(validate(value));
+        if (typeof result !== 'boolean') {
+          throw new TypeError('Format validation must return a boolean synchronously');
+        }
+        return result;
+      },
+    });
+  }
+  const knownFormats = new Set(Object.keys(validator.formats));
+  const normalizedReferences = new Map<string, JsonSchema>();
+  // A reference map often holds a whole component set. A reference that cannot be
+  // prepared is left out and reported only if the schema actually reaches it.
+  const unprepared = new Map<string, () => SchemaPreparationError>();
+  for (const [uri, reference] of Object.entries(references)) {
+    if (!uri || uri.includes('#')) {
+      throw new SchemaPreparationError(
+        'Reference keys must be nonempty document URIs without fragments',
+        ''
+      );
+    }
+    try {
+      const document = prepare(reference, selected, maximum, knownFormats, extensions);
+      const validation = selected === 'draft-07' ? draft7ValidationSchema(reference) : reference;
+      // Ajv registers a schema before rejecting it, so check it first to keep a
+      // rejected reference unresolvable instead of half-registered.
+      if (!validator.validateSchema(validation)) {
+        throw new Error(`schema is invalid: ${validator.errorsText(validator.errors)}`);
+      }
+      validator.addSchema(validation, uri);
+      normalizedReferences.set(uri, document);
+    } catch (error) {
+      // A new error for every schema that reaches it, also from a shared context.
+      const failure = () => inReference(error, uri);
+      unprepared.set(resolveUri(uri, ''), failure);
+      const id = reference && typeof reference === 'object' ? reference.$id : undefined;
+      if (typeof id === 'string') {
+        unprepared.set(resolveUri(id, uri), failure);
+      }
+    }
+  }
+  return {
+    validator,
+    knownFormats,
+    extensions,
+    normalizedReferences,
+    unprepared,
+    shared,
+    compiled: 0,
+  };
+}
+
+/** Ajv's missing-reference error, also when it comes from another copy of Ajv. */
+function missingReference(
+  cause: unknown
+): { readonly missingRef: string; readonly missingSchema: string } | undefined {
+  if (cause instanceof MissingRefError) {
+    return cause;
+  }
+  const candidate = cause as { readonly missingRef?: unknown; readonly missingSchema?: unknown };
+  return cause instanceof Error &&
+    typeof candidate.missingRef === 'string' &&
+    typeof candidate.missingSchema === 'string'
+    ? (candidate as { readonly missingRef: string; readonly missingSchema: string })
+    : undefined;
+}
+
+function compile(
+  context: ValidatorContext,
+  source: JsonSchema,
+  references: Readonly<Record<string, JsonSchema>>,
+  selected: SchemaDialect
+): CompiledValidator {
+  const validation = selected === 'draft-07' ? draft7ValidationSchema(source) : source;
+  try {
+    return context.validator.compile(validation);
+  } catch (cause) {
+    const missing = missingReference(cause);
+    if (!missing) {
+      throw new SchemaPreparationError('Schema compilation failed', '', { cause });
+    }
+    const failure = context.unprepared.get(resolveUri(missing.missingSchema, ''));
+    if (failure) {
+      throw failure();
+    }
+    const location = locateReference(missing.missingRef, [
+      [undefined, source],
+      ...Object.entries(references).filter(([uri]) => context.normalizedReferences.has(uri)),
+    ]);
+    throw new SchemaPreparationError(
+      `Unresolved reference ${clipUri(missing.missingRef)}`,
+      location?.schemaPath ?? '',
+      {
+        cause,
+        missingReference: missing.missingRef,
+        ...(location?.reference === undefined ? {} : { reference: location.reference }),
+      }
+    );
+  } finally {
+    // The compiled function keeps what it needs. Dropping the schema from a shared validator's
+    // own cache bounds that validator's memory by its reference set.
+    if (context.shared && typeof validation === 'object' && validation !== null) {
+      context.validator.removeSchema(validation);
+    }
+  }
+}
+
 /** Prepare once, generate many. Schemas are data snapshots; callbacks remain trusted code. */
 export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions = {}) {
   const maximum = limits(options);
@@ -163,77 +371,111 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
   if (Object.keys(keywords).length && !options.extensionIdentity) {
     throw new TypeError('Custom keywords require extensionIdentity for reproducibility');
   }
-  const validator = new (
-    selected === 'draft-07' ? Ajv : selected === 'draft-2019-09' ? Ajv2019 : Ajv2020
-  )({
-    allErrors: true,
-    strict: true,
-    strictSchema: false,
-    strictTypes: false,
-    strictRequired: false,
-    strictTuples: false,
-    allowUnionTypes: true,
-    allowMatchingProperties: true,
-    ownProperties: true,
-    coerceTypes: false,
-    useDefaults: false,
-    removeAdditional: false,
-    validateFormats: true,
-    logger: false,
-  });
-  // ajv-formats is CommonJS; NodeNext represents its default through the module type.
-  const addFormats = formatsModule as unknown as (instance: Ajv) => void;
-  addFormats(validator);
-  const extensions = new Set<string>();
-  for (const name of [...Object.keys(keywords), ...annotations]) {
-    if (
-      !/^[A-Za-z_$][A-Za-z0-9_$-]{0,127}$/.test(name) ||
-      ['__proto__', 'prototype', 'constructor'].includes(name) ||
-      validator.getKeyword(name) ||
-      extensions.has(name)
-    ) {
-      throw new TypeError(
-        'Extensions must be unique safe names and cannot override built-in keywords'
+  // Callbacks bind into the validator, so only preparations without them are shared. The key is
+  // the exact text of the data plus every option that changes the prepared result.
+  const store = generatorStore();
+  const sourceText = exactJson(source);
+  const referencesText = exactJson(references);
+  const shareable =
+    store.prepared.limit > 0 &&
+    Object.keys(keywords).length === 0 &&
+    Object.keys(customFormats).length === 0 &&
+    sourceText !== undefined &&
+    referencesText !== undefined;
+  const contextKey = shareable
+    ? `${JSON.stringify([selected, maximum, annotations])}\n${referencesText}`
+    : undefined;
+  const preparedKey =
+    contextKey === undefined
+      ? undefined
+      : `${JSON.stringify([
+          profile,
+          provider?.id ?? null,
+          options.formatsIdentity ?? '',
+          options.extensionIdentity ?? '',
+        ])}\n${contextKey}\n${sourceText}`;
+  const prepareGeneration = (): Prepared => {
+    // A schema that declares an `$id` would register it in a shared validator.
+    const sharedValidator =
+      contextKey !== undefined && sourceText !== undefined && !sourceText.includes('"$id"');
+    let context = sharedValidator
+      ? (store.validators.get(contextKey) as ValidatorContext | undefined)
+      : undefined;
+    if (!context) {
+      context = createValidatorContext(
+        selected,
+        maximum,
+        keywords,
+        annotations,
+        customFormats,
+        references,
+        sharedValidator
       );
-    }
-    extensions.add(name);
-    if (Object.hasOwn(keywords, name)) {
-      const check = keywords[name];
-      if (typeof check !== 'function') {
-        throw new TypeError('Custom keywords require a synchronous validator');
+      if (sharedValidator) {
+        store.validators.set(contextKey, context);
       }
-      validator.addKeyword({
-        keyword: name,
-        errors: false,
-        validate(constraint: unknown, value: unknown) {
-          const result = synchronous(check(constraint, value));
-          if (typeof result !== 'boolean') {
-            throw new TypeError('Custom keywords must return a boolean');
-          }
-          return result;
-        },
-      });
-    } else {
-      validator.addKeyword({ keyword: name, valid: true });
+    }
+    const sampling = prepare(source, selected, maximum, context.knownFormats, context.extensions);
+    let compiled: CompiledValidator;
+    try {
+      compiled = compile(context, source, references, selected);
+    } finally {
+      // Ajv keeps every schema it compiled, even after removeSchema(), and each compiled
+      // function keeps its validator alive. Retiring a shared validator after a fixed number
+      // of schemas bounds what one cached generator can keep alive.
+      if (sharedValidator && ++context.compiled >= schemasPerValidator) {
+        store.validators.delete(contextKey);
+      }
+    }
+    const realistic =
+      profile === 'realistic' && !provider
+        ? realisticHints(sampling, context.normalizedReferences, maximum)
+        : undefined;
+    const usesDateTime = `${sourceText ?? JSON.stringify(source)}\n${
+      referencesText ?? JSON.stringify(references)
+    }`.includes('"date-time"');
+    const identity = Object.freeze({
+      fingerprint: fingerprint({ schema: source, references }),
+      provider: provider?.id ?? 'json-schema-faker@0.6.3+ajv@8.20.0',
+      configuration: fingerprint({
+        profile,
+        selected,
+        maximum,
+        formats: options.formatsIdentity ?? '',
+        // Present only for schemas using the built-in date-time generator, so replays recorded
+        // with the old time-zone-dependent values fail explicitly and others stay valid.
+        ...(!provider && !customFormats['date-time'] && usesDateTime
+          ? { dateTime: 'reference-window-utc-v1' }
+          : {}),
+        extensions: options.extensionIdentity ?? '',
+        keywords: Object.keys(keywords).sort(),
+        annotations: annotations.slice().sort(),
+        // Only realistic configurations carry the hint version, so other identities are unchanged.
+        ...(realistic ? { realistic: realisticIdentity } : {}),
+      }),
+    });
+    return Object.freeze({
+      sampling,
+      normalizedReferences: context.normalizedReferences,
+      compiled,
+      realistic,
+      identity,
+    });
+  };
+  let prepared =
+    preparedKey === undefined
+      ? undefined
+      : (store.prepared.get(preparedKey) as Prepared | undefined);
+  if (!prepared) {
+    prepared = prepareGeneration();
+    if (preparedKey !== undefined) {
+      store.prepared.set(preparedKey, prepared);
     }
   }
+  const { sampling, normalizedReferences, compiled, realistic, identity } = prepared;
   const generators: Record<string, (random: SampleRandom) => string> = {};
   for (const [name, format] of Object.entries(customFormats)) {
-    if (!format || typeof format.validate !== 'function' || typeof format.generate !== 'function') {
-      throw new TypeError('Formats require synchronous validate and generate functions');
-    }
-    const validate = format.validate;
     const generate = format.generate;
-    validator.addFormat(name, {
-      type: 'string',
-      validate(value: string) {
-        const result = synchronous(validate(value));
-        if (typeof result !== 'boolean') {
-          throw new TypeError('Format validation must return a boolean synchronously');
-        }
-        return result;
-      },
-    });
     Object.defineProperty(generators, name, {
       enumerable: true,
       value: (random: SampleRandom) => {
@@ -245,90 +487,6 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
       },
     });
   }
-  const knownFormats = new Set(Object.keys(validator.formats));
-  const sampling = prepare(source, selected, maximum, knownFormats, extensions);
-  const normalizedReferences = new Map<string, JsonSchema>();
-  // A reference map often holds a whole component set. A reference that cannot be
-  // prepared is left out and reported only if the schema actually reaches it.
-  const unprepared = new Map<string, SchemaPreparationError>();
-  for (const [uri, reference] of Object.entries(references)) {
-    if (!uri || uri.includes('#')) {
-      throw new SchemaPreparationError(
-        'Reference keys must be nonempty document URIs without fragments',
-        ''
-      );
-    }
-    try {
-      const document = prepare(reference, selected, maximum, knownFormats, extensions);
-      const validation = selected === 'draft-07' ? draft7ValidationSchema(reference) : reference;
-      // Ajv registers a schema before rejecting it, so check it first to keep a
-      // rejected reference unresolvable instead of half-registered.
-      if (!validator.validateSchema(validation)) {
-        throw new Error(`schema is invalid: ${validator.errorsText(validator.errors)}`);
-      }
-      validator.addSchema(validation, uri);
-      normalizedReferences.set(uri, document);
-    } catch (error) {
-      const failure = inReference(error, uri);
-      unprepared.set(resolveUri(uri, ''), failure);
-      const id = reference && typeof reference === 'object' ? reference.$id : undefined;
-      if (typeof id === 'string') {
-        unprepared.set(resolveUri(id, uri), failure);
-      }
-    }
-  }
-  let validate;
-  try {
-    validate = validator.compile(selected === 'draft-07' ? draft7ValidationSchema(source) : source);
-  } catch (cause) {
-    if (!(cause instanceof MissingRefError)) {
-      throw new SchemaPreparationError('Schema compilation failed', '', { cause });
-    }
-    const failure = unprepared.get(resolveUri(cause.missingSchema, ''));
-    if (failure) {
-      throw failure;
-    }
-    const location = locateReference(cause.missingRef, [
-      [undefined, source],
-      ...Object.entries(references).filter(([uri]) => normalizedReferences.has(uri)),
-    ]);
-    throw new SchemaPreparationError(
-      `Unresolved reference ${clipUri(cause.missingRef)}`,
-      location?.schemaPath ?? '',
-      {
-        cause,
-        missingReference: cause.missingRef,
-        ...(location?.reference === undefined ? {} : { reference: location.reference }),
-      }
-    );
-  }
-  const compiled = validate;
-  const realistic =
-    profile === 'realistic' && !provider
-      ? realisticHints(sampling, normalizedReferences, maximum)
-      : undefined;
-  const identity = Object.freeze({
-    fingerprint: fingerprint({ schema: source, references }),
-    provider: provider?.id ?? 'json-schema-faker@0.6.3+ajv@8.20.0',
-    configuration: fingerprint({
-      profile,
-      selected,
-      maximum,
-      formats: options.formatsIdentity ?? '',
-      // Present only for schemas using the built-in date-time generator, so replays recorded
-      // with the old time-zone-dependent values fail explicitly and others stay valid.
-      ...(!provider &&
-      !customFormats['date-time'] &&
-      JSON.stringify([source, references]).includes('"date-time"')
-        ? { dateTime: 'reference-window-utc-v1' }
-        : {}),
-      extensions: options.extensionIdentity ?? '',
-      keywords: Object.keys(keywords).sort(),
-      annotations: annotations.slice().sort(),
-      // Only realistic configurations carry the hint version, so other identities are unchanged.
-      ...(realistic ? { realistic: realisticIdentity } : {}),
-    }),
-  });
   const session = (seed: SessionKey = 1): GenerationSession => createSession({ ...identity, seed });
   const check = (value: unknown): boolean => {
     try {

@@ -47,8 +47,9 @@ additional release gates. Run `pnpm test:runtimes` for the active Node contract;
 `pnpm benchmark` produces a correctness-checked hardware-specific report.
 `node scripts/benchmark-zod.ts` measures the start-up cost of Zod builders for the
 generated API in `tests/unit/fixtures/zod-crm.gen.ts`: import, a builder per schema
-at module load and a few first builds, each sample in a fresh process. Pass the path
-of another build of `@mimlet/zod` to compare two versions.
+at module load and a few first builds, each sample in a fresh process. It also imports
+the fixture again in the same process, as a runner that evaluates modules again in one
+realm does. Pass the path of another build of `@mimlet/zod` to compare two versions.
 
 TypeScript expected-error assertions are real tests: an unused expectation fails
 compilation. Test both inference and the absence of `any`/`never` degradation.
