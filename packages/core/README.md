@@ -87,7 +87,7 @@ const dog = pets.replace({ kind: 'dog', bark: true }).build();
 // pets.with({ kind: 'dog' }) is rejected: it could omit required dog fields.
 ```
 
-This generic path is deliberately conservative; native TypeBox adapters additionally offer `fromTypeBoxVariant()` for complete branch selection. There is no runtime introspection of erased TypeScript unions. JavaScript or unsafe casts can bypass compile-time rules; validated builds remain the source of runtime schema guarantees. Partial record patches onto null, undefined, scalars, or class instances are rejected at runtime. Use `replace()` for custom classes.
+This generic path is deliberately conservative; native TypeBox adapters additionally offer `fromTypeBoxVariant()` for complete branch selection. There is no runtime introspection of erased TypeScript unions. JavaScript or unsafe casts can bypass compile-time rules; validated builds remain the source of runtime schema guarantees. Partial record patches onto null, undefined, scalars, or class instances are rejected at runtime. To build class instances, patch the record and create the instance last with `createInstanceBuilder()` (see [class instances](#class-instances-and-map)); `replace()` sets a complete value of any other kind.
 
 `omit(...keys)` accepts optional keys only. It creates a new plain record without those own properties; it does not assign undefined or null. With `exactOptionalPropertyTypes`, those three states remain distinct. Required-field omission for negative tests needs an explicitly unsafe JavaScript/cast boundary, not an incorrect ordinary return type.
 
@@ -118,6 +118,40 @@ const second = isolated.build('second');
 `withFactory()` supplies a new patch; `replaceFactory()` supplies a new complete value. They receive the same argument tuple as the main factory and run once per build. These callbacks are synchronous; returning a promise is rejected. Use a main async factory or an explicit async transform for asynchronous work.
 
 Transforms receive the current value and the factory arguments. They run in registration order and can derive correlated fields. `transform()` is synchronous. `transformAsync()` accepts asynchronous work and switches the resulting builder to async-only build capabilities. Validation is retained throughout every fluent operation.
+
+## Class instances and map()
+
+`map(mapper)` is a transform whose result may have another type. Patches keep applying to the input, builds return the mapped value, and transforms added later receive it. The builder type carries both: `Builder<T, Args, Output>`, where `Output` is `T` until a `map()`. Maps compose, run in order with the transforms, and appear as `'map'` in `describe().operations`. Schema builders have no `map()`, because their validator expects the unmapped input; a validator's own output is what `buildValidated()` returns.
+
+```ts
+const labels = createBuilder(() => ({ first: 'Ada', last: 'Lovelace' })).map(
+  (name) => `${name.first} ${name.last}`
+); // Builder<{ first: string; last: string }, [], string>
+labels.with({ first: 'Grace' }).build(); // 'Grace Lovelace'
+```
+
+`createInstanceBuilder(Class, factory, config)` builds instances of a class, such as a TypeORM entity. The factory returns the class's plain record, `InstanceInput<InstanceType<Class>>`: its public data fields, without methods and without fields typed `never`, with readonly properties optional (TypeScript types a getter without a setter like a `readonly` field). Because the class comes first, the factory is checked against the record as TypeScript reads it, so it needs no annotation and literal fields keep their types. Patches apply to the record; each build creates a new instance:
+
+```ts
+const users = fluent(
+  createInstanceBuilder(User, () => ({
+    uuid: randomUUID(),
+    email: `${randomUUID()}@example.com`,
+    firstName: 'John',
+    lastName: 'Doe',
+    deletedAt: null,
+  })),
+  ['firstName', 'lastName']
+);
+users.withFirstName('Ada').build(); // a User; user.fullName is computed by the class
+```
+
+- **Construction.** `new Class()` runs without arguments, as TypeORM and class-transformer create entities, so field initializers and `#private` fields exist. `{ construct: 'prototype' }` uses `Object.create(Class.prototype)` and runs no constructor code; the types require it for a class whose constructor takes arguments.
+- **Copying.** Each own enumerable field of the record is defined on the instance, or assigned through the class's setter. A value for a getter without a setter throws (`fullName is computed by User ...`). Copying is shallow: build related entities with their own builders.
+- **Transforms after the mapping** receive the instance and must return an instance of the class (for example by changing it with `Object.assign`); a spread copy, which would silently be a plain object, throws. A later `map()` may change the type again.
+- **Everything else stays.** Factory arguments, default sessions (also with a required session parameter), builder names, list tuples, async factories and `fluent()` setters work as for any builder. `map()` on a `fluent()` builder keeps its setters, in the runtime and in the types.
+
+`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
 
 ## Lists and limits
 

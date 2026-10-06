@@ -129,43 +129,66 @@ export interface BuilderDescription {
 }
 
 /**
- * `Args` are the build arguments. `Received` are the arguments the factory, patch factories
- * and transforms receive; they differ only when a default session fills an omitted session.
+ * A builder of `T` values: patches (`with()`, `replace()`, `omit()` and the patch factories)
+ * apply to `T`. `Args` are the build arguments. `Output` is what builds return: `T`, unless
+ * `map()` (or `createInstanceBuilder()`) maps it. Transforms run in the order they were added,
+ * after every patch, and see the value as it is at that point, so a transform added after
+ * `map()` receives the mapped value. `Received` are the arguments the factory, patch factories,
+ * transforms and mappers receive; they differ from `Args` only when a default session fills an
+ * omitted session.
  */
-export interface AsyncBuilder<T, Args extends unknown[] = [], Received extends unknown[] = Args> {
-  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args, Received>;
-  replace(value: T): AsyncBuilder<T, Args, Received>;
-  withFactory(factory: (...args: Received) => BuilderPatch<T>): AsyncBuilder<T, Args, Received>;
-  replaceFactory(factory: (...args: Received) => T): AsyncBuilder<T, Args, Received>;
-  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args, Received>;
-  transform(transformer: BuilderTransform<T, Received>): AsyncBuilder<T, Args, Received>;
+export interface AsyncBuilder<
+  T,
+  Args extends unknown[] = [],
+  Output = T,
+  Received extends unknown[] = Args,
+> {
+  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args, Output, Received>;
+  replace(value: T): AsyncBuilder<T, Args, Output, Received>;
+  withFactory(
+    factory: (...args: Received) => BuilderPatch<T>
+  ): AsyncBuilder<T, Args, Output, Received>;
+  replaceFactory(factory: (...args: Received) => T): AsyncBuilder<T, Args, Output, Received>;
+  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args, Output, Received>;
+  transform(
+    transformer: BuilderTransform<Output, Received>
+  ): AsyncBuilder<T, Args, Output, Received>;
   transformAsync(
-    transformer: (value: T, ...args: Received) => T | PromiseLike<T>
-  ): AsyncBuilder<T, Args, Received>;
-  buildAsync(...args: Args): Promise<T>;
-  buildListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<T, N>>;
+    transformer: (value: Output, ...args: Received) => Output | PromiseLike<Output>
+  ): AsyncBuilder<T, Args, Output, Received>;
+  /**
+   * A transform whose result may have another type: builds return `Next`, while patches keep
+   * applying to `T`. Not available on schema builders, whose validator expects the input.
+   */
+  map<Next>(
+    mapper: (value: Output, ...args: Received) => Next
+  ): AsyncBuilder<T, Args, Next, Received>;
+  buildAsync(...args: Args): Promise<Output>;
+  buildListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<Output, N>>;
   describe(): BuilderDescription;
 }
 export interface Builder<
   T,
   Args extends unknown[] = [],
+  Output = T,
   Received extends unknown[] = Args,
-> extends AsyncBuilder<T, Args, Received> {
-  with(patch: BuilderPatch<T>): Builder<T, Args, Received>;
-  replace(value: T): Builder<T, Args, Received>;
-  withFactory(factory: (...args: Received) => BuilderPatch<T>): Builder<T, Args, Received>;
-  replaceFactory(factory: (...args: Received) => T): Builder<T, Args, Received>;
-  omit(...keys: OptionalKeys<T>[]): Builder<T, Args, Received>;
-  transform(transformer: BuilderTransform<T, Received>): Builder<T, Args, Received>;
-  build(...args: Args): T;
-  buildList<N extends number>(count: N, ...args: Args): BuiltList<T, N>;
+> extends AsyncBuilder<T, Args, Output, Received> {
+  with(patch: BuilderPatch<T>): Builder<T, Args, Output, Received>;
+  replace(value: T): Builder<T, Args, Output, Received>;
+  withFactory(factory: (...args: Received) => BuilderPatch<T>): Builder<T, Args, Output, Received>;
+  replaceFactory(factory: (...args: Received) => T): Builder<T, Args, Output, Received>;
+  omit(...keys: OptionalKeys<T>[]): Builder<T, Args, Output, Received>;
+  transform(transformer: BuilderTransform<Output, Received>): Builder<T, Args, Output, Received>;
+  map<Next>(mapper: (value: Output, ...args: Received) => Next): Builder<T, Args, Next, Received>;
+  build(...args: Args): Output;
+  buildList<N extends number>(count: N, ...args: Args): BuiltList<Output, N>;
 }
 export interface AsyncSchemaBuilder<
   Input,
   Output,
   Args extends unknown[] = [],
   Received extends unknown[] = Args,
-> extends AsyncBuilder<Input, Args, Received> {
+> extends AsyncBuilder<Input, Args, Input, Received> {
   with(patch: BuilderPatch<Input>): AsyncSchemaBuilder<Input, Output, Args, Received>;
   replace(value: Input): AsyncSchemaBuilder<Input, Output, Args, Received>;
   withFactory(
@@ -184,6 +207,11 @@ export interface AsyncSchemaBuilder<
   usingValidation(
     options: StandardSchemaV1.Options
   ): AsyncSchemaBuilder<Input, Output, Args, Received>;
+  /**
+   * Not available on schema builders: the validator expects the unmapped input. A validator's
+   * own output type (such as a class instance) is what `buildValidated()` returns.
+   */
+  readonly map: never;
   buildValidatedAsync(...args: Args): Promise<Output>;
   buildValidatedListAsync<N extends number>(count: N, ...args: Args): Promise<BuiltList<Output, N>>;
 }
@@ -223,12 +251,34 @@ export type BuilderFor<
     ? AsyncBuilder<
         Awaited<ReturnType<F>>,
         OptionalSessionArgs<Parameters<F>>,
+        Awaited<ReturnType<F>>,
         SessionArgs<Parameters<F>>
       >
-    : Builder<ReturnType<F>, OptionalSessionArgs<Parameters<F>>, SessionArgs<Parameters<F>>>
+    : Builder<
+        ReturnType<F>,
+        OptionalSessionArgs<Parameters<F>>,
+        ReturnType<F>,
+        SessionArgs<Parameters<F>>
+      >
   : IsAsync<F> extends true
     ? AsyncBuilder<Awaited<ReturnType<F>>, Parameters<F>>
     : Builder<ReturnType<F>, Parameters<F>>;
+/**
+ * The builder `createInstanceBuilder(C, factory)` returns for a factory of type `F`: patches
+ * apply to `Input` (the record), builds return `Output` (the instance).
+ */
+export type MappedBuilderFor<
+  F extends AnyFactory,
+  Input,
+  Output,
+  Defaulted extends boolean = false,
+> = Defaulted extends true
+  ? IsAsync<F> extends true
+    ? AsyncBuilder<Input, OptionalSessionArgs<Parameters<F>>, Output, SessionArgs<Parameters<F>>>
+    : Builder<Input, OptionalSessionArgs<Parameters<F>>, Output, SessionArgs<Parameters<F>>>
+  : IsAsync<F> extends true
+    ? AsyncBuilder<Input, Parameters<F>, Output>
+    : Builder<Input, Parameters<F>, Output>;
 export type SchemaBuilderFor<
   S extends StandardSchemaV1,
   F extends AnyFactory,

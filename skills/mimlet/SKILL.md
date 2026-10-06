@@ -16,7 +16,10 @@ train is alpha.2 or newer. When the installed adapter exports a field list funct
 (`zodFields`, `typeBoxFields`, `valibotFields`, `arkTypeFields`, `effectFields`,
 `standardJsonSchemaFields`; beta.1 and newer), `fluent(fromZod(schema), zodFields(schema))`
 adds a setter per field, also inside generic helpers. Keep small declarations beside
-tests; do not create builder files or a generation step unless the task needs them. Check
+tests; do not create builder files or a generation step unless the task needs them. For class
+instances such as ORM entities (newer than beta.3), use `createInstanceBuilder(Entity, factory)`
+instead of a hand-written transform; `map()` changes what builds return. See
+`docs/class-instances.md`. Check
 `docs/fluent-builders.md` and `docs/cli-diagnostics.md` for version-specific APIs.
 Do not suggest `fluent()` or `mimlet doctor`/`inspect` for alpha.1. Check diagnostic
 format/version and branch on codes, not human-readable messages. Successful
