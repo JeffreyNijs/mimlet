@@ -75,6 +75,15 @@ runtime. Generated-file ownership prevents overwriting handwritten edits.
 
 The CLI comes from `@mimlet/codegen`; `@mimlet/core` supplies the runtime. See the [codegen reference](../packages/codegen/README.md).
 
+For an API described by OpenAPI, such as a NestJS backend, generate builders for its
+component schemas instead of copying them into JSON Schema targets. In a configuration
+file, an `openapi` entry names the document file and the schemas. From code:
+
+<!-- recipe:openapi-codegen -->
+
+The OpenAPI 3.0 `nullable` reference becomes `Facade | null` in the generated type, and
+a request leaves out the read-only `id`.
+
 ## Use a factory when generation cannot represent a constraint
 
 <!-- recipe:factory -->

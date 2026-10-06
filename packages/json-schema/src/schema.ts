@@ -117,6 +117,34 @@ export function limits(options: SchemaLimits): Required<SchemaLimits> {
   }
   return Object.freeze(result);
 }
+/** What a non-JSON value is, for error messages. Never includes the value itself. */
+function describe(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? 'NaN' : value > 0 ? 'Infinity' : '-Infinity';
+  }
+  if (typeof value !== 'object' || value === null) {
+    return `a ${typeof value}`;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  const constructor =
+    prototype && typeof prototype === 'object'
+      ? Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value
+      : undefined;
+  const name: unknown =
+    typeof constructor === 'function'
+      ? Object.getOwnPropertyDescriptor(constructor, 'name')?.value
+      : undefined;
+  return typeof name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/.test(name)
+    ? `an instance of ${name}`
+    : 'an object that is not a plain record';
+}
+/**
+ * Copy bounded JSON data. In a schema, a property whose value is `undefined` is left out as
+ * `JSON.stringify` does; generated or overridden values keep rejecting it.
+ */
 export function copyJson(
   value: unknown,
   maximum: Required<SchemaLimits>,
@@ -150,8 +178,14 @@ export function copyJson(
       }
       return value;
     }
-    if (typeof value !== 'object' || value === null || stack.has(value)) {
-      throw new SchemaPreparationError('Expected acyclic JSON data', path);
+    if (typeof value !== 'object' || value === null) {
+      throw new SchemaPreparationError(`Expected JSON data, found ${describe(value)}`, path);
+    }
+    if (stack.has(value)) {
+      throw new SchemaPreparationError(
+        'Expected acyclic JSON data, found a reference back to an enclosing value',
+        path
+      );
     }
     const array = Array.isArray(value);
     if (
@@ -159,7 +193,10 @@ export function copyJson(
       Object.getPrototypeOf(value) !== Object.prototype &&
       Object.getPrototypeOf(value) !== null
     ) {
-      throw new SchemaPreparationError('Expected a plain JSON record', path);
+      throw new SchemaPreparationError(
+        `Expected a plain JSON record, found ${describe(value)}`,
+        path
+      );
     }
     if (array && value.length > (schema ? maximum.maxSchemaNodes : maximum.maxArrayLength)) {
       throw new SchemaPreparationError('Array budget exhausted', path);
@@ -192,6 +229,9 @@ export function copyJson(
         (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length))
       ) {
         throw new SchemaPreparationError('Expected own enumerable JSON data properties', path);
+      }
+      if (schema && !array && descriptor.value === undefined) {
+        continue;
       }
       characters += key.length;
       if (characters > maximum.maxSchemaCharacters) {

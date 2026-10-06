@@ -80,16 +80,57 @@ is treated as annotations, not an encoding or content-validation guarantee.
 
 Recursive schemas that use ordinary `$ref`, such as a tree node with a `children`
 array of nodes, are supported. The default `minimal` profile leaves optional fields
-out, so recursion stops at the first level; `random` varies the depth. Nesting is
+out, so recursion stops at the first level; `random` varies the depth; `realistic`
+fills optional fields except the ones that lead back into the recursion. Nesting is
 capped by `maxValueDepth` (default 12, at most 64). A recursive field that is required
 at every level has no finite value, so generation fails with `SCHEMA_GENERATION_FAILED`
 after its attempts (default 20) instead of hanging; use a factory for it.
 
 Profiles include `boundary` (valid candidates biased toward declared endpoints), `minimal` (required shape, not a proof of globally minimal values),
-`random` (optional-field variation), `defaults`, and `examples`. Defaults/examples
+`random` (optional-field variation), `realistic` (plausible test values, below),
+`defaults`, and `examples`. Defaults/examples
 are candidate preferences, never validation guarantees; an invalid candidate can
 fall back to ordinary sampling. Overrides are applied only after base generation
 and never participate in automatic retry/repair.
+
+### Realistic values
+
+`minimal` is the default and its values are unchanged: optional fields are left out,
+an unconstrained integer can be anywhere in the safe-integer range and a plain string
+is random characters. `profile: 'realistic'` is an opt-in profile for values that read
+like test data:
+
+| Schema                                           | `realistic` value                                         |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| Optional property                                | Included, unless it leads back into a `$ref` cycle        |
+| Nullable field (`type`, `anyOf` or `oneOf` null) | A non-null value                                          |
+| Array                                            | One to three items, when the schema allows it             |
+| Number with no bounds, or bounds wider than 1000 | 1 to 100, kept inside the declared bounds                 |
+| Number with bounds at most 1000 apart            | Anywhere within its bounds, as declared                   |
+| Decimal number without `multipleOf`              | Rounded to two decimal places                             |
+| String without `format`, `pattern` or `enum`     | One to three words, such as `Amber harbor`, within length |
+| Value with `examples` (OpenAPI `example`)        | One of the examples                                       |
+
+For example, `{ type: 'integer' }` gives 1 to 100, `minimum: 18` gives 18 to 100,
+`minimum: 5000` gives 5000 to 5099 and `maximum: -5` gives -104 to -5. Formats such as
+`email`, `uuid` and `date-time`, patterns, enums and constants are generated as in the
+other profiles. A property that refers back to its own schema, directly or through other
+references, is not added, so trees and two-way relations stay finite.
+
+These are hints for the candidate copy only: every value is still checked against the
+unmodified schema. The first half of the attempts uses the hints, and the first quarter
+also prefers schema examples, so an invalid example is not repeated. The second half
+samples like `minimal`. A schema that the hints cannot satisfy, such as a `oneOf` that
+requires exactly one of two optional properties, still gets a valid value, without the
+realistic changes.
+
+The profile and the version of these rules are part of `identity.configuration`. A
+replay recorded with another profile, or with a later version of the rules, is rejected
+instead of silently producing different values. A custom `provider` receives
+`profile: 'realistic'` and decides what it means. The Zod, Valibot and ArkType adapters,
+`@mimlet/api` and the JSON targets of `@mimlet/codegen` accept the same option. For
+values that depend on the field's meaning, such as names or email addresses without a
+`format`, use `.with()`, a factory or `@mimlet/faker`.
 
 Generated `format: date-time` values are UTC instants within a year of the session's
 reference time, so they don't depend on the machine's time zone. Fields are generated
@@ -125,7 +166,12 @@ and `missingReference` holds the resolved URI. The replay fingerprint still cove
 every supplied reference.
 JSON data is copied before compilation and checked for cycles, accessors, symbols,
 non-JSON values, depth, size, and allocation limits. Supplied schemas are snapshots;
-mutating the original does not change an already prepared adapter.
+mutating the original does not change an already prepared adapter. A schema property
+whose value is `undefined` is left out, as `JSON.stringify` does. Any other non-JSON
+value fails preparation with its location and kind, for example
+`Expected JSON data, found a function at /default` or
+`Expected a plain JSON record, found an instance of Date at /default`. Generated and
+overridden values keep rejecting `undefined` properties.
 
 Format extensions require paired pure synchronous `validate` and `generate`
 callbacks, plus an explicit `formatsIdentity` so callers can version replay inputs.

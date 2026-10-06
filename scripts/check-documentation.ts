@@ -87,6 +87,28 @@ export function checkWorkspacePackageCommands(
   }
 }
 
+/**
+ * The optional agent skill is read outside the website, from a source checkout or an install.
+ * It must not name a current release other than the workspace's own: after a version bump,
+ * a stale "current" version would be published with the release.
+ */
+export function checkSkillVersion(markdown: string, version: string): void {
+  const named = [
+    ...[
+      ...markdown.matchAll(/@mimlet\/[a-z*-]+@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)/g),
+    ].map((match) => match[1] ?? ''),
+    ...[
+      ...markdown.matchAll(/\bcurrent\b[^.\n]*?\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]*[0-9A-Za-z])?)/gi),
+    ].map((match) => match[1] ?? ''),
+  ];
+  const stale = [...new Set(named.filter((found) => found !== version))];
+  if (stale.length) {
+    throw new Error(
+      `skills/mimlet/SKILL.md names ${stale.join(', ')} as a current version, but the workspace is ${version}. Refer to the installed version instead, or update the skill with the release.`
+    );
+  }
+}
+
 export async function checkDocumentation(
   root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 ) {
@@ -94,7 +116,7 @@ export async function checkDocumentation(
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  const files = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md'];
+  const files = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'skills/mimlet/SKILL.md'];
   for (const folder of ['docs', '.changeset']) {
     for (const name of await readdir(join(root, folder))) {
       if (name.endsWith('.md')) {
@@ -106,6 +128,10 @@ export async function checkDocumentation(
     files.push(`packages/${name}/README.md`);
   }
   checkPackageIndex(await readFile(join(root, 'README.md'), 'utf8'), packages);
+  const core = JSON.parse(await readFile(join(root, 'packages/core/package.json'), 'utf8')) as {
+    version: string;
+  };
+  checkSkillVersion(await readFile(join(root, 'skills/mimlet/SKILL.md'), 'utf8'), core.version);
   for (const file of files) {
     checkWorkspacePackageCommands(await readFile(join(root, file), 'utf8'), packages);
   }

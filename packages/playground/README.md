@@ -32,7 +32,7 @@ During development, build the packages and run the compiled `dist/cli.js` from
 this directory. Check the website for current registry availability; releases, including betas, are published on npm's `latest` tag.
 
 The UI accepts schema documents and an in-memory reference dictionary. It offers
-minimal, seeded variation, boundary-focused, defaults and examples profiles;
+minimal, seeded variation, boundary-focused, defaults, examples and realistic profiles;
 explicit dialect selection; replay/next batch; fixture downloads; and saved replay
 import/export. Schema and fixture text is rendered as text, never HTML. It does
 not load native TypeBox/validator JavaScript or executable configuration from a

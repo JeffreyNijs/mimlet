@@ -29,7 +29,41 @@ export function object(value: unknown, location = ''): JsonObject {
   return value as JsonObject;
 }
 export const escapePointer = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
-export function snapshot(value: unknown, options: ContractOptions = {}): unknown {
+/** What a non-JSON value is, for error messages. Never includes the value itself. */
+export function describeValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? 'NaN' : value > 0 ? 'Infinity' : '-Infinity';
+  }
+  if (typeof value !== 'object' || value === null) {
+    return `a ${typeof value}`;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  const constructor =
+    prototype && typeof prototype === 'object'
+      ? Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value
+      : undefined;
+  const name: unknown =
+    typeof constructor === 'function'
+      ? Object.getOwnPropertyDescriptor(constructor, 'name')?.value
+      : undefined;
+  return typeof name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/.test(name)
+    ? `an instance of ${name}`
+    : 'an object that is not a plain record';
+}
+/**
+ * Copy bounded JSON data, rejecting non-JSON values with their location and kind. With
+ * `omitUndefined`, used for API documents, object properties whose value is `undefined` are
+ * left out as `JSON.stringify` does, so an in-memory document (such as one a framework builds)
+ * behaves like its serialized form. Fixture values keep rejecting them.
+ */
+export function snapshot(
+  value: unknown,
+  options: ContractOptions = {},
+  omitUndefined = false
+): unknown {
   let nodes = 0;
   let characters = 0;
   const active = new Set<object>();
@@ -44,14 +78,14 @@ export function snapshot(value: unknown, options: ContractOptions = {}): unknown
   if (maxDepth > 128) {
     throw new ApiContractError('Document depth must not exceed 128');
   }
-  const visit = (value: unknown, depth: number): unknown => {
+  const visit = (value: unknown, depth: number, path: string): unknown => {
     if (++nodes > maxNodes || depth > maxDepth) {
-      throw new ApiContractError('Document resource budget exhausted');
+      throw new ApiContractError('Document resource budget exhausted', path || '/');
     }
     if (typeof value === 'string') {
       characters += value.length;
       if (characters > maxCharacters) {
-        throw new ApiContractError('Document character budget exhausted');
+        throw new ApiContractError('Document character budget exhausted', path || '/');
       }
       return value;
     }
@@ -62,11 +96,20 @@ export function snapshot(value: unknown, options: ContractOptions = {}): unknown
     ) {
       return value;
     }
-    if (typeof value !== 'object' || value === null || active.has(value)) {
-      throw new ApiContractError('Expected acyclic JSON data');
+    if (typeof value !== 'object') {
+      throw new ApiContractError(`Expected JSON data, found ${describeValue(value)}`, path || '/');
+    }
+    if (active.has(value)) {
+      throw new ApiContractError(
+        'Expected acyclic JSON data, found a reference back to an enclosing value',
+        path || '/'
+      );
     }
     if (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
-      throw new ApiContractError('Expected plain JSON data');
+      throw new ApiContractError(
+        `Expected a plain JSON object, found ${describeValue(value)}`,
+        path || '/'
+      );
     }
     active.add(value);
     const result: unknown[] | JsonObject = Array.isArray(value) ? [] : {};
@@ -75,32 +118,40 @@ export function snapshot(value: unknown, options: ContractOptions = {}): unknown
         continue;
       }
       const entry = Object.getOwnPropertyDescriptor(value, key)!;
-      if (typeof key !== 'string' || !entry.enumerable || !('value' in entry)) {
+      if (typeof key !== 'string') {
+        throw new ApiContractError('JSON data must not contain symbol keys', path || '/');
+      }
+      const location = `${path}/${escapePointer(key)}`;
+      if (!entry.enumerable || !('value' in entry)) {
         throw new ApiContractError(
-          'JSON data must not contain symbols, accessors or hidden properties'
+          'JSON data must not contain accessors or non-enumerable properties',
+          location
         );
       }
       if (Array.isArray(value) && !/^(0|[1-9][0-9]*)$/.test(key)) {
-        throw new ApiContractError('Invalid JSON array property');
+        throw new ApiContractError('Invalid JSON array property', location);
+      }
+      if (omitUndefined && entry.value === undefined && !Array.isArray(value)) {
+        continue;
       }
       characters += key.length;
       if (characters > maxCharacters) {
-        throw new ApiContractError('Document character budget exhausted');
+        throw new ApiContractError('Document character budget exhausted', location);
       }
       Object.defineProperty(result, key, {
-        value: visit(entry.value, depth + 1),
+        value: visit(entry.value, depth + 1, location),
         enumerable: true,
         configurable: true,
         writable: true,
       });
     }
     if (Array.isArray(value) && Object.keys(value).length !== value.length) {
-      throw new ApiContractError('Sparse arrays are not JSON data');
+      throw new ApiContractError('Sparse arrays are not JSON data', path || '/');
     }
     active.delete(value);
     return result;
   };
-  return visit(value, 0);
+  return visit(value, 0, '');
 }
 export interface Located {
   readonly value: unknown;
@@ -118,14 +169,14 @@ export class Documents {
     if (uri.hash) {
       throw new ApiContractError('Document URI cannot have a fragment');
     }
-    this.root = { value: snapshot(source, options), uri: uri.href, pointer: '' };
+    this.root = { value: snapshot(source, options, true), uri: uri.href, pointer: '' };
     this.documents.set(uri.href, this.root.value);
     for (const [id, value] of Object.entries(options.documents ?? {})) {
       const target = this.url(id);
       if (target.hash || this.documents.has(target.href)) {
         throw new ApiContractError('Duplicate document URI or fragment');
       }
-      this.documents.set(target.href, snapshot(value, options));
+      this.documents.set(target.href, snapshot(value, options, true));
     }
   }
   private url(value: string, base?: string): URL {
@@ -193,15 +244,21 @@ export class Documents {
 }
 
 export type SchemaMode = 'openapi-3.0' | 'openapi-3.1' | 'asyncapi';
-/** Project only schema-bearing keywords; defaults/examples are data, never traversed as schemas. */
+/**
+ * Project only schema-bearing keywords; defaults/examples are data, never traversed as schemas.
+ * Referenced schemas become local definitions named `reference0`, `reference1`, ... unless
+ * `naming` returns a name for the target (a definition key that needs no escaping).
+ */
 export function projectSchema(
   documents: Documents,
   from: Located,
   mode: SchemaMode,
-  direction: 'request' | 'response' | 'message'
+  direction: 'request' | 'response' | 'message',
+  naming?: (target: Located) => string | undefined
 ): { schema: JsonSchema; dialect: SchemaDialect } {
   const definitions: JsonObject = {};
   const refs = new Map<string, string>();
+  const used = new Set<string>();
   const dialect: SchemaDialect = mode === 'openapi-3.1' ? 'draft-2020-12' : 'draft-07';
   const definitionsKey = dialect === 'draft-07' ? 'definitions' : '$defs';
   const visit = (node: Located, depth: number): JsonSchema => {
@@ -233,7 +290,12 @@ export function projectSchema(
       const identity = `${target.uri}#${target.pointer}`;
       let name = refs.get(identity);
       if (!name) {
-        name = `reference${refs.size}`;
+        const preferred = naming?.(target) ?? `reference${refs.size}`;
+        name = preferred;
+        for (let n = 2; used.has(name); n++) {
+          name = `${preferred}_${n}`;
+        }
+        used.add(name);
         refs.set(identity, name);
         if (refs.size > (documents.options.maxSchemaNodes ?? 10_000)) {
           throw new ApiContractError('Reference budget exhausted', node.pointer);
@@ -386,6 +448,13 @@ export function projectSchema(
     if (mode === 'openapi-3.0' && value.nullable === true && typeof value.type === 'string') {
       output.type = [value.type, 'null'];
     }
+    // NestJS and similar generators describe a nullable reference in OpenAPI 3.0 as
+    // `{ nullable: true, allOf: [{ $ref }] }`: without a type, accept null beside the composition.
+    const nullableComposition =
+      mode === 'openapi-3.0' &&
+      value.nullable === true &&
+      value.type === undefined &&
+      (value.allOf !== undefined || value.anyOf !== undefined || value.oneOf !== undefined);
     if (Array.isArray(output.required) && output.properties) {
       output.required = output.required.filter((key) => !omittedFields.has(String(key)));
     }
@@ -408,7 +477,7 @@ export function projectSchema(
         2147483647
       );
     }
-    return output;
+    return nullableComposition ? { anyOf: [output, { type: 'null' }] } : output;
   };
   const schema = visit(from, 0);
   if (typeof schema === 'boolean') {

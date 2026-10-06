@@ -15,6 +15,7 @@
   },
   "toolkitPackages": [
     "json-schema",
+    "api",
     "codegen"
   ],
   "compilerTypes": [

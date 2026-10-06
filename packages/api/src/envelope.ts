@@ -95,6 +95,7 @@ export function envelope<I extends object>(
       if (
         !part.required &&
         options.profile !== 'boundary' &&
+        options.profile !== 'realistic' &&
         !(
           options.profile === 'random' &&
           execution.scope('presence', part.group, part.name ?? '').boolean()

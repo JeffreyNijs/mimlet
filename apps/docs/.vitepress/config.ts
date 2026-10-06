@@ -104,7 +104,6 @@ export default defineConfig({
       {
         text: 'Build your test world',
         items: [
-          { text: 'Builders and schemas', link: '/guide/schema-independent-builders' },
           { text: 'Named setters', link: '/guide/fluent-builders' },
           { text: 'CLI diagnostics', link: '/guide/cli-diagnostics' },
           { text: 'Error codes', link: '/guide/error-codes' },
@@ -129,6 +128,7 @@ export default defineConfig({
         items: [
           { text: 'Supported versions', link: '/guide/compatibility' },
           { text: 'Stable release contract', link: '/guide/stability' },
+          { text: 'Architecture', link: '/guide/schema-independent-builders' },
           { text: 'Beta readiness', link: '/guide/beta-readiness' },
           { text: 'Beta feedback kit', link: '/guide/beta-feedback' },
           { text: 'Mimlet migration', link: '/guide/mimlet-migration' },

@@ -1,4 +1,4 @@
-# Architecture and migration
+# Architecture
 
 ## Repository and package boundaries
 

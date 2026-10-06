@@ -8,6 +8,8 @@ import * as ts from 'typescript';
 import {
   emitBuilders,
   emitJsonSchemaBuilders,
+  emitOpenApiBuilders,
+  openApiBuilderTargets,
   writeGenerated,
   selfContainedRuntime,
   CodegenError,
@@ -547,5 +549,307 @@ describe('data-only CLI', () => {
         assert.equal(spawnSync(process.execPath, [cli, ...flags]).status, 2);
       await writeFile(config, JSON.stringify({ execute: 'malicious' }));
       assert.equal(spawnSync(process.execPath, [cli, '--config', config, '--out', out]).status, 2);
+    }));
+});
+
+/** A NestJS-style OpenAPI 3.0 document; in memory it has undefined fields. */
+const nestDocument = () => ({
+  openapi: '3.0.0',
+  info: { title: 'Deals', version: '1.0', description: undefined },
+  servers: [{ url: 'http://localhost:3000', description: undefined }],
+  paths: {},
+  components: {
+    schemas: {
+      FacadeDto: {
+        type: 'object',
+        properties: {
+          street: { type: 'string', example: 'Main street 1' },
+          floors: { type: 'integer', format: 'int32' },
+        },
+        required: ['street'],
+      },
+      CreateDealCommand: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid', readOnly: true },
+          title: { type: 'string', description: undefined },
+          amount: { type: 'number', minimum: 0 },
+          note: { type: 'string', nullable: true },
+          facade: { nullable: true, allOf: [{ $ref: '#/components/schemas/FacadeDto' }] },
+          tags: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['id', 'title', 'amount', 'facade'],
+      },
+      DealDto: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid', readOnly: true },
+          title: { type: 'string' },
+          password: { type: 'string', writeOnly: true },
+        },
+        required: ['id', 'title', 'password'],
+      },
+    },
+  },
+});
+const catalogDocument = (extra = {}) => ({
+  openapi: '3.1.0',
+  info: { title: 'Catalog', version: '1' },
+  components: {
+    schemas: {
+      Product: {
+        type: 'object',
+        properties: {
+          id: { $ref: '#/components/schemas/Id', readOnly: true },
+          name: { type: 'string', examples: ['Desk lamp'] },
+          price: { type: 'number', exclusiveMinimum: 0 },
+          parent: { anyOf: [{ $ref: '#/components/schemas/Product' }, { type: 'null' }] },
+          description: { type: ['string', 'null'] },
+          ...extra,
+        },
+        required: ['id', 'name', 'price'],
+      },
+      Id: { type: 'string', format: 'uuid' },
+    },
+  },
+});
+
+describe('OpenAPI component builders', () => {
+  it('emits typed builders from an in-memory OpenAPI 3.0 document with undefined fields', async () =>
+    temporary(async (directory) => {
+      const files = await emitOpenApiBuilders(nestDocument(), {
+        schemas: [
+          'CreateDealCommand',
+          { schema: 'DealDto', name: 'DealResponse', direction: 'response' },
+        ],
+        direction: 'request',
+        options: { profile: 'realistic' },
+      });
+      assert.deepEqual(
+        files.map((file) => file.path),
+        ['CreateDealCommandBuilder.ts', 'DealResponse.ts']
+      );
+      await writeGenerated(join(directory, 'generated'), files);
+      await writeFile(
+        join(directory, 'deals.ts'),
+        `
+import { CreateDealCommandBuilder, type CreateDealCommandBuilderInput } from './generated/CreateDealCommandBuilder.js';
+import { DealResponse } from './generated/DealResponse.js';
+const command: CreateDealCommandBuilderInput = new CreateDealCommandBuilder()
+  .withTitle('Renewal')
+  .withFacade(null)
+  .withNote(null)
+  .buildValidated();
+command.amount.toFixed();
+new CreateDealCommandBuilder().withFacade({ street: 'Main street 2' });
+// @ts-expect-error A read-only property is not part of a request.
+new CreateDealCommandBuilder().withId('x');
+// @ts-expect-error The amount is a number.
+new CreateDealCommandBuilder().withAmount('1');
+// @ts-expect-error A required nullable reference accepts null, not undefined.
+new CreateDealCommandBuilder().withFacade(undefined);
+// @ts-expect-error A write-only property is not part of a response.
+new DealResponse().withPassword('secret');
+new DealResponse().withId('d4f1c8a0-3a63-4b8e-9a5d-2f1c0e6b7a11').buildValidated().title.toUpperCase();
+`
+      );
+      compile(directory, ['deals.ts', ...files.map((file) => `generated/${file.path}`)]);
+      const { CreateDealCommandBuilder } = await import(
+        pathToFileURL(join(directory, 'compiled/generated/CreateDealCommandBuilder.js'))
+      );
+      for (const deal of new CreateDealCommandBuilder().buildValidatedList(5)) {
+        assert.deepEqual(Object.keys(deal).sort(), ['amount', 'facade', 'note', 'tags', 'title']);
+        assert.match(deal.title, /^[A-Z][a-z]+( [a-z]+)*$/);
+        assert.ok(deal.amount >= 0 && deal.amount <= 100);
+        assert.equal(deal.facade.street, 'Main street 1');
+        assert.ok(deal.facade.floors >= 1 && deal.facade.floors <= 100);
+      }
+      const command = new CreateDealCommandBuilder().withFacade(null).buildValidated();
+      assert.equal(command.facade, null);
+      assert.throws(() => new CreateDealCommandBuilder().with({ id: 'x' }).buildValidated());
+      const targets = openApiBuilderTargets(nestDocument(), { schemas: 'all' });
+      assert.deepEqual(
+        targets.map((target) => [target.name, target.direction]),
+        [
+          ['FacadeDtoBuilder', 'response'],
+          ['CreateDealCommandBuilder', 'response'],
+          ['DealDtoBuilder', 'response'],
+        ]
+      );
+      await assert.rejects(
+        () => emitOpenApiBuilders(nestDocument(), { schemas: ['Missing'] }),
+        (error) => error instanceof CodegenError && /"Missing"/.test(error.message)
+      );
+      for (const [selection, message] of [
+        [null, /data-only/],
+        [{ schemas: 'all', extra: true }, /data-only/],
+        [{ schemas: 'all', options: { dialect: 'draft-07' } }, /generation options/],
+        [{ schemas: 'all', options: [] }, /generation options/],
+        [{ schemas: 'some' }, /"all" or a list/],
+        [{ schemas: [{ schema: 'FacadeDto', extra: 1 }] }, /component name or/],
+        [{ schemas: [{ schema: 'FacadeDto', name: 1 }] }, /component name or/],
+        [{ schemas: [{ schema: 'FacadeDto', direction: 'up' }] }, /direction/],
+      ])
+        assert.throws(
+          () => openApiBuilderTargets(nestDocument(), selection),
+          (error) => error instanceof CodegenError && message.test(error.message)
+        );
+      assert.throws(
+        () => openApiBuilderTargets({ swagger: '2.0' }, { schemas: 'all' }),
+        /cannot be read: Expected OpenAPI/
+      );
+      assert.throws(
+        () =>
+          openApiBuilderTargets(
+            { openapi: '3.0.0', components: { schemas: { Bad: { $ref: '#/missing' } } } },
+            { schemas: ['Bad'] }
+          ),
+        /"Bad" cannot be projected: Reference target does not exist/
+      );
+      await assert.rejects(
+        () => emitOpenApiBuilders(nestDocument(), { schemas: 'all' }, { select: ['Missing'] }),
+        /unknown target/
+      );
+      const selected = await emitOpenApiBuilders(
+        nestDocument(),
+        { schemas: 'all' },
+        { select: ['DealDtoBuilder'] }
+      );
+      assert.deepEqual(
+        selected.map((file) => file.path),
+        ['DealDtoBuilder.ts']
+      );
+      await assert.rejects(
+        () =>
+          emitOpenApiBuilders(
+            {
+              openapi: '3.1.0',
+              components: { schemas: { Odd: { type: 'string', format: 'no-such-format' } } },
+            },
+            { schemas: 'all' }
+          ),
+        /"Odd" \(OddBuilder\): Unknown format at \/format/
+      );
+    }));
+
+  it('generates, checks and selects OpenAPI 3.0 and 3.1 builders through the CLI', async () =>
+    temporary(async (directory) => {
+      const run = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+      await mkdir(join(directory, 'specs'));
+      await writeFile(
+        join(directory, 'specs/deals.json'),
+        JSON.stringify(JSON.parse(JSON.stringify(nestDocument())))
+      );
+      await writeFile(join(directory, 'specs/catalog.json'), JSON.stringify(catalogDocument()));
+      const config = join(directory, 'builders.json');
+      const out = join(directory, 'generated');
+      await writeFile(
+        config,
+        JSON.stringify({
+          openapi: [
+            {
+              document: './specs/deals.json',
+              schemas: ['CreateDealCommand', { schema: 'DealDto', direction: 'response' }],
+              direction: 'request',
+            },
+            { document: 'specs/catalog.json', schemas: 'all', options: { profile: 'realistic' } },
+          ],
+        })
+      );
+      const generated = run('generate', '--config', config, '--out', out);
+      assert.equal(generated.status, 0, generated.stderr);
+      assert.deepEqual(JSON.parse(generated.stdout).changed, [
+        'CreateDealCommandBuilder.ts',
+        'DealDtoBuilder.ts',
+        'IdBuilder.ts',
+        'ProductBuilder.ts',
+      ]);
+      const clean = run('generate', '--config', config, '--out', out, '--check', '--json');
+      assert.equal(clean.status, 0, clean.stdout);
+      assert.equal(JSON.parse(clean.stdout).ok, true);
+      await writeFile(
+        join(directory, 'catalog.ts'),
+        `
+import { ProductBuilder } from './generated/ProductBuilder.js';
+import { IdBuilder } from './generated/IdBuilder.js';
+const product = new ProductBuilder().withName('Lamp').withParent(null).buildValidated();
+product.price.toFixed();
+const id: string = new IdBuilder().build();
+// @ts-expect-error The price is a number.
+new ProductBuilder().withPrice('1');
+void id;
+`
+      );
+      compile(directory, [
+        'catalog.ts',
+        ...['CreateDealCommandBuilder', 'DealDtoBuilder', 'IdBuilder', 'ProductBuilder'].map(
+          (name) => `generated/${name}.ts`
+        ),
+      ]);
+      const { ProductBuilder } = await import(
+        pathToFileURL(join(directory, 'compiled/generated/ProductBuilder.js'))
+      );
+      for (const product of new ProductBuilder().buildValidatedList(4)) {
+        assert.equal(product.name, 'Desk lamp');
+        assert.ok(product.price > 0 && product.price <= 100);
+        assert.equal(typeof product.description, 'string');
+        assert.equal('parent' in product, false);
+      }
+      // A changed document is drift; selection applies to OpenAPI builders as well.
+      await writeFile(
+        join(directory, 'specs/catalog.json'),
+        JSON.stringify(catalogDocument({ sku: { type: 'string' } }))
+      );
+      const drift = run('--config', config, '--out', out, '--check', '--json');
+      assert.equal(drift.status, 1);
+      assert.equal(JSON.parse(drift.stdout).diagnostics[0].code, 'GENERATED_FILES_OUTDATED');
+      assert.deepEqual(JSON.parse(drift.stdout).result.changed, ['ProductBuilder.ts']);
+      const selected = run('--config', config, '--out', out, '--select', 'ProductBuilder');
+      assert.equal(selected.status, 0, selected.stderr);
+      assert.deepEqual(JSON.parse(selected.stdout).removed, [
+        'CreateDealCommandBuilder.ts',
+        'DealDtoBuilder.ts',
+        'IdBuilder.ts',
+      ]);
+      // Input problems name the document and component and exit 2.
+      const failures = [
+        [{ openapi: { document: 'specs/catalog.json', schemas: ['Missing'] } }, /"Missing"/],
+        [{ openapi: { document: 'specs/none.json', schemas: 'all' } }, /readable JSON file/],
+        [{ openapi: { schemas: 'all' } }, /needs a "document"/],
+        [{ openapi: [] }, /at most 100 sources/],
+        [
+          { openapi: { document: 'specs/catalog.json', schemas: 'all', direction: 'both' } },
+          /direction/,
+        ],
+        [
+          { openapi: { document: 'specs/catalog.json', schemas: 'all', options: { seed: 1 } } },
+          /data-only/,
+        ],
+      ];
+      for (const [configuration, message] of failures) {
+        await writeFile(config, JSON.stringify(configuration));
+        const failed = run('--config', config, '--out', out, '--json');
+        assert.equal(failed.status, 2, failed.stdout);
+        const [diagnostic] = JSON.parse(failed.stdout).diagnostics;
+        assert.equal(diagnostic.code, 'CLI_USAGE_ERROR');
+        assert.match(diagnostic.message, message);
+      }
+      await writeFile(
+        join(directory, 'specs/odd.json'),
+        JSON.stringify({
+          openapi: '3.1.0',
+          components: { schemas: { Odd: { type: 'string', format: 'no-such-format' } } },
+        })
+      );
+      await writeFile(
+        config,
+        JSON.stringify({ openapi: { document: 'specs/odd.json', schemas: 'all' } })
+      );
+      const odd = run('--config', config, '--out', out);
+      assert.equal(odd.status, 2);
+      assert.match(
+        odd.stderr,
+        /OpenAPI document "specs\/odd\.json": OpenAPI component schema "Odd" \(OddBuilder\): Unknown format at \/format/
+      );
     }));
 });

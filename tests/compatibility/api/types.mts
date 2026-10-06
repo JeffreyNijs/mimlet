@@ -50,3 +50,13 @@ expectType<HttpRequestFixture>(secondRequest);
 fromAsyncApiMessage(document, { action: 'receive' }, { name: 'events' }).transform((value, run) =>
   run.boolean() ? value : value
 );
+
+import { openApiComponents, type OpenApiComponentSchema } from '@mimlet/api';
+const component: OpenApiComponentSchema = openApiComponents(document).schema('Deal', 'request');
+expectType<'draft-07' | 'draft-2019-09' | 'draft-2020-12'>(component.dialect);
+expectType<string[]>(openApiComponents(document).names());
+// @ts-expect-error Components project for a request or a response.
+openApiComponents(document).schema('Deal', 'message');
+openApi(document, { profile: 'realistic' });
+// @ts-expect-error Generation profiles are a closed set.
+openApi(document, { profile: 'lifelike' });

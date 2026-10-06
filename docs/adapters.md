@@ -40,6 +40,21 @@ required. Supply a factory when generation cannot faithfully express a constrain
 Inspect the package's capabilities before claiming codec, generation or shrinking
 support. Pin the tested native-library versions in the [compatibility matrix](compatibility.md).
 
+## Realistic values for tests
+
+Adapters that generate through JSON Schema (`@mimlet/json-schema`, `@mimlet/zod`,
+`@mimlet/valibot`, `@mimlet/arktype`, `@mimlet/api` and the JSON targets of
+`@mimlet/codegen`) default to the `minimal` profile: optional fields are left out and an
+unconstrained number can be anywhere in its range. `profile: 'realistic'` fills optional
+and nullable fields, keeps arrays at one to three items, draws unconstrained numbers from
+1 to 100 within the schema's bounds and writes plain strings as readable words:
+
+<!-- recipe:realistic -->
+
+The profile is part of the replay identity, and every value still passes the schema.
+See [realistic values](../packages/json-schema/README.md#realistic-values) for the exact
+rules. Fix the values a test depends on with `.with()`.
+
 ## Keep the meaningful relationships
 
 Faker supplies realistic primitives. Mimlet builders fix the fields that matter;
