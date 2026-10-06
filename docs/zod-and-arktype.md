@@ -36,10 +36,14 @@ piped into an application transformer, `.build()` is the API DTO and
 take input values.
 
 An error thrown inside a transform or refinement makes `.buildValidated()` throw a
-`BuilderValidationError` whose `cause` is the original error. A thrown error has no
-path, so the issue sits at the root; report the problem with
-`ctx.addIssue({ code: 'custom', path: ['source'], message })` instead, and the
-error names the field. See [errors thrown inside transforms](../packages/zod/README.md#errors-thrown-inside-transforms).
+`BuilderValidationError` whose `cause` is the original error and whose message names
+the callback, for example `1 issue at (root); thrown by the Zod transform fromDto`. A
+`ZodError` from a stricter parse of the whole DTO inside the transformer keeps its
+paths, so the message names the field (`1 issue at source`). A parse of one value
+has no path, and the issue stays at the root with Zod's message. When the schema has
+a single callback at a fixed field, that field becomes the path. Report the problem
+with `ctx.addIssue({ code: 'custom', path: ['source'], message })` instead to name the
+field in every case. See [errors thrown inside transforms](../packages/zod/README.md#errors-thrown-inside-transforms).
 
 For async refinements or codecs, choose `fromZodAsync` or
 `fromZodFactoryAsync`. They go directly through native async parsing; the pinned
@@ -55,7 +59,11 @@ See the [Zod package contract](../packages/zod/README.md).
 converts the schema and compiles its generator, and every builder of the same schema
 object shares the result. A module that creates a builder for each generated schema
 at load time therefore stays cheap, which matters in test runners that load modules
-again for every spec file.
+again for every spec file. Schemas with equal converted content also share the
+compiled validator within a process, for example two transforms of one API schema.
+Vitest's default isolation starts a new worker for each spec file, so each file still
+compiles the schemas it builds; see
+[start-up cost in test runners](../packages/zod/README.md#start-up-cost-in-test-runners).
 
 Builders accept the schemas that Hey API's `zod` plugin generates. Empty responses
 are emitted as `z.void()`; their builders return `undefined`. If the

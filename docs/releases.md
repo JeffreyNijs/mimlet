@@ -23,7 +23,9 @@ core vendor dependencies and incorrect release channels before installation.
 
 Add a changeset for subsequent changes. The repository is in Changesets prerelease
 mode (`.changeset/pre.json`, tag `beta`), so run `pnpm version-packages` for the next
-beta. To move to a new prerelease tag (for example `rc`), run `pnpm changeset pre exit`
+beta. It also writes the new version into `packages/json-schema/src/version.ts`, which
+keeps the shared generator caches of two versions apart at runtime;
+`check-workspace.mjs` rejects a mismatch. To move to a new prerelease tag (for example `rc`), run `pnpm changeset pre exit`
 and then `pnpm changeset pre enter <tag>`. Changesets continues the prerelease number
 across tags, so rename the first versions on the new tag to `.0` before
 `pnpm check:workspace`, as was done for `0.1.0-beta.0`.

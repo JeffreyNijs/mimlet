@@ -14,6 +14,19 @@ const fail = (message) => {
   throw new Error(`Workspace: ${message}`);
 };
 
+/** The version a package's `src/version.ts` declares at runtime, if it has one. */
+export const runtimeVersionPattern = /^export const packageVersion = '([^'\n]+)';$/m;
+export async function runtimeVersion(directory) {
+  let source;
+  try {
+    source = await readFile(join(directory, 'src', 'version.ts'), 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return undefined;
+    throw error;
+  }
+  return runtimeVersionPattern.exec(source)?.[1] ?? fail(`${directory}: unreadable version.ts`);
+}
+
 /**
  * The npm dist-tag a package version must be published with: `latest` or `next`, nothing else.
  * Stable versions use `latest`. During a prerelease train the `@mimlet/*` toolkit also uses
@@ -220,6 +233,11 @@ export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.
       if (!(await lstat(join(directory, required))).isFile())
         fail(`missing ${required} for ${pkg.name}`);
     }
+    const declared = await runtimeVersion(directory);
+    if (declared !== undefined && declared !== pkg.version)
+      fail(
+        `packages/${entry.name}/src/version.ts declares ${declared} but ${pkg.name} is ${pkg.version}; run node scripts/sync-runtime-versions.mjs`
+      );
     if (
       !Array.isArray(pkg.files) ||
       !pkg.files.includes('dist') ||

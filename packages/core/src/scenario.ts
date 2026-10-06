@@ -12,7 +12,10 @@ export interface ScenarioDescription {
   readonly nodes: ReadonlyArray<{
     readonly name: string;
     readonly dependencies: ReadonlyArray<string>;
+    /** What builds the node: `'definition'`, `'override'` or `'trait:<name>'`. */
     readonly origin: string;
+    /** How many `patch()` calls change the node's value after its factory. */
+    readonly patches: number;
   }>;
   readonly traits: ReadonlyArray<string>;
 }
@@ -86,6 +89,24 @@ interface ScenarioOperations<T extends object, Async extends boolean, D> {
     name: K,
     factory: F
   ): Scenario<T, Either<Async, MayBeAsync<ReturnType<F>>>, D>;
+  /**
+   * Change the value a node builds and keep its derivation: the patcher runs after the node's
+   * factory (or its override or trait) and before any dependent node, which sees the patched
+   * value. It receives the value, the node's declared dependencies and the node's session, and
+   * returns the node's value, such as `(deal) => ({ ...deal, status: 'lost' })`. Patches run
+   * in the order they were added; a later override or trait replaces the node and its patches.
+   */
+  patch<
+    K extends Names<T>,
+    F extends (
+      value: T[K],
+      dependencies: DependenciesOf<T, D, K>,
+      session: GenerationSession
+    ) => NoInfer<T[K]> | PromiseLike<NoInfer<T[K]>>,
+  >(
+    name: K,
+    patcher: F
+  ): Scenario<T, Either<Async, MayBeAsync<ReturnType<F>>>, D>;
   /** Named presets reject conflicting node replacements unless explicitly authorized. */
   trait<P extends Replacements<T, D>>(
     name: string,
@@ -99,8 +120,8 @@ interface ScenarioOperations<T extends object, Async extends boolean, D> {
   describe(): ScenarioDescription;
 }
 /**
- * `T` maps each node name to its value, `Async` is true once a node, override or trait is
- * async, and `D` maps each node name to the names of its dependencies.
+ * `T` maps each node name to its value, `Async` is true once a node, override, patch or trait
+ * is async, and `D` maps each node name to the names of its dependencies.
  */
 export type Scenario<
   T extends object = Record<never, never>,
@@ -124,11 +145,18 @@ type Replacement = (
   session: GenerationSession,
   dependencies: Readonly<Record<string, unknown>>
 ) => unknown;
+type Patcher = (
+  value: unknown,
+  dependencies: Readonly<Record<string, unknown>>,
+  session: GenerationSession
+) => unknown;
 interface NodeDefinition {
   readonly name: string;
   readonly dependencies: ReadonlyArray<string>;
   readonly factory: Factory;
   readonly origin: string;
+  /** Applied in order to the factory's value; a replacement of the node clears them. */
+  readonly patches: ReadonlyArray<Patcher>;
 }
 interface Definition {
   readonly name: string;
@@ -182,7 +210,8 @@ function makeScenario(definition: Definition) {
     }
     return index;
   };
-  const execute = (
+  /** The node's frozen dependency container and its scoped session, shared by its patches. */
+  const inputs = (
     node: NodeDefinition,
     values: Record<string, unknown>,
     session: GenerationSession
@@ -191,16 +220,21 @@ function makeScenario(definition: Definition) {
     for (const name of node.dependencies) {
       install(dependencies, name, values[name]);
     }
-    return Reflect.apply(node.factory, undefined, [
+    return [
       Object.freeze(dependencies),
       session.scope('scenario', definition.name, 'node', node.name),
-    ]);
+    ] as const;
   };
   const build = (session: GenerationSession = createTestSession()) => {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
       try {
-        install(values, node.name, synchronous(execute(node, values, session)));
+        const [dependencies, scoped] = inputs(node, values, session);
+        let value = synchronous(Reflect.apply(node.factory, undefined, [dependencies, scoped]));
+        for (const patcher of node.patches) {
+          value = synchronous(Reflect.apply(patcher, undefined, [value, dependencies, scoped]));
+        }
+        install(values, node.name, value);
       } catch (cause) {
         throw new ScenarioError('SCENARIO_EXECUTION', 'Scenario node failed', node.name, cause);
       }
@@ -211,7 +245,12 @@ function makeScenario(definition: Definition) {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
       try {
-        install(values, node.name, await execute(node, values, session));
+        const [dependencies, scoped] = inputs(node, values, session);
+        let value: unknown = await Reflect.apply(node.factory, undefined, [dependencies, scoped]);
+        for (const patcher of node.patches) {
+          value = await Reflect.apply(patcher, undefined, [value, dependencies, scoped]);
+        }
+        install(values, node.name, value);
       } catch (cause) {
         throw new ScenarioError('SCENARIO_EXECUTION', 'Scenario node failed', node.name, cause);
       }
@@ -238,7 +277,7 @@ function makeScenario(definition: Definition) {
         ...definition,
         nodes: [
           ...definition.nodes,
-          { name, dependencies: [...dependencies], factory, origin: 'definition' },
+          { name, dependencies: [...dependencies], factory, origin: 'definition', patches: [] },
         ],
       });
     },
@@ -254,8 +293,19 @@ function makeScenario(definition: Definition) {
                 origin: 'override',
                 factory: (dependencies, session) =>
                   Reflect.apply(factory, undefined, [session, dependencies]),
+                patches: [],
               }
             : node
+        ),
+      });
+    },
+    patch(name: string, patcher: Patcher) {
+      callable(patcher);
+      const index = indexOf(name);
+      return makeScenario({
+        ...definition,
+        nodes: definition.nodes.map((node, at) =>
+          at === index ? { ...node, patches: [...node.patches, patcher] } : node
         ),
       });
     },
@@ -293,10 +343,15 @@ function makeScenario(definition: Definition) {
         if (!factory) {
           return node;
         }
-        if (node.origin !== 'definition' && !options.replaceConflicts) {
+        if (
+          (node.origin !== 'definition' || node.patches.length > 0) &&
+          !options.replaceConflicts
+        ) {
           throw new ScenarioError(
             'SCENARIO_CONFLICT',
-            'Trait conflicts with an existing node override',
+            node.origin === 'definition'
+              ? 'Trait conflicts with an existing node patch'
+              : 'Trait conflicts with an existing node override',
             node.name
           );
         }
@@ -305,6 +360,7 @@ function makeScenario(definition: Definition) {
           origin: `trait:${name}`,
           factory: (dependencies: Readonly<Record<string, unknown>>, session: GenerationSession) =>
             Reflect.apply(factory, undefined, [session, dependencies]),
+          patches: [],
         };
       });
       return makeScenario({ ...definition, nodes, traits: [...definition.traits, name] });
@@ -331,8 +387,13 @@ function makeScenario(definition: Definition) {
         name: definition.name,
         traits: Object.freeze([...definition.traits]),
         nodes: Object.freeze(
-          definition.nodes.map(({ name, dependencies, origin }) =>
-            Object.freeze({ name, dependencies: Object.freeze([...dependencies]), origin })
+          definition.nodes.map(({ name, dependencies, origin, patches }) =>
+            Object.freeze({
+              name,
+              dependencies: Object.freeze([...dependencies]),
+              origin,
+              patches: patches.length,
+            })
           )
         ),
       });

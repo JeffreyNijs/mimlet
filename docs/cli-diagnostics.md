@@ -86,9 +86,21 @@ component and the schema location:
 }
 ```
 
+An entry of the `schemas` list with the wrong shape is repeated with its position and,
+when it names a component, the entry it most likely means:
+
+```json
+{
+  "code": "CLI_USAGE_ERROR",
+  "message": "OpenAPI document \"./openapi.json\": Each OpenAPI schema entry is a component name or { schema, name?, direction? }; schemas[0] is {\"name\":\"DealDto\",\"direction\":\"request\"}. Did you mean {\"schema\":\"DealDto\",\"direction\":\"request\"}? \"schema\" is the component and \"name\" the builder class name."
+}
+```
+
 Unknown failures and malformed JSON do not print fixture/schema values by default.
 The only schema values a diagnostic repeats are keyword names, reference URIs,
-component names and property names that form a schema location.
+component names and property names that form a schema location. An invalid
+configuration entry is repeated with its strings, numbers and booleans, at most 200
+characters.
 
 ## Report and exit contracts
 

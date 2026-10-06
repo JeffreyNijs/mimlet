@@ -182,8 +182,8 @@ every release from 0.14.1 through 0.15.1 passes the same suite (including parity
 NestJS's `ValidationPipe`), and the peer range is `>=0.14.1 <0.16`. class-validator
 0.14.0 is not supported: its declarations use the global `ValidatorJS` namespace, which
 current `@types/validator` releases no longer declare, so it fails to type-check without
-`skipLibCheck`. These two rows apply from the first `@mimlet/class-validator` release, the
-one after `0.1.0-beta.4`. `pnpm check:workspace` accepts `minorLines` only for a 0.x library, only
+`skipLibCheck`. These two rows apply from the first `@mimlet/class-validator` release,
+`0.1.0-beta.4`. `pnpm check:workspace` accepts `minorLines` only for a 0.x library, only
 as consecutive lines from the minimum's line to the maximum's, and only when each line has
 at least one tested version.
 

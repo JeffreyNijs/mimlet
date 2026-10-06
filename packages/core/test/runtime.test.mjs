@@ -455,6 +455,30 @@ describe('validation issue summaries', () => {
     assert.match(message, /at k{29}\.\.\., \["k{29}\.\.\."\], level0\.level1\..*\.\.\..*level199$/);
   });
 
+  it('appends an adapter detail and keeps a cause', () => {
+    const cause = new Error('inner');
+    const error = new BuilderValidationError([{ message: 'x', path: [] }], {
+      cause,
+      detail: ' thrown by the Zod\ntransform fromDto ',
+    });
+    assert.equal(
+      error.message,
+      'Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDto'
+    );
+    assert.equal(error.cause, cause);
+    assert.equal(Object.keys(error).includes('cause'), false);
+    assert.equal('cause' in new BuilderValidationError([]), false);
+    assert.equal(
+      new BuilderValidationError([{ message: 'x', path: ['a'] }], { detail: 'd'.repeat(500) })
+        .message.length,
+      'Schema validation failed: 1 issue at a; '.length + 200
+    );
+    assert.equal(
+      new BuilderValidationError([], { detail: '   ' }).message,
+      'Schema validation failed'
+    );
+  });
+
   it('falls back to the generic message for malformed issues', () => {
     const hostile = {
       message: 'x',

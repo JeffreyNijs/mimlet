@@ -2,8 +2,9 @@
 
 `@mimlet/class-validator` builds test data for the commands and queries of an API that
 validates requests with class-validator, such as a NestJS application with a global
-`ValidationPipe`. It is new in source and ships in the release after `0.1.0-beta.4`; it is
-not part of `0.1.0-beta.4`. The examples use the `@mimlet/core` API of the same train.
+`ValidationPipe`. It was first published as `0.1.0-beta.4`, after the rest of that train, and
+follows the toolkit's version from then on. The examples use the `@mimlet/core` API of the
+same train.
 
 One builder serves both kinds of test:
 

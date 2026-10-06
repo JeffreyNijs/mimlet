@@ -27,5 +27,6 @@ export const files = await emitOpenApiBuilders(document, {
   schemas: ['CreateDealCommand'],
   direction: 'request', // a request leaves the read-only id out
   options: { profile: 'realistic' },
+  closedObjects: true, // NestJS never writes additionalProperties: type objects without an index signature
 });
 // files[0] is CreateDealCommandBuilder.ts with withTitle(), withAmount() and withFacade().

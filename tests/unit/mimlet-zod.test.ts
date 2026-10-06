@@ -199,8 +199,11 @@ it('reports errors thrown inside a transform as a validation failure with the ca
   }
   expect(caught).toBeInstanceOf(BuilderValidationError);
   expect((caught as Error).cause).toBe(failure);
+  expect((caught as Error).message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by the Zod transform at (root)'
+  );
   expect((caught as BuilderValidationError).issues).toEqual([
-    { message: 'A Zod transform or refinement threw Error: unsupported source', path: [] },
+    { message: 'The Zod transform at (root) threw Error: unsupported source', path: [] },
   ]);
   await expect(
     fromZodFactoryAsync(throwing, () => ({ id: '1', source: 'hubspot' })).buildValidatedAsync()
@@ -250,6 +253,179 @@ it('reports errors thrown inside a transform as a validation failure with the ca
   ).toMatchObject({ source: 'teamleader' });
 });
 
+/** The error a validated build throws, for asserting on its message, issues and cause. */
+function rejection(build: () => unknown): BuilderValidationError {
+  try {
+    build();
+  } catch (error) {
+    expect(error).toBeInstanceOf(BuilderValidationError);
+    return error as BuilderValidationError;
+  }
+  throw new Error('Expected the build to throw');
+}
+
+it('names the transform whose stricter inner parse rejected a generated value', () => {
+  // A generated API schema allows any source; the application only supports one.
+  const zLeadDeal = z.object({ id: z.string(), title: z.string(), source: z.string() });
+  const StrictLeadDeal = zLeadDeal.extend({ source: z.literal('teamleader') });
+  class LeadDealTransformer {
+    /** Parses the whole DTO again, so Zod's paths are relative to the DTO. */
+    static fromDto(dto: z.output<typeof zLeadDeal>) {
+      const strict = StrictLeadDeal.parse(dto);
+      return { ...strict, label: `${strict.title} (${strict.source})` };
+    }
+    /** Parses one field, so Zod has no path for it. */
+    static fromDtoSource(dto: z.output<typeof zLeadDeal>) {
+      return { ...dto, source: z.literal('teamleader').parse(dto.source) };
+    }
+  }
+
+  const whole = zLeadDeal.transform(LeadDealTransformer.fromDto);
+  const wholeError = rejection(() =>
+    fluent(fromZod(whole, { name: 'lead' }), zodFields(whole))
+      .withSource('hubspot')
+      .buildValidated()
+  );
+  expect(wholeError.message).toBe(
+    'Schema validation failed: 1 issue at source; thrown by the Zod transform fromDto'
+  );
+  expect(wholeError.cause).toBeInstanceOf(z.ZodError);
+  expect(wholeError.issues).toMatchObject([{ code: 'invalid_value', path: ['source'] }]);
+
+  const single = zLeadDeal.transform(LeadDealTransformer.fromDtoSource);
+  const singleError = rejection(() =>
+    fluent(fromZod(single), zodFields(single)).withSource('hubspot').buildValidated()
+  );
+  // Zod reports no path for a single-value parse. The value is not matched back to a field:
+  // the issue stays at the root, keeps Zod's message, and the error names the transform.
+  expect(singleError.message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDtoSource'
+  );
+  expect(singleError.cause).toBeInstanceOf(z.ZodError);
+  expect(formatValidationIssues(singleError, { messages: true })).toBe(
+    '(root): Invalid input: expected "teamleader"'
+  );
+  expect(
+    fluent(fromZod(single), zodFields(single)).withSource('teamleader').buildValidated()
+  ).toMatchObject({ source: 'teamleader' });
+});
+
+it('places errors thrown by a nested transform at its field when the schema has one callback', () => {
+  const failure = new Error('not a date');
+  function parseDate(value: string): Date {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw failure;
+    }
+    return date;
+  }
+  const Lead = z.object({ id: z.string(), createdAt: z.string().transform(parseDate) });
+  const dated = fromZod(Lead).replace({ id: '1', createdAt: 'yesterday' });
+  const error = rejection(() => dated.buildValidated());
+  expect(error.message).toBe(
+    'Schema validation failed: 1 issue at createdAt; thrown by the Zod transform parseDate'
+  );
+  expect(error.cause).toBe(failure);
+  expect(error.issues).toEqual([
+    { message: 'The Zod transform parseDate threw Error: not a date', path: ['createdAt'] },
+  ]);
+
+  // A ZodError from the nested transform gets the field prefix too.
+  const Nested = z.object({
+    deal: z
+      .object({ source: z.string() })
+      .transform((dto) => z.object({ source: z.literal('teamleader') }).parse(dto)),
+  });
+  const nested = rejection(() =>
+    fromZod(Nested)
+      .replace({ deal: { source: 'hubspot' } })
+      .buildValidated()
+  );
+  expect(nested.message).toBe(
+    'Schema validation failed: 1 issue at deal.source; thrown by the Zod transform at deal'
+  );
+
+  // With several callbacks the one that threw is unknown: no prefix, and all are listed.
+  const Both = Lead.refine(function knownLead(lead) {
+    return lead.id !== '';
+  }).transform(function toLead(lead) {
+    return lead;
+  });
+  const both = rejection(() =>
+    fromZod(Both).replace({ id: '1', createdAt: 'yesterday' }).buildValidated()
+  );
+  expect(both.message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by one of the Zod callbacks transform parseDate, refinement knownLead, transform toLead'
+  );
+  expect(both.issues).toEqual([
+    { message: 'A Zod transform or refinement threw Error: not a date', path: [] },
+  ]);
+  expect(both.cause).toBe(failure);
+
+  // The same function in a list is named, but its index is unknown.
+  const Leads = z.object({ items: z.array(z.string().transform(parseDate)) });
+  const list = rejection(() =>
+    fromZod(Leads)
+      .replace({ items: ['2026-01-01', 'yesterday'] })
+      .buildValidated()
+  );
+  expect(list.message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by the Zod transform parseDate'
+  );
+
+  // An anonymous refinement is named by its location, also on the async entry points and in
+  // Zod Mini.
+  const refined = z.object({
+    email: z.string().superRefine(() => {
+      throw new TypeError('lookup failed');
+    }),
+  });
+  const message =
+    'Schema validation failed: 1 issue at email; thrown by the Zod refinement at email';
+  expect(rejection(() => fromZod(refined).buildValidated()).message).toBe(message);
+  return expect(fromZodAsync(refined).buildValidatedAsync()).rejects.toMatchObject({
+    message,
+    issues: [{ message: 'The Zod refinement at email threw TypeError: lookup failed' }],
+  });
+});
+
+it('reports no location for a callback inside a recursive schema', () => {
+  interface Node {
+    name: string;
+    children: Node[];
+  }
+  const Category: z.ZodType<Node> = z.object({
+    name: z.string().refine(function knownName(name) {
+      if (name === 'unknown') {
+        throw new Error('unknown category');
+      }
+      return true;
+    }),
+    get children() {
+      return z.array(Category);
+    },
+  });
+  const error = rejection(() =>
+    fromZodFactory(Category, () => ({
+      name: 'root',
+      children: [{ name: 'unknown', children: [] }],
+    })).buildValidated()
+  );
+  expect(error.message).toBe(
+    'Schema validation failed: 1 issue at (root); thrown by the Zod refinement knownName'
+  );
+  const Mini = mini.object({
+    at: mini.string().check(
+      mini.refine(function isDate() {
+        throw new Error('no');
+      })
+    ),
+  });
+  expect(rejection(() => fromZodFactory(Mini, () => ({ at: 'x' })).buildValidated()).message).toBe(
+    'Schema validation failed: 1 issue at at; thrown by the Zod refinement isDate'
+  );
+});
+
 it('keeps the native error for async callbacks on the synchronous entry points', () => {
   const schema = z.string().refine(async () => true);
   expect(() => fromZodFactory(schema, () => 'x').buildValidated()).toThrow(z.core.$ZodAsyncError);
@@ -262,6 +438,8 @@ it('converts on the first build and shares the generator per schema and options'
   expect(
     zodAdapter(Person, { maxListSize: 5, parseOptions: { reportInput: true } }).generation()
   ).toBe(shared);
+  // A builder name scopes the builder's own session, not the generator.
+  expect(zodAdapter(Person, { name: 'person' }).generation()).toBe(shared);
   expect(zodAdapter(Person, { profile: 'random' }).generation()).not.toBe(shared);
   expect(zodAdapter(Person, { profile: 'random', maxAttempts: 5 }).generation()).toBe(
     zodAdapter(Person, { maxAttempts: 5, profile: 'random' }).generation()

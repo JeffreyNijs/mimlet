@@ -60,7 +60,13 @@ const selection: OpenApiSchemas = {
   ],
   direction: 'request',
   options: { profile: 'realistic', maxAttempts: 10 },
+  closedObjects: true,
 };
+// @ts-expect-error closedObjects is a boolean.
+openApiBuilderTargets(document, { schemas: 'all', closedObjects: 'yes' });
+const closedTarget: boolean | undefined = openApiBuilderTargets(document, selection)[0]!
+  .closedObjects;
+void closedTarget;
 const targets: OpenApiBuilderTarget[] = openApiBuilderTargets(document, selection);
 const component: string = targets[0]!.component;
 const files: GeneratedFile[] = await emitOpenApiBuilders(document, { schemas: 'all' });

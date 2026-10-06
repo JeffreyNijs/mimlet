@@ -4,7 +4,9 @@
  * Each sample is a fresh Node process, like a Vitest worker that isolates modules per spec
  * file. It imports `@mimlet/zod` and the Hey API fixture in `tests/unit/fixtures`, creates a
  * builder for every exported schema at module load (as a shared test-support module does),
- * then validates a handful of builds. `node scripts/benchmark-zod.ts [adapter.js]` measures
+ * then validates a handful of builds. It then imports the fixture again 11 times in the same
+ * process, which gives new schema objects with equal content, as a runner that evaluates
+ * modules again in one realm does. `node scripts/benchmark-zod.ts [adapter.js]` measures
  * the built adapter, or another build of it for a before/after comparison. Timings depend on
  * the machine; they are reported, not used as a gate.
  */
@@ -19,6 +21,7 @@ const adapter = pathToFileURL(resolve(process.argv[2] ?? 'packages/zod/dist/inde
 const fixture = new URL('../tests/unit/fixtures/zod-crm.gen.ts', import.meta.url).href;
 const samples = 7;
 const steadyBuilds = 200;
+const reloadedFiles = 11;
 
 // Runs in the child process; prints one JSON line of phase timings in milliseconds.
 const child = `
@@ -45,6 +48,20 @@ for (const [index, value] of first.entries()) {
   if (!used[index].safeParse(value).success) throw new Error('A built value did not validate');
 }
 one.build();
+// The same process loads the fixture again, as a test runner that evaluates modules again in
+// one realm does: new schema objects with equal content, a builder for each, five builds.
+const reloads = [];
+for (let copy = 0; copy < ${reloadedFiles}; copy += 1) {
+  const begin = now();
+  const again = await import(${JSON.stringify(fixture)} + '?copy=' + copy);
+  const names = Object.keys(again).filter((name) => again[name]._zod.def.type !== 'void');
+  const reloaded = Object.fromEntries(names.map((name) => [name, fromZod(again[name], { name })]));
+  for (const name of ['zLeadDealResponse', 'zLeadIndexPage', 'zContactResponse', 'zCreateLeadRequest', 'zInvoiceResponse']) {
+    reloaded[name].buildValidated();
+  }
+  reloads.push(now() - begin);
+}
+reloads.sort((a, b) => a - b);
 console.log(JSON.stringify({
   schemas: schemas.length,
   firstBuildCount: used.length,
@@ -54,6 +71,7 @@ console.log(JSON.stringify({
   firstBuildsMs: firstBuilds - constructed,
   steadyBuildMs: (steadyEnd - firstBuilds) / ${steadyBuilds},
   totalMs: firstBuilds - start,
+  reloadedFileMs: reloads[Math.floor(reloads.length / 2)],
   checksum: steady,
 }));
 `;
@@ -92,9 +110,10 @@ const report = {
     firstBuildsMs: median('firstBuildsMs'),
     steadyBuildMs: median('steadyBuildMs'),
     totalMs: median('totalMs'),
+    reloadedFileMs: median('reloadedFileMs'),
   },
   notes:
-    'Fresh process per sample. singleBuilderMs is the first fromZod(zLeadDealResponse) call; constructAllMs creates a builder for each non-void export; firstBuildsMs validates one build of five builders; totalMs is import plus construction plus those first builds.',
+    'Fresh process per sample. singleBuilderMs is the first fromZod(zLeadDealResponse) call; constructAllMs creates a builder for each non-void export; firstBuildsMs validates one build of five builders; totalMs is import plus construction plus those first builds; reloadedFileMs is the median of 11 more fixture imports in the same process, each with a builder per schema and five validated builds.',
 };
 await mkdir(new URL('../test-results/', import.meta.url), { recursive: true });
 await writeFile(

@@ -40,14 +40,17 @@ that a schema has valid generated values.
    from 0.1.0-beta.4, `profile: 'realistic'` gives readable values and fills optional
    fields for adapters that generate through JSON Schema.
 4. Model relationships as scenario dependencies. For shrinking, shrink independent
-   inputs and recompute foreign keys/totals from them.
+   inputs and recompute foreign keys/totals from them. To vary one field of a derived
+   node (0.1.0-beta.5 and newer), use `scenario.patch(name, patcher)`
+   instead of an override that repeats the derivation.
 5. Use explicit seeds and compatible provider/schema/configuration identities.
    Save before an operation to reproduce it. Preserve replay errors and the original
    failing test; a seed does not control arbitrary user I/O or external state.
 6. For code generation, start with `mimlet --config builders.json --out generated
 --check` when only inspecting drift. Regenerate only within the requested task. For
    an OpenAPI document (0.1.0-beta.4 and newer), use an `openapi` configuration
-   entry rather than copying component schemas into JSON Schema targets.
+   entry rather than copying component schemas into JSON Schema targets. For a NestJS
+   document (0.1.0-beta.5 and newer), add `"closedObjects": true`.
 7. Run the relevant test and type checker. State what was verified; do not infer
    compatibility, publication or performance from an example alone.
 
@@ -58,7 +61,7 @@ matching package README. `examples/recipes/` contains the actual typed examples;
 `pnpm test:examples` compiles and executes them against isolated tarballs.
 
 For DTO classes validated with class-validator (NestJS), `@mimlet/class-validator`
-(newer than beta.4; check that it is installed) builds payloads with `build()` and the
+(0.1.0-beta.4 and newer; check that it is installed) builds payloads with `build()` and the
 DTO instances `ValidationPipe` produces with `buildValidated()`:
 `fromClassValidator(Dto, factory, validationPipeOptions)`, with `wire: qs` for query
 DTOs and `fromClassValidatorAsync` for async constraints. See `docs/class-validator.md`.

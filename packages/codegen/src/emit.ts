@@ -1,4 +1,4 @@
-import { declarationInputs } from './schema-types.js';
+import { closeObjects, declarationInputs, plainObjectType } from './schema-types.js';
 import { compile } from 'json-schema-to-typescript';
 import type { JsonSchema, JsonSchemaOptions } from '@mimlet/json-schema';
 import { jsonSchemaAdapter } from '@mimlet/json-schema';
@@ -34,6 +34,12 @@ export interface EmitOptions {
 export interface JsonBuilderTarget {
   readonly name: string;
   readonly schema: JsonSchema;
+  /**
+   * Type an object schema that declares properties but not `additionalProperties` as closed,
+   * without a `[k: string]: unknown` index signature. Only the generated types change: the
+   * schema embedded for generation and validation is the one given.
+   */
+  readonly closedObjects?: boolean;
   /** Data-only settings; executable providers and custom callbacks are not serialized. */
   readonly options?: Pick<
     JsonSchemaOptions,
@@ -108,7 +114,16 @@ function setterType(declared: string): { readonly name: string; readonly declara
     declaration: `// What with() accepts for one property: an exact optional key is omitted, never set to undefined.\ntype ${name}<T, K extends keyof NonNullable<T>> = BuilderPatch<T> extends never\n  ? never\n  : { [P in K]: undefined } extends Pick<NonNullable<T>, K>\n    ? NonNullable<T>[K]\n    : Exclude<NonNullable<T>[K], undefined>;\n`,
   };
 }
-function helpers(fields: BuilderTarget['fields'], input: string, setter: string): string {
+/**
+ * `cast` is false when the input type is known to be a plain object type without an index
+ * signature: `with()` then takes a `Partial` of it, so a single-key patch needs no cast.
+ */
+function helpers(
+  fields: BuilderTarget['fields'],
+  input: string,
+  setter: string,
+  cast = true
+): string {
   if (fields === undefined) {
     return '';
   }
@@ -140,8 +155,10 @@ function helpers(fields: BuilderTarget['fields'], input: string, setter: string)
       }
       used.add(method);
       // The parameter type is the contract: unions cannot be partially switched, unknown fields
-      // fail to typecheck. The cast covers shapes whose patch is not a plain `Partial`.
-      return `  ${method}(value: ${setter}<${input}, ${json(property)}>): this {\n    return this.with({ [${json(property)}]: value } as BuilderPatch<${input}>);\n  }\n`;
+      // fail to typecheck. The cast covers shapes whose patch is not a plain `Partial`: a
+      // type with an index signature takes a whole value, a union or nullable type none.
+      const patch = `{ [${json(property)}]: value }`;
+      return `  ${method}(value: ${setter}<${input}, ${json(property)}>): this {\n    return this.with(${cast ? `${patch} as BuilderPatch<${input}>` : patch});\n  }\n`;
     })
     .join('');
 }
@@ -249,11 +266,16 @@ export async function emitJsonSchemaBuilders(
         throw new CodegenError('JSON generation settings must be data-only supported options');
       }
     }
+    if (target.closedObjects !== undefined && typeof target.closedObjects !== 'boolean') {
+      throw new CodegenError('closedObjects must be true or false');
+    }
     // Preparation enforces the supported data/vocabulary/budget contract before the type compiler.
     const adapter = jsonSchemaAdapter(target.schema, target.options);
     const schema = adapter.source;
     const name = `${target.name}Input`;
     let declarations: string;
+    // Without an index signature, with() takes a Partial and the setters need no cast.
+    let cast = true;
     if (typeof schema === 'boolean') {
       declarations = `export type ${name} = ${schema ? 'unknown' : 'never'};\n`;
     } else {
@@ -262,6 +284,14 @@ export async function emitJsonSchemaBuilders(
         JSON.parse(json(target.options?.references ?? {})),
         adapter.metadata.dialect
       );
+      if (target.closedObjects) {
+        // Types only: the embedded schema keeps its own additional-property rules.
+        declared.schema = closeObjects(declared.schema);
+        for (const [uri, reference] of Object.entries(declared.references)) {
+          declared.references[uri] = closeObjects(reference);
+        }
+      }
+      cast = !plainObjectType(declared.schema);
       const input = declared.schema as Record<string, unknown>;
       input.title = name;
       // TypeScript declarations are structural approximations; original runtime validation remains mandatory.
@@ -304,7 +334,7 @@ export async function emitJsonSchemaBuilders(
             .sort()
         : [];
     const setter = setterType(`${target.name}\n${declarations}`);
-    const methods = helpers(fields, name, setter.name);
+    const methods = helpers(fields, name, setter.name, cast);
     const content = `${header}import { builderClass, type BuilderPatch, type SchemaBuilder, type GenerationSession } from ${json(runtime)};\nimport { fromJsonSchema } from "@mimlet/json-schema";\n\n${declarations}\nconst schema = ${json(schema)};\nconst options = ${json(target.options ?? {})} as const;\nconst definition = () => fromJsonSchema(schema, options) as SchemaBuilder<${name}, ${name}, [session?: GenerationSession]>;\n${methods && setter.declaration}const Base = builderClass(definition);\nexport class ${target.name} extends Base {\n${methods}}\n`;
     files.push({ path: `${target.name}.ts`, content });
   }
