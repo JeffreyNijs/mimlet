@@ -1,5 +1,64 @@
 # @mimlet/zod
 
+## 0.1.0-beta.5
+
+### Minor Changes
+
+- eca2898: When a Zod `.transform()`, refinement or other callback throws during
+  `buildValidated()`, the `BuilderValidationError` message now says which callback threw:
+  `Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDto`.
+  The callback is named by its function name, or by its location when it is anonymous.
+
+  A `ZodError` thrown by a stricter parse of the whole DTO inside an application
+  transformer keeps its paths, as before, so the message names the field
+  (`1 issue at source`). A parse of a single value, such as
+  `z.literal('teamleader').parse(dto.source)`, has no path in Zod; the issue stays at the
+  root with Zod's message, and the field is not guessed from the rejected value.
+
+  When the schema has exactly one callback at a fixed location, such as
+  `z.object({ createdAt: z.string().transform(parseDate) })`, an error thrown there now
+  gets that location as its path (`createdAt`), and a `ZodError` from a transform on
+  `deal` gets it as a prefix (`deal.source`). With several callbacks the one that threw is
+  unknown, so nothing is prefixed and the message lists them. The original error is still
+  the `cause`.
+
+  `BuilderValidationError` accepts a second argument, `{ cause, detail }`. The detail is
+  appended to the message after a semicolon and is cut at 200 characters.
+
+  The builder `name` option no longer gives a Zod builder a generator of its own, so
+  `fromZod(schema, { name })` builders of one schema share it. Values are unchanged.
+
+### Patch Changes
+
+- eca2898: Prepared generators are now shared within a process by content. Two adapters whose
+  schema and reference map have the same JSON text, with the same dialect, profile,
+  limits and extension or format identities, reuse one compiled validator instead of
+  compiling it again. This covers different schema objects with equal content, such as
+  `zLead.transform(a)` and `zLead.transform(b)` in `@mimlet/zod`, and a schema module
+  that a test runner or dev server evaluates again in the same process. Generated values,
+  sessions, replay identities and validation issues are unchanged.
+
+  Ajv instances are also shared per dialect, limits, annotations and reference map, so
+  the JSON Schema meta-schema is compiled once per process instead of once per schema.
+  For five first builds of generated Hey API schemas in a new process this took about
+  145 ms before and 118 ms now. Loading the same generated schema module again in one
+  process and building five schemas took about 65 ms before and 12 ms now. Vitest's
+  default isolation runs each spec file in a new worker, which starts with an empty
+  cache, so there only the first improvement applies.
+
+  The store keeps the 256 most recently used generators, lives on `globalThis` under
+  `Symbol.for('mimlet.generators.v1')` with one store per package version, and never
+  shares adapters with custom `keywords` or `formats`. Set `MIMLET_GENERATOR_CACHE=off`
+  to turn it off, or a number to change the limit. `configureGeneratorCache({ maxEntries })`
+  and `clearGeneratorCache()` do the same at runtime.
+
+- Updated dependencies [659949f]
+- Updated dependencies [659949f]
+- Updated dependencies [eca2898]
+- Updated dependencies [eca2898]
+  - @mimlet/core@0.1.0-beta.5
+  - @mimlet/json-schema@0.1.0-beta.5
+
 ## 0.1.0-beta.4
 
 ### Minor Changes

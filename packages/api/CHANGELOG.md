@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-beta.5
+
+### Minor Changes
+
+- 276c37c: `openApiComponents(document).schema(name, direction)` now also checks data against the
+  projected component: `check(value)` returns a boolean and `issues(value)` the JSON Schema
+  issues, with the same validator as `openApi().schema(pointer)` and the operation fixtures. A
+  response projection rejects write-only properties and a request projection rejects read-only
+  ones. The validator is compiled on the first call.
+
+### Patch Changes
+
+- Updated dependencies [659949f]
+- Updated dependencies [659949f]
+- Updated dependencies [eca2898]
+- Updated dependencies [eca2898]
+  - @mimlet/core@0.1.0-beta.5
+  - @mimlet/json-schema@0.1.0-beta.5
+
 ## 0.1.0-beta.4
 
 ### Minor Changes

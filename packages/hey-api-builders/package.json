@@ -1,6 +1,6 @@
 {
   "name": "hey-api-builders",
-  "version": "3.0.0-beta.4",
+  "version": "3.0.0-beta.5",
   "description": "Hey API integration for schema-independent immutable test-data builders.",
   "type": "module",
   "main": "./dist/index.js",
@@ -55,7 +55,7 @@
     "@faker-js/faker": "^10.0.0",
     "@hey-api/openapi-ts": "^0.99.0",
     "typescript": "^6.0.0",
-    "@mimlet/core": "0.1.0-beta.4"
+    "@mimlet/core": "0.1.0-beta.5"
   },
   "private": false,
   "devDependencies": {
