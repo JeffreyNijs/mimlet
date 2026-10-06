@@ -15,15 +15,15 @@ for inline examples, or follow the tested recipe source links below.
 
 ## Install the beta
 
-The coordinated beta is published on npm: `@mimlet/*` packages at `0.1.0-beta.3` on
-the `latest` tag, alongside `hey-api-builders@3.0.0-beta.3` on `next`. Pin matching versions
+The coordinated beta is published on npm: `@mimlet/*` packages at `0.1.0-beta.4` on
+the `latest` tag, alongside `hey-api-builders@3.0.0-beta.4` on `next`. Pin matching versions
 when reproducing fixtures or generated clients. The existing Hey API `latest` tag
 remains on v2.
 
 For the TypeBox example below, use Node **22.18 or newer** and install:
 
 ```sh
-npm install --save-dev @mimlet/core@0.1.0-beta.3 @mimlet/typebox@0.1.0-beta.3 typebox@1.3.34
+npm install --save-dev @mimlet/core@0.1.0-beta.4 @mimlet/typebox@0.1.0-beta.4 typebox@1.3.34
 ```
 
 For a plain factory, only `@mimlet/core` is needed. The `mimlet` executable comes
@@ -60,7 +60,7 @@ it once beside the test, then create the variations you need. No builder file or
 code-generation step is required:
 
 ```sh
-npm install --save-dev @mimlet/core@0.1.0-beta.3 @mimlet/zod@0.1.0-beta.3 zod@4.6.5
+npm install --save-dev @mimlet/core@0.1.0-beta.4 @mimlet/zod@0.1.0-beta.4 zod@4.6.5
 ```
 
 <!-- recipe:fluent -->
@@ -104,7 +104,7 @@ In a separate test project, install the core and TypeBox adapter tarballs togeth
 ```sh
 npm init -y
 npm pkg set type=module
-npm install /absolute/path/to/checkout/release/mimlet-core-0.1.0-beta.3.tgz /absolute/path/to/checkout/release/mimlet-typebox-0.1.0-beta.3.tgz typebox@1.3.34
+npm install /absolute/path/to/checkout/release/mimlet-core-0.1.0-beta.4.tgz /absolute/path/to/checkout/release/mimlet-typebox-0.1.0-beta.4.tgz typebox@1.3.34
 ```
 
 Replace the absolute paths with the checkout you built. Add only the adapters you

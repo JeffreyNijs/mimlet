@@ -108,7 +108,7 @@ test('every documentation route and its Markdown alternate resolve below /mimlet
   const index = await request.get('llms.txt');
   expect(index.status()).toBe(200);
   const text = await index.text();
-  expect(text).toContain('Published beta: 0.1.0-beta.3');
+  expect(text).toContain('Published beta: 0.1.0-beta.4');
   for (const name of ['zod', 'arktype']) {
     expect(text).toContain(`[@mimlet/${name}](/mimlet/packages/${name}.md)`);
     expect(text).not.toContain(`[@mimlet/${name}](/mimlet/packages/${name}.md): Next-release`);
@@ -239,9 +239,9 @@ test('homepage demo, quickstart and feedback path resolve below /mimlet/', async
   ).trimEnd();
   expect((await page.locator('.quickstart-code pre code').textContent())?.trimEnd()).toBe(recipe);
   await expect(page.locator('.quickstart-command').first()).toHaveText(
-    'npm install --save-dev @mimlet/zod@0.1.0-beta.3 zod@4.6.5'
+    'npm install --save-dev @mimlet/zod@0.1.0-beta.4 zod@4.6.5'
   );
-  await expect(page.locator('.alpha-status')).toContainText('Beta 0.1.0-beta.3');
+  await expect(page.locator('.alpha-status')).toContainText('Beta 0.1.0-beta.4');
   const feedback = 'https://github.com/JeffreyNijs/mimlet/issues/new?template=beta-feedback.yml';
   await expect(page.getByRole('link', { name: /Send beta feedback/ })).toHaveAttribute(
     'href',

@@ -1,6 +1,6 @@
 # Compatibility contract
 
-This describes the published `0.1.0-beta.3` train and its tested source contracts. A supported interface, a native parser,
+This describes the published `0.1.0-beta.4` train and its tested source contracts. A supported interface, a native parser,
 an automatic generator and a shrinker are different capabilities. Native package
 versions below are the tested versions; each adapter's peer range, its supported
 range, can be wider (see [supported and tested versions](#supported-and-tested-versions)).
@@ -206,7 +206,7 @@ TypeBox to `>=0.34.48 <=0.34.52`. Alpha.4 widened ArkType to `>=2.2.5 <=2.2.7` a
 Faker to `>=10.5.0 <=10.6.0`; alpha.3 pinned them to 2.2.5 and 10.5.0. Until
 `0.1.0-beta.2`, the peer range was the tested range.
 
-The release after `0.1.0-beta.3` lowers the Zod minimum to `4.3.0`, tested from
+From `0.1.0-beta.4`, the Zod minimum is `4.3.0`, tested from
 4.3.0 through 4.6.5. Zod 4.3 assigns `async` and `direction` to the parse context it
 receives, which failed on the adapter's frozen `parseOptions`; the adapter now passes
 each parse its own copy. Older releases were probed and stay outside the range:

@@ -1,6 +1,6 @@
 # Beta feedback kit
 
-**Mimlet `0.1.0-beta.3` is the current beta.** Use the exact pins below and record the
+**Mimlet `0.1.0-beta.4` is the current beta.** Use the exact pins below and record the
 version in each result. When a later beta is published, update all Mimlet pins
 together; results from one beta do not verify another.
 
@@ -32,7 +32,7 @@ record compiler versions separately if adapting them in a TypeScript application
 mkdir mimlet-feedback
 cd mimlet-feedback
 npm init -y
-npm install --save-dev @mimlet/core@0.1.0-beta.3 @mimlet/zod@0.1.0-beta.3 @mimlet/fast-check@0.1.0-beta.3 zod@4.6.5 fast-check@4.10.2
+npm install --save-dev @mimlet/core@0.1.0-beta.4 @mimlet/zod@0.1.0-beta.4 @mimlet/fast-check@0.1.0-beta.4 zod@4.6.5 fast-check@4.10.2
 ```
 
 Keep `package-lock.json`. Do not substitute floating tags such as `latest` or `next` in a reproduction.
