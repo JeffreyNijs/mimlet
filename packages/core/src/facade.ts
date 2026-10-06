@@ -22,26 +22,42 @@ import type {
 /** Retarget fluent methods, including generated methods, after an async transition. */
 export type AsyncFacade<T> = {
   [
-    K in Exclude<keyof T, 'build' | 'buildList' | 'buildValidated' | 'buildValidatedList'>
+    K in Exclude<
+      keyof T,
+      // PROTOTYPE: map() is typed on synchronous builders only.
+      'build' | 'buildList' | 'buildValidated' | 'buildValidatedList' | 'map'
+    >
   ]: T[K] extends (...args: infer A) => infer R
     ? (...args: A) => R extends T ? AsyncFacade<T> : R
     : T[K];
 };
-export interface AsyncBuilderFacade<T, Args extends unknown[] = []> {
+/** PROTOTYPE (docs/proposals/class-instances.md): `Output` is what the builds return. */
+export interface AsyncBuilderFacade<T, Args extends unknown[] = [], Output = T> {
   with(patch: BuilderPatch<T>): this;
   replace(value: T): this;
   withFactory(factory: (...args: Args) => BuilderPatch<T>): this;
   replaceFactory(factory: (...args: Args) => T): this;
   omit(...keys: OptionalKeys<T>[]): this;
-  transform(transformer: BuilderTransform<T, Args>): this;
-  transformAsync(transformer: (value: T, ...args: Args) => T | PromiseLike<T>): AsyncFacade<this>;
-  buildAsync(...args: Args): Promise<T>;
-  buildListAsync(count: number, ...args: Args): Promise<T[]>;
+  transform(transformer: BuilderTransform<Output, Args>): this;
+  transformAsync(
+    transformer: (value: Output, ...args: Args) => Output | PromiseLike<Output>
+  ): AsyncFacade<this>;
+  buildAsync(...args: Args): Promise<Output>;
+  buildListAsync(count: number, ...args: Args): Promise<Output[]>;
   describe(): BuilderDescription;
 }
-export interface BuilderFacade<T, Args extends unknown[] = []> extends AsyncBuilderFacade<T, Args> {
-  build(...args: Args): T;
-  buildList(count: number, ...args: Args): T[];
+export interface BuilderFacade<
+  T,
+  Args extends unknown[] = [],
+  Output = T,
+> extends AsyncBuilderFacade<T, Args, Output> {
+  /**
+   * PROTOTYPE: the runtime keeps every named method of the facade after map(), but its type
+   * is the plain facade. Map before fluent(), for example with createInstanceBuilder().
+   */
+  map<Next>(mapper: (value: Output, ...args: Args) => Next): BuilderFacade<T, Args, Next>;
+  build(...args: Args): Output;
+  buildList(count: number, ...args: Args): Output[];
 }
 export interface AsyncSchemaBuilderFacade<
   I,
@@ -67,12 +83,17 @@ export type FacadeFor<B> =
     ? SchemaBuilderFacade<I, O, A>
     : B extends AsyncSchemaBuilder<infer I, infer O, infer A>
       ? AsyncSchemaBuilderFacade<I, O, A>
-      : B extends Builder<infer T, infer A>
-        ? BuilderFacade<T, A>
-        : B extends AsyncBuilder<infer T, infer A>
-          ? AsyncBuilderFacade<T, A>
+      : B extends Builder<infer T, infer A, infer O>
+        ? BuilderFacade<T, A, O>
+        : B extends AsyncBuilder<infer T, infer A, infer O>
+          ? AsyncBuilderFacade<T, A, O>
           : never;
-type InputOf<B> = B extends { buildAsync(...args: never[]): Promise<infer T> } ? T : never;
+/** The input a builder patches: the parameter of replace(), which map() does not change. */
+type InputOf<B> = B extends { replace(value: infer T): unknown }
+  ? T
+  : B extends { buildAsync(...args: never[]): Promise<infer T> }
+    ? T
+    : never;
 export type BuilderConstructor<B> = new (initial?: BuilderPatch<InputOf<B>>) => FacadeFor<B>;
 
 /**

@@ -37,6 +37,8 @@ type Operation =
   | { readonly kind: 'omit'; readonly keys: ReadonlyArray<PropertyKey> };
 type Transform = {
   readonly asynchronous: boolean;
+  /** PROTOTYPE: a map is a transform that may change the type; it only differs in describe(). */
+  readonly kind?: 'map';
   readonly run: (value: unknown, ...args: unknown[]) => unknown;
 };
 type State = {
@@ -225,6 +227,18 @@ export function makeRuntime(state: State) {
       callable(run, 'transformAsync()');
       return configure({ transforms: [...state.transforms, { asynchronous: true, run }] });
     },
+    // PROTOTYPE (docs/proposals/class-instances.md): runs in order with the transforms.
+    map(run: (value: unknown, ...args: unknown[]) => unknown) {
+      if (state.standard) {
+        throw new TypeError(
+          'map() is not available on schema builders: the validator expects the unmapped input'
+        );
+      }
+      callable(run, 'map()');
+      return configure({
+        transforms: [...state.transforms, { asynchronous: false, kind: 'map', run }],
+      });
+    },
     build(...args: unknown[]) {
       return produce(withDefaults(args));
     },
@@ -245,8 +259,8 @@ export function makeRuntime(state: State) {
         operations: Object.freeze([
           'factory',
           ...state.operations.map(({ kind }) => kind),
-          ...state.transforms.map(({ asynchronous }) =>
-            asynchronous ? 'transformAsync' : 'transform'
+          ...state.transforms.map(
+            ({ asynchronous, kind }) => kind ?? (asynchronous ? 'transformAsync' : 'transform')
           ),
         ]),
       });

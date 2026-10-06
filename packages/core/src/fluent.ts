@@ -3,7 +3,13 @@ import type { FacadeFor } from './facade.js';
 import type { AnyFactory, BuilderDescription, BuilderPatch } from './types.js';
 
 type Source = { buildAsync: AnyFactory; describe(): BuilderDescription };
-type Input<B extends Source> = Awaited<ReturnType<B['buildAsync']>>;
+/**
+ * The record that setters patch. PROTOTYPE (docs/proposals/class-instances.md): read from
+ * replace(), because after map() or createInstanceBuilder() the builds return another type.
+ */
+type Input<B extends Source> = B extends { replace(value: infer I): unknown }
+  ? I
+  : Awaited<ReturnType<B['buildAsync']>>;
 type PatchKey<I> = [I] extends [object]
   ? string extends keyof I
     ? never
@@ -93,6 +99,7 @@ type Capability =
   | 'omit'
   | 'transform'
   | 'transformAsync'
+  | 'map'
   | 'usingValidation'
   | 'build'
   | 'buildAsync'

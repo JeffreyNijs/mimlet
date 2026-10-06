@@ -8,6 +8,8 @@ const configurationMethods = new Set([
   'omit',
   'transform',
   'transformAsync',
+  // PROTOTYPE (docs/proposals/class-instances.md)
+  'map',
   'usingValidation',
 ]);
 /** Every builder capability a facade defines, whether or not its builder provides it. */

@@ -82,29 +82,44 @@ export interface BuilderDescription {
   readonly validation: boolean;
 }
 
-export interface AsyncBuilder<T, Args extends unknown[] = []> {
-  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args>;
-  replace(value: T): AsyncBuilder<T, Args>;
-  withFactory(factory: (...args: Args) => BuilderPatch<T>): AsyncBuilder<T, Args>;
-  replaceFactory(factory: (...args: Args) => T): AsyncBuilder<T, Args>;
-  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args>;
-  transform(transformer: BuilderTransform<T, Args>): AsyncBuilder<T, Args>;
+/**
+ * PROTOTYPE (docs/proposals/class-instances.md): `Output` is what `build()` returns. It equals
+ * the patched input `T` unless `map()` (or `createInstanceBuilder()`) changed it.
+ * Patches always apply to `T`; transforms run in the order they were added and see the value
+ * as it is at that point, so a transform added after `map()` receives the mapped value.
+ */
+export interface AsyncBuilder<T, Args extends unknown[] = [], Output = T> {
+  with(patch: BuilderPatch<T>): AsyncBuilder<T, Args, Output>;
+  replace(value: T): AsyncBuilder<T, Args, Output>;
+  withFactory(factory: (...args: Args) => BuilderPatch<T>): AsyncBuilder<T, Args, Output>;
+  replaceFactory(factory: (...args: Args) => T): AsyncBuilder<T, Args, Output>;
+  omit(...keys: OptionalKeys<T>[]): AsyncBuilder<T, Args, Output>;
+  transform(transformer: BuilderTransform<Output, Args>): AsyncBuilder<T, Args, Output>;
   transformAsync(
-    transformer: (value: T, ...args: Args) => T | PromiseLike<T>
-  ): AsyncBuilder<T, Args>;
-  buildAsync(...args: Args): Promise<T>;
-  buildListAsync(count: number, ...args: Args): Promise<Array<T>>;
+    transformer: (value: Output, ...args: Args) => Output | PromiseLike<Output>
+  ): AsyncBuilder<T, Args, Output>;
+  buildAsync(...args: Args): Promise<Output>;
+  buildListAsync(count: number, ...args: Args): Promise<Array<Output>>;
   describe(): BuilderDescription;
 }
-export interface Builder<T, Args extends unknown[] = []> extends AsyncBuilder<T, Args> {
-  with(patch: BuilderPatch<T>): Builder<T, Args>;
-  replace(value: T): Builder<T, Args>;
-  withFactory(factory: (...args: Args) => BuilderPatch<T>): Builder<T, Args>;
-  replaceFactory(factory: (...args: Args) => T): Builder<T, Args>;
-  omit(...keys: OptionalKeys<T>[]): Builder<T, Args>;
-  transform(transformer: BuilderTransform<T, Args>): Builder<T, Args>;
-  build(...args: Args): T;
-  buildList(count: number, ...args: Args): Array<T>;
+export interface Builder<T, Args extends unknown[] = [], Output = T> extends AsyncBuilder<
+  T,
+  Args,
+  Output
+> {
+  with(patch: BuilderPatch<T>): Builder<T, Args, Output>;
+  replace(value: T): Builder<T, Args, Output>;
+  withFactory(factory: (...args: Args) => BuilderPatch<T>): Builder<T, Args, Output>;
+  replaceFactory(factory: (...args: Args) => T): Builder<T, Args, Output>;
+  omit(...keys: OptionalKeys<T>[]): Builder<T, Args, Output>;
+  transform(transformer: BuilderTransform<Output, Args>): Builder<T, Args, Output>;
+  /**
+   * PROTOTYPE: a transform that may change the built type. Patches keep their input type.
+   * Typed on synchronous builders only for now; schema builders reject it at runtime.
+   */
+  map<Next>(mapper: (value: Output, ...args: Args) => Next): Builder<T, Args, Next>;
+  build(...args: Args): Output;
+  buildList(count: number, ...args: Args): Array<Output>;
 }
 export interface AsyncSchemaBuilder<
   Input,
@@ -147,6 +162,11 @@ export type BuilderFor<F extends AnyFactory> =
   IsAsync<F> extends true
     ? AsyncBuilder<Awaited<ReturnType<F>>, Parameters<F>>
     : Builder<ReturnType<F>, Parameters<F>>;
+/** PROTOTYPE: builders that end in a class instance, see docs/proposals/class-instances.md. */
+export type IntoBuilderFor<F extends AnyFactory, Input, Output> =
+  IsAsync<F> extends true
+    ? AsyncBuilder<Input, Parameters<F>, Output>
+    : Builder<Input, Parameters<F>, Output>;
 export type SchemaBuilderFor<S extends StandardSchemaV1, F extends AnyFactory> =
   IsAsync<F> extends true
     ? AsyncSchemaBuilder<SchemaInput<S>, SchemaOutput<S>, Parameters<F>>

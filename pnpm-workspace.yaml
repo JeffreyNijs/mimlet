@@ -1,6 +1,8 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+  # PROTOTYPE: private, never packed or published (see docs/proposals/class-instances.md).
+  - 'proposals/*'
 
 # Internal runtime versions are exact and validated before installation/packing.
 # This keeps npm-pack consumer tests identical to the files actually published.
