@@ -1,5 +1,10 @@
 import * as z from 'zod/v4/core';
-import { BuilderValidationError, createSchemaBuilder, schemaFields } from '@mimlet/core';
+import {
+  BuilderValidationError,
+  createSchemaBuilder,
+  createTestSession,
+  schemaFields,
+} from '@mimlet/core';
 import type {
   AnyFactory,
   AsyncSchemaBuilder,
@@ -288,16 +293,22 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
 
 /**
  * The default session comes from the prepared generator, so it is created on the first build
- * without a session instead of with the builder. A schema that accepts only `undefined` needs
- * neither. The dialect is still checked here, as a configuration error.
+ * without a session instead of with the builder. A schema that accepts only `undefined` needs no
+ * generator; its builds ignore the session, but patch factories and transforms still receive
+ * one, so it gets a plain test session. The dialect is still checked here, as a configuration
+ * error.
  */
 function lazyDefaultSession(
   source: z.$ZodType,
   generation: () => Generation,
   options: ZodOptions
-): { readonly defaultSession?: () => GenerationSession } {
+): { readonly defaultSession: () => GenerationSession } {
   inputDialect(options);
-  return acceptsOnlyUndefined(source) ? {} : { defaultSession: () => generation().session() };
+  return {
+    defaultSession: acceptsOnlyUndefined(source)
+      ? () => createTestSession()
+      : () => generation().session(),
+  };
 }
 
 /**
