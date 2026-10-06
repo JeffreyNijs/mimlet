@@ -48,6 +48,7 @@ type State = {
   readonly validationOptions?: StandardSchemaV1.Options;
   readonly maxListSize: number;
   readonly defaultSession?: () => unknown;
+  readonly name?: string;
 };
 
 function plainRecord(value: unknown): value is Record<PropertyKey, unknown> {
@@ -146,9 +147,21 @@ export function makeRuntime(state: State) {
       ? synchronous(invoke(state.cloneInput, [value]), 'a synchronous input clone')
       : value;
   // An omitted leading session gets a fresh default per top-level call; none outlives the call.
+  // A named builder draws from its own scope of that session.
+  const fresh = (create: () => unknown) => {
+    const session = invoke(create, []);
+    if (state.name === undefined) {
+      return session;
+    }
+    const scope = (session as { scope?: unknown } | null | undefined)?.scope;
+    if (typeof scope !== 'function') {
+      throw new TypeError('defaultSession must return a GenerationSession');
+    }
+    return Reflect.apply(scope, session, ['builder', state.name]);
+  };
   const withDefaults = (args: unknown[]) =>
     state.defaultSession && args[0] === undefined
-      ? [invoke(state.defaultSession, []), ...args.slice(1)]
+      ? [fresh(state.defaultSession), ...args.slice(1)]
       : args;
   const produce = (args: unknown[]) => {
     if (state.transforms.some((transform) => transform.asynchronous)) {
@@ -239,6 +252,7 @@ export function makeRuntime(state: State) {
     },
     describe(): BuilderDescription {
       return Object.freeze({
+        ...(state.name === undefined ? {} : { name: state.name }),
         maxListSize: state.maxListSize,
         cloneInput: state.cloneInput !== undefined,
         validation: state.standard !== undefined,
@@ -285,6 +299,12 @@ export function initializeRuntime(
   if (config.defaultSession !== undefined) {
     callable(config.defaultSession, 'defaultSession');
   }
+  if (
+    config.name !== undefined &&
+    (typeof config.name !== 'string' || !config.name || config.name.length > 1024)
+  ) {
+    throw new TypeError('A builder name must be a nonempty string of at most 1024 characters');
+  }
   const maxListSize = config.maxListSize ?? 10_000;
   checkCount(maxListSize, 0xffffffff);
   const standard = schema?.['~standard'];
@@ -302,6 +322,7 @@ export function initializeRuntime(
     maxListSize,
     ...(config.cloneInput ? { cloneInput: config.cloneInput } : {}),
     ...(config.defaultSession ? { defaultSession: config.defaultSession } : {}),
+    ...(config.name === undefined ? {} : { name: config.name }),
     ...(standard ? { standard } : {}),
     ...(validationOptions ? { validationOptions: Object.freeze({ ...validationOptions }) } : {}),
   });

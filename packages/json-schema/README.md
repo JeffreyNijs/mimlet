@@ -101,7 +101,11 @@ fixtures; `standard` exposes the JSON validation contract; `check` and `issues`
 inspect candidates. `identity` includes schema/reference/configuration identities
 and exact provider versions. With no session, each call starts from seed 1.
 Builders share that default across a session-less list, so `buildList(3)` equals
-`buildList(3, adapter.session())` instead of repeating one value.
+`buildList(3, adapter.session())` instead of repeating one value. The stream is chosen
+by `identity`, so two builders over the same schema return the same session-less
+values; a `name` option, as in `fromJsonSchema(schema, { name: 'orders' })`, draws
+them from `adapter.session().scope('builder', name)` instead. Patch factories and
+transforms always receive a session.
 Caller-supplied sessions advance deterministically and preserve named isolation.
 The entire schema has one stream; field-stability across schema changes is not
 claimed. Snapshots contain generation state, not user callback implementations.

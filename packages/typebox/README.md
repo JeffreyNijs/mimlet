@@ -101,20 +101,18 @@ Custom factory arguments are preserved, including required and multiple argument
 `fromTypeBox()` and `fromTypeBoxVariant()` builders take an optional `GenerationSession`, like the Zod, Valibot, ArkType and JSON Schema builders. Native creation does not draw from it, so `buildList(3)` without patches still returns three equal rows. Patch factories and transforms receive the session, and a session-less build or list uses one seed-1 session from `typeBoxAdapter(schema).session()`, so list items can differ:
 
 ```ts
-import type { GenerationSession } from '@mimlet/core';
-
 const User = Type.Object({ id: Type.String(), name: Type.String({ default: 'Ada' }) });
-const users = fromTypeBox(User).withFactory((session?: GenerationSession) => ({
-  id: `user-${session?.sequence('user', 1)}`,
+const users = fromTypeBox(User).withFactory((session) => ({
+  id: `user-${session.sequence('user', 1)}`,
 }));
 users.buildValidatedList(3); // ids user-1, user-2 and user-3, the same on every run
 ```
 
-TypeScript types the callback's session as optional, but the builder always passes one. Pass an explicit session to continue a sequence across builds or to replay one. `typeBoxAdapter(schema).identity` is the replay identity: a fingerprint of the schema and `context`, the creation provider and version, and the fill configuration. Codec callbacks cannot be fingerprinted, so two schemas that differ only in a callback share a fingerprint.
+The builder always passes a session, and patch factories and transforms are typed that way. Pass an explicit session, such as one `createTestSession()` per test, to continue a sequence across builds or to replay one. Two builders over the same schema share the default stream; give them a `name`, as in `fromTypeBox(User, { name: 'users' })`, for different session-less values. `typeBoxAdapter(schema).identity` is the replay identity: a fingerprint of the schema and `context`, the creation provider and version, and the fill configuration. Codec callbacks cannot be fingerprinted, so two schemas that differ only in a callback share a fingerprint.
 
 ## Generic helpers
 
-`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession]>`, also for a schema type parameter. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
+`fromTypeBox()` and `fromTypeBoxVariant()` return a synchronous `SchemaBuilder<Input, Output, [session?: GenerationSession], [session: GenerationSession]>`, also for a schema type parameter; the last argument types what patch factories and transforms receive. A helper therefore keeps `build()`, `buildList()` and the validated methods after `with()` or `withFactory()`. A helper typed as `SchemaBuilder<Input, Output>` still compiles, because the session is optional. `@mimlet/core` exports `BuilderPatch` and the builder interfaces as types for naming patches and results.
 
 A helper's return type can stay inferred. When a lint rule such as `@typescript-eslint/explicit-function-return-type` requires one, name the builder the helper returns. Each type is exactly what its function returns, also for a schema type parameter:
 

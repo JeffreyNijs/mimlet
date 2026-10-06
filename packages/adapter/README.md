@@ -28,7 +28,11 @@ execute operations to guess capabilities. Operation callbacks are trusted code
 and should use closures or explicit binding. Do not mutate a native schema or its
 registries while builders use it. `fromFactory` supplies an explicit typed escape
 hatch; `fromAdapter` requires an actual `create` capability at compile time.
-Asynchronous factories remain async-only in the resulting builder types.
+Asynchronous factories remain async-only in the resulting builder types. Both accept a
+typed `defaultSession` option for a `create` or factory whose first parameter is a
+`GenerationSession`; builds may then omit the session, and `create`, patch factories
+and transforms always receive one. A `name` option scopes that default session per
+builder.
 
 `adapter.inspect()` describes generation, encoding, pure input checking, cloning,
 field metadata, native arbitrary identity, and explicit limitations. Missing

@@ -140,7 +140,12 @@ export function envelope<I extends object>(
     createSchemaBuilder(standard, create, {
       ...options,
       defaultSession: session,
-    }) as unknown as SchemaBuilder<I, I, [session?: GenerationSession]>;
+    }) as unknown as SchemaBuilder<
+      I,
+      I,
+      [session?: GenerationSession],
+      [session: GenerationSession]
+    >;
   return Object.freeze({
     identity,
     session,

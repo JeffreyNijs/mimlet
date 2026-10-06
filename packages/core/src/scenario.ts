@@ -1,4 +1,6 @@
+import { createTestSession } from './session.js';
 import type { GenerationSession } from './session.js';
+import type { BuiltList } from './types.js';
 
 export interface ScenarioOptions {
   readonly name?: string;
@@ -35,56 +37,92 @@ type Names<T> = Extract<keyof T, string>;
 type Add<T, N extends string, V> = {
   [K in keyof T | N]: K extends N ? V : K extends keyof T ? T[K] : never;
 };
-type Replacements<T> = {
-  [K in keyof T]?: (session: GenerationSession) => T[K] | PromiseLike<T[K]>;
+/**
+ * The dependencies a replacement for node `K` receives: the values of the nodes it declared.
+ * A scenario type written without its dependency map gives every node as optional.
+ */
+type DependenciesOf<T, D, K> = K extends keyof D
+  ? Readonly<Pick<T, Extract<D[K], keyof T>>>
+  : Readonly<Partial<T>>;
+type Replacements<T, D> = {
+  [K in keyof T]?: (
+    session: GenerationSession,
+    dependencies: DependenciesOf<T, D, K>
+  ) => T[K] | PromiseLike<T[K]>;
 };
 type ReplacementResult<P> = {
   [K in keyof P]: P[K] extends (...args: never[]) => infer R ? R : never;
 }[keyof P];
 
-interface ScenarioOperations<T extends object, Async extends boolean> {
+interface ScenarioOperations<T extends object, Async extends boolean, D> {
   /** Dependencies must already exist, making cycles and forward references impossible. */
   node<
     N extends string,
-    const D extends ReadonlyArray<Names<T>>,
-    F extends (dependencies: Readonly<Pick<T, D[number]>>, session: GenerationSession) => unknown,
+    const Deps extends ReadonlyArray<Names<T>>,
+    F extends (
+      dependencies: Readonly<Pick<T, Deps[number]>>,
+      session: GenerationSession
+    ) => unknown,
   >(
     name: N extends keyof T | 'then' ? never : N,
-    dependencies: D,
+    dependencies: Deps,
     factory: F
-  ): Scenario<Add<T, N, Awaited<ReturnType<F>>>, Either<Async, MayBeAsync<ReturnType<F>>>>;
-  /** Replace at the node, before any dependent node runs. */
+  ): Scenario<
+    Add<T, N, Awaited<ReturnType<F>>>,
+    Either<Async, MayBeAsync<ReturnType<F>>>,
+    Add<D, N, Deps[number]>
+  >;
+  /**
+   * Replace at the node, before any dependent node runs. The factory receives the node's
+   * session and its declared dependencies, so a replacement can keep their relations.
+   */
   override<
     K extends Names<T>,
-    F extends (session: GenerationSession) => NoInfer<T[K]> | PromiseLike<NoInfer<T[K]>>,
+    F extends (
+      session: GenerationSession,
+      dependencies: DependenciesOf<T, D, K>
+    ) => NoInfer<T[K]> | PromiseLike<NoInfer<T[K]>>,
   >(
     name: K,
     factory: F
-  ): Scenario<T, Either<Async, MayBeAsync<ReturnType<F>>>>;
+  ): Scenario<T, Either<Async, MayBeAsync<ReturnType<F>>>, D>;
   /** Named presets reject conflicting node replacements unless explicitly authorized. */
-  trait<P extends Replacements<T>>(
+  trait<P extends Replacements<T, D>>(
     name: string,
     replacements: P & Record<Exclude<keyof P, keyof T>, never>,
     options?: { readonly replaceConflicts?: boolean }
-  ): Scenario<T, Either<Async, MayBeAsync<ReplacementResult<P>>>>;
-  buildAsync(session: GenerationSession): Promise<T>;
-  buildListAsync(count: number, session: GenerationSession): Promise<T[]>;
+  ): Scenario<T, Either<Async, MayBeAsync<ReplacementResult<P>>>, D>;
+  /** Without a session, uses a fresh `createTestSession()` (seed 1) for this call. */
+  buildAsync(session?: GenerationSession): Promise<T>;
+  /** Without a session, the items share one fresh `createTestSession()`. */
+  buildListAsync<N extends number>(count: N, session?: GenerationSession): Promise<BuiltList<T, N>>;
   describe(): ScenarioDescription;
 }
+/**
+ * `T` maps each node name to its value, `Async` is true once a node, override or trait is
+ * async, and `D` maps each node name to the names of its dependencies.
+ */
 export type Scenario<
   T extends object = Record<never, never>,
   Async extends boolean = false,
-> = ScenarioOperations<T, Async> &
+  D = Record<never, never>,
+> = ScenarioOperations<T, Async, D> &
   (Async extends true
     ? Record<never, never>
     : {
-        build(session: GenerationSession): T;
-        buildList(count: number, session: GenerationSession): T[];
+        /** Without a session, uses a fresh `createTestSession()` (seed 1) for this call. */
+        build(session?: GenerationSession): T;
+        /** Without a session, the items share one fresh `createTestSession()`. */
+        buildList<N extends number>(count: N, session?: GenerationSession): BuiltList<T, N>;
       });
 
 type Factory = (
   dependencies: Readonly<Record<string, unknown>>,
   session: GenerationSession
+) => unknown;
+type Replacement = (
+  session: GenerationSession,
+  dependencies: Readonly<Record<string, unknown>>
 ) => unknown;
 interface NodeDefinition {
   readonly name: string;
@@ -158,7 +196,7 @@ function makeScenario(definition: Definition) {
       session.scope('scenario', definition.name, 'node', node.name),
     ]);
   };
-  const build = (session: GenerationSession) => {
+  const build = (session: GenerationSession = createTestSession()) => {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
       try {
@@ -169,7 +207,7 @@ function makeScenario(definition: Definition) {
     }
     return values;
   };
-  const buildAsync = async (session: GenerationSession) => {
+  const buildAsync = async (session: GenerationSession = createTestSession()) => {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
       try {
@@ -204,7 +242,7 @@ function makeScenario(definition: Definition) {
         ],
       });
     },
-    override(name: string, factory: (session: GenerationSession) => unknown) {
+    override(name: string, factory: Replacement) {
       callable(factory);
       const index = indexOf(name);
       return makeScenario({
@@ -214,7 +252,8 @@ function makeScenario(definition: Definition) {
             ? {
                 ...node,
                 origin: 'override',
-                factory: (_dependencies, session) => Reflect.apply(factory, undefined, [session]),
+                factory: (dependencies, session) =>
+                  Reflect.apply(factory, undefined, [session, dependencies]),
               }
             : node
         ),
@@ -222,7 +261,7 @@ function makeScenario(definition: Definition) {
     },
     trait(
       name: string,
-      replacements: Record<string, (session: GenerationSession) => unknown>,
+      replacements: Record<string, Replacement>,
       options: { readonly replaceConflicts?: boolean } = {}
     ) {
       validName(name);
@@ -236,7 +275,7 @@ function makeScenario(definition: Definition) {
       ) {
         fail('Trait replacements must be a plain record');
       }
-      const factories = new Map<string, (session: GenerationSession) => unknown>();
+      const factories = new Map<string, Replacement>();
       for (const key of Reflect.ownKeys(replacements)) {
         if (typeof key !== 'string') {
           fail('Trait keys must be string node names');
@@ -264,23 +303,26 @@ function makeScenario(definition: Definition) {
         return {
           ...node,
           origin: `trait:${name}`,
-          factory: (_dependencies: Readonly<Record<string, unknown>>, session: GenerationSession) =>
-            Reflect.apply(factory, undefined, [session]),
+          factory: (dependencies: Readonly<Record<string, unknown>>, session: GenerationSession) =>
+            Reflect.apply(factory, undefined, [session, dependencies]),
         };
       });
       return makeScenario({ ...definition, nodes, traits: [...definition.traits, name] });
     },
     build,
     buildAsync,
-    buildList(count: number, session: GenerationSession) {
+    // List items share one default session, so they continue its streams instead of restarting.
+    buildList(count: number, session?: GenerationSession) {
       checkedCount(count, definition.maxListSize);
-      return Array.from({ length: count }, () => build(session));
+      const shared = session === undefined ? createTestSession() : session;
+      return Array.from({ length: count }, () => build(shared));
     },
-    async buildListAsync(count: number, session: GenerationSession) {
+    async buildListAsync(count: number, session?: GenerationSession) {
       checkedCount(count, definition.maxListSize);
+      const shared = session === undefined ? createTestSession() : session;
       const values = [];
       for (let index = 0; index < count; index += 1) {
-        values.push(await buildAsync(session));
+        values.push(await buildAsync(shared));
       }
       return values;
     },

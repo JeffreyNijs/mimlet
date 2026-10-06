@@ -157,6 +157,11 @@ export function fromProtobuf(
   source: string | Readonly<Record<string, unknown>>,
   message: string,
   options: ProtobufFixtureOptions = {}
-): SchemaBuilder<Record<string, unknown>, Record<string, unknown>, [session?: GenerationSession]> {
+): SchemaBuilder<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  [session?: GenerationSession],
+  [session: GenerationSession]
+> {
   return protobufAdapter(source, message, options).builder();
 }

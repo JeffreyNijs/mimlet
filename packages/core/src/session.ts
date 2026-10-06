@@ -306,6 +306,11 @@ function session(state: State, scope: ReadonlyArray<string>): GenerationSession 
   };
   return Object.freeze(api);
 }
+/**
+ * Values depend on the seed and the scope path only. The fingerprint, provider and
+ * configuration identify the producer for `restoreSession()`, which rejects a mismatch;
+ * they do not change the generated values.
+ */
 export function createSession(options: SessionOptions): GenerationSession {
   return session(
     {
@@ -318,6 +323,26 @@ export function createSession(options: SessionOptions): GenerationSession {
     },
     []
   );
+}
+/** The identity of every `createTestSession()` session; pass it to `restoreSession()`. */
+export const testSessionIdentity: SessionIdentity = Object.freeze({
+  fingerprint: 'mimlet/test-session',
+  provider: 'mimlet/test-session@1',
+});
+/** Session settings other than the seed and identity, such as `referenceTime` and budgets. */
+export type TestSessionOptions = Omit<SessionOptions, 'seed' | keyof SessionIdentity>;
+/**
+ * A session to share across the builds of one test or test file, so consecutive builds
+ * continue its streams and sequences instead of repeating the first value. The seed defaults
+ * to 1, the seed of the adapters' default sessions, so an unnamed adapter builder's `build()`
+ * equals `build(createTestSession())`. Use `createSession()` with your own identity when a
+ * saved replay must fail after your recipe changes.
+ */
+export function createTestSession(
+  seed: SessionKey = 1,
+  options: TestSessionOptions = {}
+): GenerationSession {
+  return createSession({ ...options, ...testSessionIdentity, seed });
 }
 /** Restore a checkpoint only after the consumer confirms the exact producer identity. */
 export function restoreSession(

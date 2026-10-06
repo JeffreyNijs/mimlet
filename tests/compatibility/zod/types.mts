@@ -8,7 +8,8 @@ import {
   zodAdapter,
   zodFields,
 } from '@mimlet/zod';
-import { createBuilder, fluent } from '@mimlet/core';
+import { createBuilder, createTestSession, fluent } from '@mimlet/core';
+import type { GenerationSession } from '@mimlet/core';
 declare function expectType<T>(value: T): void;
 
 const schema = z.object({ age: z.string() }).transform(({ age }) => ({ age: Number(age) }));
@@ -202,3 +203,50 @@ const fieldLoaded = fieldDtos(Account, async () => ({ id: 'a', age: '1', exact: 
 expectType<Promise<AccountOutput>>(fieldLoaded.withAge('5').buildValidatedAsync());
 // @ts-expect-error Setters on an async factory builder keep it async-only.
 fieldLoaded.withAge('5').buildValidated();
+
+// Patch factories and transforms of a fromZod() builder always receive a session.
+const people = fromZod(z.object({ id: z.uuid(), age: z.number() }), { name: 'people' });
+people.withFactory((session) => ({ age: session.integer(1, 9) }));
+people.transform((value, session) => ({ ...value, id: String(session.random()) }));
+people.withFactory((session?: GenerationSession) => ({ age: session ? 1 : 0 }));
+// Literal counts give tuples, so destructuring needs no undefined checks.
+const [firstPerson, secondPerson] = people.buildValidatedList(2);
+expectType<{ id: string; age: number }>(firstPerson);
+expectType<{ id: string; age: number }>(secondPerson);
+// @ts-expect-error A two-item list has no third item.
+void people.buildList(2)[2];
+expectType<{ id: string; age: number }[]>(people.buildList(Number('3')));
+// A factory builder takes a typed defaultSession; its factory may require the session.
+const rowBuilder = fromZodFactory(
+  z.object({ id: z.string() }),
+  (session: GenerationSession) => ({ id: String(session.sequence('id')) }),
+  { defaultSession: () => createTestSession(), name: 'rows' }
+);
+expectType<{ id: string }>(rowBuilder.buildValidated());
+expectType<{ id: string }>(rowBuilder.buildValidated(createTestSession()));
+rowBuilder.withFactory((session) => ({ id: String(session.random()) }));
+const RowSchema = z.object({ id: z.string() });
+const typedRows: ZodFactoryBuilder<
+  typeof RowSchema,
+  (session: GenerationSession) => { id: string },
+  true
+> = fromZodFactory(RowSchema, (session: GenerationSession) => ({ id: String(session.random()) }), {
+  defaultSession: () => createTestSession(),
+});
+expectType<{ id: string }>(typedRows.build());
+const optionalRows = fromZodFactory(
+  RowSchema,
+  (session?: GenerationSession) => ({ id: String(session?.random()) }),
+  { defaultSession: () => createTestSession() }
+);
+optionalRows.withFactory((session) => ({ id: String(session.random()) }));
+const asyncRows = fromZodFactoryAsync(
+  RowSchema,
+  (session: GenerationSession) => ({ id: String(session.random()) }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<Promise<{ id: string }>>(asyncRows.buildValidatedAsync());
+// @ts-expect-error Without a default, a factory requiring a session must receive it.
+fromZodFactory(z.string(), (session: GenerationSession) => String(session.random())).build();
+// @ts-expect-error A default session would replace an unrelated first argument.
+fromZodFactory(z.string(), (id?: string) => id ?? '', { defaultSession: createTestSession });

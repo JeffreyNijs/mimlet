@@ -25,3 +25,13 @@ graphqlAdapter({}, '{x}');
 const scalar: GraphQLScalarFixture = { id: 'v1', input: () => 1, output: () => 1 };
 void id;
 void scalar;
+// Names, callbacks that always receive a session, and tuple lists.
+const named = fromGraphQLVariables('type Query{x:Int}', '{x}', { name: 'x' }).withFactory(
+  (run) => ({ seen: run.random() })
+);
+const [firstVariables, secondVariables] = named.buildList(2);
+expectType<Record<string, unknown>>(firstVariables);
+expectType<Record<string, unknown>>(secondVariables);
+fromGraphQLResponse('type Query{x:Int}', '{x}', {}, { name: 'y' }).transform((value, run) =>
+  run.boolean() ? value : value
+);

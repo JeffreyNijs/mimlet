@@ -82,6 +82,11 @@ are rejected in this projection path. The standalone JSON Schema adapter support
 explicit resource IDs within its own reference contract; unsupported anchors still
 fail rather than being interpreted differently. This is not a full OpenAPI document validator or an API client.
 
+A session-less request, response or message build starts from a seed-1 session. Pass
+a `name` option, as in `fromOpenApiRequest(document, selector, { name: 'createUser' })`,
+to give a builder its own session-less values, or pass one `createTestSession()` from
+`@mimlet/core` to every build in a test.
+
 Individual packages are prepared for coordinated publication; no publication is implied by this source.
 
 ## AsyncAPI messages

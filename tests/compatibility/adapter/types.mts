@@ -37,6 +37,30 @@ defineAdapter({ id: 'wrong', version: '1', standard, operations: { create: () =>
 // @ts-expect-error Encoding receives decoded output.
 adapter.operations.encode({ age: '42' });
 
+// A typed defaultSession lets builds omit the session; callbacks always receive one.
+import { createTestSession, type GenerationSession } from '@mimlet/core';
+const sessions = defineAdapter({
+  id: 'sessions',
+  version: '1',
+  standard,
+  operations: { create: (session: GenerationSession) => ({ age: String(session.random()) }) },
+});
+const defaulted = fromAdapter(sessions, { defaultSession: () => createTestSession(), name: 'a' });
+expectType<{ age: number }>(defaulted.buildValidated());
+const [firstAge, secondAge] = defaulted.buildValidatedList(2);
+expectType<{ age: number }>(firstAge);
+expectType<{ age: number }>(secondAge);
+defaulted.withFactory((session) => ({ age: String(session.integer(1, 9)) }));
+const factoryDefaulted = adapter.fromFactory(
+  (session: GenerationSession) => ({ age: String(session.sequence('age')) }),
+  { defaultSession: () => createTestSession() }
+);
+expectType<{ age: string }>(factoryDefaulted.build());
+// @ts-expect-error Without a default, a session-requiring create must receive one.
+fromAdapter(sessions).build();
+// @ts-expect-error A default session would replace an unrelated first argument.
+fromAdapter(adapter, { defaultSession: () => createTestSession() });
+
 // A generative adapter without checkInput still satisfies the common suite.
 import { assertAdapterConformance } from '@mimlet/adapter/testing';
 const generatorOnly = defineAdapter({

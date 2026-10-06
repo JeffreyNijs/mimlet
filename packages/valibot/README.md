@@ -31,6 +31,9 @@ const output = people.with({ age: '42' }).buildValidated();
 Standard Schema/Standard JSON Schema handle. Its `generation()` is the JSON Schema
 generator that session-less `fromValibot` builds use, with `session()` and `identity`
 for replay, so `buildList(n)` equals `buildList(n, valibotAdapter(schema).generation().session())`.
+Two builders over schemas with the same input JSON Schema return the same session-less
+values; pass a `name` option, as in `fromValibot(schema, { name: 'lead' })`, or one
+`createTestSession()` from `@mimlet/core` to every build in a test.
 Generation profiles, explicit references, budgets, and seeded sessions use the JSON
 Schema package contract.
 Native parsing may strip properties or normalize data as specified by the supplied

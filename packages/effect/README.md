@@ -131,7 +131,10 @@ Sessions are explicit and caller-versioned: include the schema, annotations,
 codec behavior and native dependency versions in your replay identity. Unlike the
 JSON Schema-based adapters, there is no default session. `fromEffect` and
 `fromEffectAsync` require one for every build and list call; omitting it is a type
-error and, from JavaScript, raises a `TypeError` before any generation. Every
+error and, from JavaScript, raises a `TypeError` before any generation. To opt in,
+pass your own `defaultSession`, such as `() => createSession({ seed: 1, fingerprint:
+'person/v1', provider: 'effect@4.0.1' })`; the builders and `fromEffectFactory` type it,
+and builds may then omit the session. Every
 native sampling option (count, size, discards and seed) is passed explicitly, so
 `Arbitrary.configureGlobal` cannot change generated fixtures, and the adapter does
 not modify native configuration. Effect does not promise identical samples across

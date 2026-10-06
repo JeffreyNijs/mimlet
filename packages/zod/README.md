@@ -44,16 +44,54 @@ Async variants expose `.buildAsync()` and `.buildValidatedAsync()`. All ordinary
 Mimlet patches, replacement, list budgets, cloning and transforms remain available.
 Switch object-union variants with a complete `.replace()` value.
 
+## Sessions and names
+
+A session-less `fromZod()` or `fromZodAsync()` build starts from the generator's seed-1
+session, and generation draws from a stream chosen by the converted input schema.
+`brand()` only changes the TypeScript type, so two builders over `z.uuid().brand('A')`
+and `z.uuid().brand('B')`, or over two object schemas with the same shape, return the
+same values. Separate them with a name, or share one session across a test:
+
+```ts
+import { createTestSession } from '@mimlet/core';
+
+const leads = fromZod(LeadUuid, { name: 'LeadUuid' });
+const deals = fromZod(DealUuid, { name: 'DealUuid' });
+leads.build() !== deals.build(); // true
+
+const session = createTestSession();
+fromZod(LeadUuid).build(session) !== fromZod(DealUuid).build(session); // true
+```
+
+Patch factories and transforms always receive a session, so
+`fromZod(User).withFactory((session) => ({ age: session.integer(18, 90) }))` needs no
+`session?.`. The factory entry points take a typed `defaultSession` option; with it,
+the factory may declare its session as required:
+
+```ts
+const rows = fromZodFactory(
+  Row,
+  (session: GenerationSession) => ({ uuid: zodAdapter(z.uuid()).create(session) }),
+  { defaultSession: () => createTestSession() }
+);
+const [first, second] = rows.buildValidatedList(2); // different uuids
+```
+
+A literal list count returns a tuple, so both items are typed without `| undefined`.
+See [sessions and replay](https://jeffreynijs.github.io/mimlet/guide/sessions-and-replay.html#omitted-sessions).
+
 ## Generic helpers
 
 A helper's return type can stay inferred. When a lint rule such as
 `@typescript-eslint/explicit-function-return-type` requires one, name the builder:
 `fromZod(schema)` returns `ZodBuilder<S>` and `fromZodFactory(schema, factory)`
-returns `ZodFactoryBuilder<S, F>`, where `F` is the factory's type. `fromZodAsync()`
-and `fromZodFactoryAsync()` return `AsyncSchemaBuilder<z.input<S>, z.output<S>, Args>`
-from `@mimlet/core`, with `[session?: GenerationSession]` or the factory's parameters
-as `Args`. Each type is exactly what its function returns, also for a schema type
-parameter:
+returns `ZodFactoryBuilder<S, F>`, where `F` is the factory's type, or
+`ZodFactoryBuilder<S, F, true>` with a `defaultSession`. `fromZodAsync()` and
+`fromZodFactoryAsync()` return `AsyncSchemaBuilder<z.input<S>, z.output<S>, Args>`
+from `@mimlet/core`, with the factory's parameters as `Args`; for `fromZodAsync()`
+they are `[session?: GenerationSession]`, followed by `[session: GenerationSession]`
+for what callbacks receive. Each type is exactly what its function returns, also for a
+schema type parameter:
 
 ```ts
 import type { BuilderPatch } from '@mimlet/core';
