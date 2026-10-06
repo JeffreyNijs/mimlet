@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { URL } from 'node:url';
 import {
+  groupSupportedRange,
+  readVendorMatrix,
   readWorkspace,
   releaseDistTag,
   satisfiesPeerRange,
@@ -16,6 +18,10 @@ const vendorVersions = await readFile(
   new URL('../../tests/vendor-versions.json', import.meta.url),
   'utf8'
 );
+const classValidatorGroup = (matrix) =>
+  matrix.groups.find(
+    (group) => group.adapter === 'class-validator' && group.dependency === 'class-validator'
+  );
 async function fixture(action) {
   const root = await mkdtemp(join(tmpdir(), 'toolkit-workspace-test-'));
   const write = async (path, value) => {
@@ -245,12 +251,26 @@ it('derives supported peer ranges up to the next breaking release and tested ran
     assert.equal(satisfiesPeerRange(version, range), expected, `${version} ${range}`);
   assert.throws(() => satisfiesPeerRange('4.0.0', '^4.0.0'), /unsupported peer range/);
   assert.throws(() => supportedPeerRange('4.0.0-beta.1'), /exact x\.y\.z/);
+  // The minorLines exception: tested 0.x minor lines widen the range to the next untested one.
+  assert.equal(supportedPeerRange('0.14.1', ['0.14', '0.15']), '>=0.14.1 <0.16');
+  assert.equal(satisfiesPeerRange('0.15.9', '>=0.14.1 <0.16'), true);
+  assert.equal(satisfiesPeerRange('0.16.0', '>=0.14.1 <0.16'), false);
+  assert.throws(() => supportedPeerRange('1.0.0', ['1.0', '1.1']), /0\.x libraries only/);
 });
 it('publishes every native peer as its supported range and the matrix range as tested', async () => {
-  for (const { manifest } of baseline.packages.filter((item) => item.manifest.mimlet)) {
+  const matrix = await readVendorMatrix(baseline.root);
+  for (const { directory, manifest } of baseline.packages.filter((item) => item.manifest.mimlet)) {
+    const adapter = directory.split(/[\\/]/).at(-1);
     for (const [name, tested] of Object.entries(manifest.mimlet.testedPeers)) {
-      const minimum = tested.replace(/^>=/, '').split(' ')[0];
-      assert.equal(manifest.peerDependencies[name], supportedPeerRange(minimum), manifest.name);
+      const group = matrix.groups.find(
+        (item) => item.adapter === adapter && item.dependency === name
+      );
+      assert.equal(tested, group.range, manifest.name);
+      assert.equal(manifest.peerDependencies[name], groupSupportedRange(group), manifest.name);
+      if (!group.minorLines) {
+        const minimum = tested.replace(/^>=/, '').split(' ')[0];
+        assert.equal(manifest.peerDependencies[name], supportedPeerRange(minimum), manifest.name);
+      }
     }
   }
   const changes = [
@@ -337,6 +357,50 @@ it('publishes every native peer as its supported range and the matrix range as t
         matrix.groups.push({ ...matrix.groups[0], adapter: 'core' });
       },
       /@mimlet\/core has no zod peer/,
+    ],
+    // The minorLines exception is explicit and checked against the tested versions.
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        delete classValidatorGroup(matrix).minorLines;
+      },
+      /peerDependencies\.class-validator must be >=0\.14\.1 <0\.15/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        const group = classValidatorGroup(matrix);
+        group.versions = group.versions.filter((entry) => entry.version.startsWith('0.14.'));
+        group.maximum = group.versions.at(-1).version;
+        group.range = testedPeerRange(group.minimum, group.maximum);
+      },
+      /minorLines must list consecutive 0\.x minor lines/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        classValidatorGroup(matrix).minorLines = ['0.14', '0.16'];
+      },
+      /minorLines must list consecutive 0\.x minor lines/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        const group = classValidatorGroup(matrix);
+        group.versions = group.versions.filter((entry) => entry.version !== '0.14.1');
+        group.minimum = '0.14.2';
+        group.range = testedPeerRange(group.minimum, group.maximum);
+        group.minorLines = ['0.14', '0.15', '0.16'];
+      },
+      /minorLines must list consecutive 0\.x minor lines/,
+    ],
+    [
+      'tests/vendor-versions.json',
+      (matrix) => {
+        const group = matrix.groups.find((item) => item.adapter === 'zod');
+        group.minorLines = ['4.4', '4.5'];
+      },
+      /minorLines must list consecutive 0\.x minor lines/,
     ],
   ];
   for (const [path, edit, pattern] of changes)

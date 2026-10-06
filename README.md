@@ -150,27 +150,28 @@ const value = provider.create(session);
 The core is `@mimlet/core`; optional toolkit packages use the `@mimlet/` scope. Install only the
 capabilities you use; schema vendors and generation backends do not enter the core.
 
-| Package                                                     | Purpose                                                                                                          |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| [@mimlet/core](packages/core/README.md)                     | Immutable runtime, Standard Schema, sessions, capture, scenarios, class facades and typed paths.                 |
-| [@mimlet/typebox](packages/typebox/README.md)               | Modern native TypeBox, encoded/decoded types, complete union variants.                                           |
-| [@mimlet/typebox-legacy](packages/typebox-legacy/README.md) | Maintained legacy TypeBox and Transform support.                                                                 |
-| [@mimlet/json-schema](packages/json-schema/README.md)       | Draft-07, 2019-09 and 2020-12 generation; standards conversion; profiles, extensions and checked negative cases. |
-| [@mimlet/zod](packages/zod/README.md)                       | Zod 4/Mini builders, native codecs, explicit async validation and typed factories.                               |
-| [@mimlet/arktype](packages/arktype/README.md)               | Native ArkType morphs, scoped Types, input checks and typed factories.                                           |
-| [@mimlet/valibot](packages/valibot/README.md)               | Native Valibot input conversion and parsing.                                                                     |
-| [@mimlet/effect](packages/effect/README.md)                 | Native Effect 4 generation, codecs, and arbitraries/shrinkers (Effect 3 through alpha.3).                        |
-| [@mimlet/faker](packages/faker/README.md)                   | Realistic data with session-scoped random streams, locales and reference dates.                                  |
-| [@mimlet/fast-check](packages/fast-check/README.md)         | Shrink-aware fixtures, properties, coherent scenarios and failure replay.                                        |
-| [@mimlet/api](packages/api/README.md)                       | OpenAPI operations and AsyncAPI messages, offline references and explicit serialization.                         |
-| [@mimlet/graphql](packages/graphql/README.md)               | Native GraphQL input and selection-aware response fixtures.                                                      |
-| [@mimlet/protobuf](packages/protobuf/README.md)             | Lossless Protobuf values, offline imports and binary codecs.                                                     |
-| [@mimlet/avro](packages/avro/README.md)                     | Native Avro values, explicit unions, 64-bit integers and binary codecs.                                          |
-| [@mimlet/codegen](packages/codegen/README.md)               | Standalone classes/CLI, deterministic output, non-mutating checks and canonical self-contained runtime.          |
-| [@mimlet/playground](packages/playground/README.md)         | Local-only schema editor with replay, import/export and interruptible workers.                                   |
-| [@mimlet/adapter](packages/adapter/README.md)               | Capability-based adapter SDK, inspection and reusable conformance checks.                                        |
-| [@mimlet/consumers](packages/consumers/README.md)           | Preview loaders, HTTP response resolvers and explicit persistence handoff.                                       |
-| [hey-api-builders](packages/hey-api-builders/README.md)     | Existing unscoped plugin identity, now emitting wrappers around the shared core.                                 |
+| Package                                                       | Purpose                                                                                                          |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [@mimlet/core](packages/core/README.md)                       | Immutable runtime, Standard Schema, sessions, capture, scenarios, class facades and typed paths.                 |
+| [@mimlet/typebox](packages/typebox/README.md)                 | Modern native TypeBox, encoded/decoded types, complete union variants.                                           |
+| [@mimlet/typebox-legacy](packages/typebox-legacy/README.md)   | Maintained legacy TypeBox and Transform support.                                                                 |
+| [@mimlet/json-schema](packages/json-schema/README.md)         | Draft-07, 2019-09 and 2020-12 generation; standards conversion; profiles, extensions and checked negative cases. |
+| [@mimlet/zod](packages/zod/README.md)                         | Zod 4/Mini builders, native codecs, explicit async validation and typed factories.                               |
+| [@mimlet/arktype](packages/arktype/README.md)                 | Native ArkType morphs, scoped Types, input checks and typed factories.                                           |
+| [@mimlet/valibot](packages/valibot/README.md)                 | Native Valibot input conversion and parsing.                                                                     |
+| [@mimlet/class-validator](packages/class-validator/README.md) | class-validator DTOs as Standard Schemas, validated the way NestJS's `ValidationPipe` validates requests.        |
+| [@mimlet/effect](packages/effect/README.md)                   | Native Effect 4 generation, codecs, and arbitraries/shrinkers (Effect 3 through alpha.3).                        |
+| [@mimlet/faker](packages/faker/README.md)                     | Realistic data with session-scoped random streams, locales and reference dates.                                  |
+| [@mimlet/fast-check](packages/fast-check/README.md)           | Shrink-aware fixtures, properties, coherent scenarios and failure replay.                                        |
+| [@mimlet/api](packages/api/README.md)                         | OpenAPI operations and AsyncAPI messages, offline references and explicit serialization.                         |
+| [@mimlet/graphql](packages/graphql/README.md)                 | Native GraphQL input and selection-aware response fixtures.                                                      |
+| [@mimlet/protobuf](packages/protobuf/README.md)               | Lossless Protobuf values, offline imports and binary codecs.                                                     |
+| [@mimlet/avro](packages/avro/README.md)                       | Native Avro values, explicit unions, 64-bit integers and binary codecs.                                          |
+| [@mimlet/codegen](packages/codegen/README.md)                 | Standalone classes/CLI, deterministic output, non-mutating checks and canonical self-contained runtime.          |
+| [@mimlet/playground](packages/playground/README.md)           | Local-only schema editor with replay, import/export and interruptible workers.                                   |
+| [@mimlet/adapter](packages/adapter/README.md)                 | Capability-based adapter SDK, inspection and reusable conformance checks.                                        |
+| [@mimlet/consumers](packages/consumers/README.md)             | Preview loaders, HTTP response resolvers and explicit persistence handoff.                                       |
+| [hey-api-builders](packages/hey-api-builders/README.md)       | Existing unscoped plugin identity, now emitting wrappers around the shared core.                                 |
 
 [Compatibility](docs/compatibility.md) separates tested package versions, generation,
 validation, codecs, shrinking and execution environments. It is not a blanket

@@ -57,6 +57,12 @@ In a Mimlet source checkout, read `docs/adapters.md`, `docs/agents.md`, and the
 matching package README. `examples/recipes/` contains the actual typed examples;
 `pnpm test:examples` compiles and executes them against isolated tarballs.
 
+For DTO classes validated with class-validator (NestJS), `@mimlet/class-validator`
+(newer than beta.4; check that it is installed) builds payloads with `build()` and the
+DTO instances `ValidationPipe` produces with `buildValidated()`:
+`fromClassValidator(Dto, factory, validationPipeOptions)`, with `wire: qs` for query
+DTOs and `fromClassValidatorAsync` for async constraints. See `docs/class-validator.md`.
+
 The Zod/ArkType adapters are documented in `docs/zod-and-arktype.md` and included
 from `0.1.0-alpha.1`. Match the installed toolkit train. Zod schemas with async
 refinements require `fromZodAsync` or `fromZodFactoryAsync`; an async factory alone

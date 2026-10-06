@@ -437,6 +437,203 @@
           }
         }
       ]
+    },
+    {
+      "fixture": "class-validator",
+      "adapter": "class-validator",
+      "dependency": "class-validator",
+      "minimum": "0.14.1",
+      "maximum": "0.15.1",
+      "range": ">=0.14.1 <=0.15.1",
+      "minorLines": ["0.14", "0.15"],
+      "versions": [
+        {
+          "version": "0.14.1",
+          "resolved": "https://registry.npmjs.org/class-validator/-/class-validator-0.14.1.tgz",
+          "integrity": "sha512-2VEG9JICxIqTpoK1eMzZqaV+u/EiwEJkMGzTrZf6sU/fwsnOITVgYJ8yojSy6CaXtO9V0Cc6ZQZ8h8m4UBuLwQ==",
+          "license": "MIT",
+          "dependencies": {
+            "@types/validator": "^13.11.8",
+            "libphonenumber-js": "^1.10.53",
+            "validator": "^13.9.0"
+          },
+          "overlay": {
+            "node_modules/@types/validator": {
+              "version": "13.15.10",
+              "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.15.10.tgz",
+              "integrity": "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==",
+              "license": "MIT"
+            },
+            "node_modules/libphonenumber-js": {
+              "version": "1.13.14",
+              "resolved": "https://registry.npmjs.org/libphonenumber-js/-/libphonenumber-js-1.13.14.tgz",
+              "integrity": "sha512-llihgCcx0BFLksecLP+x1J+6JDE1GsXS1RN/LoPF6qcwpeQcnjj0lcvZxY8AzbEpYwyZWPZW/nDuqkqzm3amiw==",
+              "license": "MIT"
+            },
+            "node_modules/validator": {
+              "version": "13.15.35",
+              "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.35.tgz",
+              "integrity": "sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==",
+              "license": "MIT",
+              "engines": {
+                "node": ">= 0.10"
+              }
+            }
+          }
+        },
+        {
+          "version": "0.14.2",
+          "resolved": "https://registry.npmjs.org/class-validator/-/class-validator-0.14.2.tgz",
+          "integrity": "sha512-3kMVRF2io8N8pY1IFIXlho9r8IPUUIfHe2hYVtiebvAzU2XeQFXTv+XI4WX+TnXmtwXMDcjngcpkiPM0O9PvLw==",
+          "license": "MIT",
+          "dependencies": {
+            "@types/validator": "^13.11.8",
+            "libphonenumber-js": "^1.11.1",
+            "validator": "^13.9.0"
+          },
+          "overlay": {
+            "node_modules/@types/validator": {
+              "version": "13.15.10",
+              "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.15.10.tgz",
+              "integrity": "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==",
+              "license": "MIT"
+            },
+            "node_modules/libphonenumber-js": {
+              "version": "1.13.14",
+              "resolved": "https://registry.npmjs.org/libphonenumber-js/-/libphonenumber-js-1.13.14.tgz",
+              "integrity": "sha512-llihgCcx0BFLksecLP+x1J+6JDE1GsXS1RN/LoPF6qcwpeQcnjj0lcvZxY8AzbEpYwyZWPZW/nDuqkqzm3amiw==",
+              "license": "MIT"
+            },
+            "node_modules/validator": {
+              "version": "13.15.35",
+              "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.35.tgz",
+              "integrity": "sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==",
+              "license": "MIT",
+              "engines": {
+                "node": ">= 0.10"
+              }
+            }
+          }
+        },
+        {
+          "version": "0.14.3",
+          "resolved": "https://registry.npmjs.org/class-validator/-/class-validator-0.14.3.tgz",
+          "integrity": "sha512-rXXekcjofVN1LTOSw+u4u9WXVEUvNBVjORW154q/IdmYWy1nMbOU9aNtZB0t8m+FJQ9q91jlr2f9CwwUFdFMRA==",
+          "license": "MIT",
+          "dependencies": {
+            "@types/validator": "^13.15.3",
+            "libphonenumber-js": "^1.11.1",
+            "validator": "^13.15.20"
+          },
+          "overlay": {
+            "node_modules/@types/validator": {
+              "version": "13.15.10",
+              "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.15.10.tgz",
+              "integrity": "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==",
+              "license": "MIT"
+            },
+            "node_modules/libphonenumber-js": {
+              "version": "1.13.14",
+              "resolved": "https://registry.npmjs.org/libphonenumber-js/-/libphonenumber-js-1.13.14.tgz",
+              "integrity": "sha512-llihgCcx0BFLksecLP+x1J+6JDE1GsXS1RN/LoPF6qcwpeQcnjj0lcvZxY8AzbEpYwyZWPZW/nDuqkqzm3amiw==",
+              "license": "MIT"
+            },
+            "node_modules/validator": {
+              "version": "13.15.35",
+              "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.35.tgz",
+              "integrity": "sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==",
+              "license": "MIT",
+              "engines": {
+                "node": ">= 0.10"
+              }
+            }
+          }
+        },
+        {
+          "version": "0.14.4",
+          "resolved": "https://registry.npmjs.org/class-validator/-/class-validator-0.14.4.tgz",
+          "integrity": "sha512-AwNusCCam51q703dW82x95tOqQp6oC9HNUl724KxJJOfnKscI8dOloXFgyez7LbTTKWuRBA37FScqVbJEoq8Yw==",
+          "license": "MIT",
+          "dependencies": {
+            "@types/validator": "^13.15.3",
+            "libphonenumber-js": "^1.11.1",
+            "validator": "^13.15.22"
+          },
+          "overlay": {
+            "node_modules/@types/validator": {
+              "version": "13.15.10",
+              "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.15.10.tgz",
+              "integrity": "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==",
+              "license": "MIT"
+            },
+            "node_modules/libphonenumber-js": {
+              "version": "1.13.14",
+              "resolved": "https://registry.npmjs.org/libphonenumber-js/-/libphonenumber-js-1.13.14.tgz",
+              "integrity": "sha512-llihgCcx0BFLksecLP+x1J+6JDE1GsXS1RN/LoPF6qcwpeQcnjj0lcvZxY8AzbEpYwyZWPZW/nDuqkqzm3amiw==",
+              "license": "MIT"
+            },
+            "node_modules/validator": {
+              "version": "13.15.35",
+              "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.35.tgz",
+              "integrity": "sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==",
+              "license": "MIT",
+              "engines": {
+                "node": ">= 0.10"
+              }
+            }
+          }
+        },
+        {
+          "version": "0.15.1",
+          "resolved": "https://registry.npmjs.org/class-validator/-/class-validator-0.15.1.tgz",
+          "integrity": "sha512-LqoS80HBBSCVhz/3KloUly0ovokxpdOLR++Al3J3+dHXWt9sTKlKd4eYtoxhxyUjoe5+UcIM+5k9MIxyBWnRTw==",
+          "license": "MIT",
+          "dependencies": {
+            "@types/validator": "^13.15.3",
+            "libphonenumber-js": "^1.11.1",
+            "validator": "^13.15.22"
+          },
+          "overlay": {
+            "node_modules/@types/validator": {
+              "version": "13.15.10",
+              "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.15.10.tgz",
+              "integrity": "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==",
+              "license": "MIT"
+            },
+            "node_modules/libphonenumber-js": {
+              "version": "1.13.14",
+              "resolved": "https://registry.npmjs.org/libphonenumber-js/-/libphonenumber-js-1.13.14.tgz",
+              "integrity": "sha512-llihgCcx0BFLksecLP+x1J+6JDE1GsXS1RN/LoPF6qcwpeQcnjj0lcvZxY8AzbEpYwyZWPZW/nDuqkqzm3amiw==",
+              "license": "MIT"
+            },
+            "node_modules/validator": {
+              "version": "13.15.35",
+              "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.35.tgz",
+              "integrity": "sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==",
+              "license": "MIT",
+              "engines": {
+                "node": ">= 0.10"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "class-validator",
+      "adapter": "class-validator",
+      "dependency": "class-transformer",
+      "minimum": "0.5.1",
+      "maximum": "0.5.1",
+      "range": "0.5.1",
+      "versions": [
+        {
+          "version": "0.5.1",
+          "resolved": "https://registry.npmjs.org/class-transformer/-/class-transformer-0.5.1.tgz",
+          "integrity": "sha512-SQa1Ws6hUbfC98vKGxZH3KFY0Y1lm5Zm0SY8XX9zbK7FJCyVEac3ATW0RIpwzW+oOfmHE5PMPufDG9hCfoEOMw==",
+          "license": "MIT"
+        }
+      ]
     }
   ]
 }

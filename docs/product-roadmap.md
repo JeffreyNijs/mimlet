@@ -13,7 +13,7 @@ Public support has separate dimensions: accepted interface, inspected fields, ge
 ## Current implementation
 
 The accepted workstreams below now map to implemented packages and their conformance
-suites. The repository is a private nineteen-package workspace, not the original
+suites. The repository is a private twenty-package workspace, not the original
 three-package prototype. It includes sessions/capture/scenarios, native and standards
 adapters, generation profiles, Faker, shrink-aware property testing, shared Hey API
 and standalone code generation, protocol adapters, fixture consumers, a local

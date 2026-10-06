@@ -16,6 +16,7 @@ executable source of truth.
 | Legacy TypeBox       | `@sinclair/typebox` 0.34.48–0.34.52    | Separate native minimal/default creation with the same fill, and anyOf selection.                             | Native Transform, references, recursion, Date and format cases. Native version semantics are not rewritten.               |
 | Zod                  | 4.3.0–4.6.5                            | Dedicated Zod/Mini builders, input JSON generation and typed factories.                                       | Native parsing/codecs; explicit async path avoids the Standard entry probe.                                               |
 | Valibot              | 1.5.0; converter 1.8.0                 | Native adapter converts synchronous schema input.                                                             | Original parsing/transformations. Async/native-only schemas use a factory with Standard Schema.                           |
+| class-validator      | 0.14.1–0.15.1; class-transformer 0.5.1 | Caller factories typed as the DTO payload; no automatic generation.                                           | The steps of NestJS 11 and 12's `ValidationPipe`, checked against both; sync, or async for async constraints.             |
 | ArkType              | 2.2.5–2.2.7 (2.2.5 through alpha.3)    | Dedicated builders, input JSON generation and native typed factories.                                         | Native morphs/scopes and input checks retained; no private AST dependency.                                                |
 | Effect               | 4.0.0–4.0.1 (3.22.2 through alpha.3)   | Native decoded arbitrary re-encoded as input; sync/async factory escape hatches.                              | Native input/output arbitraries, codecs and Effect 4's own arbitrary engine and shrinking (fast-check 3 through alpha.3). |
 | JSON Schema          | Draft-07, 2019-09, 2020-12             | `json-schema-faker` 0.6.3; explicit versioned alternative providers.                                          | Separate Ajv 8.20.0 validators and ajv-formats 3.0.1; checked output, offline references and bounded attempts.            |
@@ -159,16 +160,32 @@ Each native adapter has two ranges for its library:
   installs one by one and runs the adapter's full conformance suite against. Each
   adapter publishes it in its `package.json` as `mimlet.testedPeers`.
 
-| Adapter                  | Library             | Supported (peer)  | Tested                |
-| ------------------------ | ------------------- | ----------------- | --------------------- |
-| `@mimlet/zod`            | `zod`               | `>=4.3.0 <5`      | `>=4.3.0 <=4.6.5`     |
-| `@mimlet/valibot`        | `valibot`           | `>=1.5.0 <2`      | `1.5.0`               |
-| `@mimlet/arktype`        | `arktype`           | `>=2.2.5 <3`      | `>=2.2.5 <=2.2.7`     |
-| `@mimlet/effect`         | `effect`            | `>=4.0.0 <5`      | `>=4.0.0 <=4.0.1`     |
-| `@mimlet/typebox`        | `typebox`           | `>=1.3.34 <2`     | `1.3.34`              |
-| `@mimlet/typebox-legacy` | `@sinclair/typebox` | `>=0.34.48 <0.35` | `>=0.34.48 <=0.34.52` |
-| `@mimlet/faker`          | `@faker-js/faker`   | `>=10.5.0 <11`    | `>=10.5.0 <=10.6.0`   |
-| `@mimlet/fast-check`     | `fast-check`        | `>=4.10.2 <5`     | `4.10.2`              |
+| Adapter                   | Library             | Supported (peer)  | Tested                |
+| ------------------------- | ------------------- | ----------------- | --------------------- |
+| `@mimlet/zod`             | `zod`               | `>=4.3.0 <5`      | `>=4.3.0 <=4.6.5`     |
+| `@mimlet/valibot`         | `valibot`           | `>=1.5.0 <2`      | `1.5.0`               |
+| `@mimlet/arktype`         | `arktype`           | `>=2.2.5 <3`      | `>=2.2.5 <=2.2.7`     |
+| `@mimlet/effect`          | `effect`            | `>=4.0.0 <5`      | `>=4.0.0 <=4.0.1`     |
+| `@mimlet/typebox`         | `typebox`           | `>=1.3.34 <2`     | `1.3.34`              |
+| `@mimlet/typebox-legacy`  | `@sinclair/typebox` | `>=0.34.48 <0.35` | `>=0.34.48 <=0.34.52` |
+| `@mimlet/faker`           | `@faker-js/faker`   | `>=10.5.0 <11`    | `>=10.5.0 <=10.6.0`   |
+| `@mimlet/fast-check`      | `fast-check`        | `>=4.10.2 <5`     | `4.10.2`              |
+| `@mimlet/class-validator` | `class-validator`   | `>=0.14.1 <0.16`  | `>=0.14.1 <=0.15.1`   |
+| `@mimlet/class-validator` | `class-transformer` | `>=0.5.1 <0.6`    | `0.5.1`               |
+
+**One exception: several tested 0.x minor lines.** A 0.x library's supported range
+normally ends before its next minor, because a 0.x minor may break. When an adapter is
+tested against more than one minor line, its group in `tests/vendor-versions.json` lists
+them in `minorLines`, and the supported range ends before the minor after the last one.
+`@mimlet/class-validator` uses it: class-validator 0.14 and 0.15 are both widely used,
+every release from 0.14.1 through 0.15.1 passes the same suite (including parity with
+NestJS's `ValidationPipe`), and the peer range is `>=0.14.1 <0.16`. class-validator
+0.14.0 is not supported: its declarations use the global `ValidatorJS` namespace, which
+current `@types/validator` releases no longer declare, so it fails to type-check without
+`skipLibCheck`. These two rows apply from the first `@mimlet/class-validator` release, the
+one after `0.1.0-beta.4`. `pnpm check:workspace` accepts `minorLines` only for a 0.x library, only
+as consecutive lines from the minimum's line to the maximum's, and only when each line has
+at least one tested version.
 
 These ranges apply from `0.1.0-beta.3`. Earlier trains declare their tested range
 as the peer range (Effect, Valibot, TypeBox and fast-check exactly), so installing
@@ -181,7 +198,8 @@ with `tests/vendor-versions.json`. `pnpm test:vendors` (one CI job per adapter,
 "Native version range") installs each recorded version by tarball integrity in an
 isolated project and reuses the full native conformance, negative-type and
 coverage suites, including a production dependency audit. ArkType brings its own
-exact `@ark/*` and `arkregex` dependencies, and fast-check its `pure-rand`, so each
+exact `@ark/*` and `arkregex` dependencies, fast-check its `pure-rand`, and
+class-validator its `validator`, `libphonenumber-js` and `@types/validator`, so each
 matrix entry pins that whole set by integrity. A newer release joins the tested
 range only through a reviewed matrix entry.
 

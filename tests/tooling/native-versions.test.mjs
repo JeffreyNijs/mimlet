@@ -6,14 +6,16 @@ import { readVendorMatrix } from '../../scripts/check-workspace.mjs';
 
 const root = new URL('../../', import.meta.url);
 const matrix = await readVendorMatrix(fileURLToPath(root));
-const adapters = matrix.groups.map((group) => group.adapter).sort();
+// An adapter with several native libraries (class-validator) has one group per library.
+const adapters = [...new Set(matrix.groups.map((group) => group.adapter))].sort();
 const workflow = (name) => readFile(new URL(`.github/workflows/${name}.yml`, root), 'utf8');
-const adapterMatrix = (text) =>
-  /^ {8}adapter: \[([^\]\n]+)\]$/m
-    .exec(text)?.[1]
-    .split(',')
-    .map((name) => name.trim())
-    .sort();
+/** The workflow's adapter matrix, as a flow list (`adapter: [a, b]`) or a block list. */
+const adapterMatrix = (text) => {
+  const flow = /^ {8}adapter: \[([^\]\n]+)\]$/m.exec(text)?.[1];
+  const block = /^ {8}adapter:\n((?: {10}- [a-z0-9-]+\n)+)/m.exec(text)?.[1];
+  const names = flow ? flow.split(',') : block?.trim().split('\n');
+  return names?.map((name) => name.replace(/^\s*-?\s*/, '').trim()).sort();
+};
 
 it('tests every recorded native version group in CI and in the weekly canary', async () => {
   assert.deepEqual(adapterMatrix(await workflow('runtime-compatibility')), adapters);
