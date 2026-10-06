@@ -24,6 +24,7 @@ import {
 export type * from './types.js';
 export type * from './standard-schema.js';
 export { BuilderGenerationError, BuilderValidationError } from './runtime.js';
+export type { BuilderValidationErrorOptions } from './runtime.js';
 export { formatValidationIssues } from './issues.js';
 export type { ValidationIssueFormatOptions } from './issues.js';
 

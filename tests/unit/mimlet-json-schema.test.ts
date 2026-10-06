@@ -1,6 +1,18 @@
-import { describe, expect, it } from 'vitest';
-import { fromJsonSchema, jsonSchemaAdapter } from '../../packages/json-schema/src/index.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import {
+  clearGeneratorCache,
+  configureGeneratorCache,
+  fromJsonSchema,
+  jsonSchemaAdapter,
+} from '../../packages/json-schema/src/index.js';
+import type { JsonSchema, JsonSchemaOptions } from '../../packages/json-schema/src/index.js';
+import type * as JsonSchemaModule from '../../packages/json-schema/src/index.js';
+import { packageVersion } from '../../packages/json-schema/src/version.js';
 import { createSession, restoreSession } from '../../packages/core/src/index.js';
+import { fromZod } from '../../packages/zod/src/index.js';
+import * as api from './fixtures/zod-crm.gen.js';
+import manifest from '../../packages/json-schema/package.json' with { type: 'json' };
 it.each(['draft-07', 'draft-2019-09', 'draft-2020-12'] as const)(
   'keeps %s generation bounded and reproducible',
   (dialect) => {
@@ -330,4 +342,221 @@ it('leaves undefined schema properties out and names non-JSON schema values', ()
   }
   // Generated or overridden values still reject undefined properties.
   expect(jsonSchemaAdapter({ type: 'object' }).check({ note: undefined })).toBe(false);
+});
+
+describe('shared preparation', () => {
+  afterEach(() => {
+    configureGeneratorCache({ maxEntries: 256 });
+    clearGeneratorCache();
+  });
+  const entries = () => configureGeneratorCache().entries;
+  /** Values, identity and validation results that must not depend on sharing. */
+  const observe = (schema: JsonSchema, options: JsonSchemaOptions = {}) => {
+    const adapter = jsonSchemaAdapter(globalThis.structuredClone(schema), options);
+    const session = adapter.session(7);
+    const values = [1, 2, 3].map((seed) => adapter.create(adapter.session(seed)));
+    return {
+      identity: adapter.identity,
+      values,
+      list: [adapter.create(session), adapter.create(session), adapter.create(session)],
+      checks: values.map((value) => adapter.check(value)),
+      issues: adapter.issues({ unexpected: true }),
+    };
+  };
+  const converted = Object.values(api)
+    .filter((schema) => schema._zod.def.type !== 'void')
+    .map(
+      (schema) => z.toJSONSchema(schema, { io: 'input', unrepresentable: 'throw' }) as JsonSchema
+    );
+  // Hey API exports equal schemas under several names.
+  const generated = [...new Map(converted.map((schema) => [JSON.stringify(schema), schema]))].map(
+    ([, schema]) => schema
+  );
+  const item = 'https://example.test/item';
+  const corpus: Array<readonly [JsonSchema, JsonSchemaOptions]> = [
+    ...generated.map((schema) => [schema, {}] as const),
+    ...generated.slice(0, 4).map((schema) => [schema, { profile: 'realistic' }] as const),
+    ...generated.slice(0, 4).map((schema) => [schema, { profile: 'random' }] as const),
+    [
+      { type: 'array', items: { $ref: item }, minItems: 2 },
+      { references: { [item]: { type: 'string', format: 'email' } } },
+    ],
+    [
+      {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        properties: { at: { type: 'string', format: 'date-time' } },
+        required: ['at'],
+      },
+      {},
+    ],
+    [
+      { $id: 'https://example.test/root', type: 'object', properties: { next: { $ref: '#' } } },
+      { profile: 'boundary' },
+    ],
+  ];
+
+  it(
+    'generates the same values, identities and issues as an unshared preparation',
+    {
+      timeout: 30_000,
+    },
+    () => {
+      configureGeneratorCache({ maxEntries: 0 });
+      const unshared = corpus.map(([schema, options]) => observe(schema, options));
+      expect(entries()).toBe(0);
+      configureGeneratorCache({ maxEntries: 256 });
+      // The first pass prepares, the second reuses; both must match the unshared results.
+      expect(corpus.map(([schema, options]) => observe(schema, options))).toEqual(unshared);
+      const prepared = entries();
+      expect(prepared).toBe(corpus.length);
+      expect(corpus.map(([schema, options]) => observe(schema, options))).toEqual(unshared);
+      expect(entries()).toBe(prepared);
+      // Equal content from the aliases is prepared once.
+      converted.forEach((schema) => jsonSchemaAdapter(globalThis.structuredClone(schema)));
+      expect(entries()).toBe(prepared);
+    }
+  );
+
+  it('shares equal content from different objects, also through Zod', () => {
+    const lead = z.object({ id: z.uuid(), source: z.string() });
+    fromZod(lead.transform((dto) => dto)).build();
+    const before = entries();
+    // A different schema object (a new transform) with the same input JSON Schema.
+    fromZod(lead.transform((dto) => ({ ...dto, label: dto.id }))).build();
+    fromZod(z.object({ id: z.uuid(), source: z.string() }), { name: 'lead' }).build();
+    expect(entries()).toBe(before);
+    fromZod(lead, { profile: 'random' }).build();
+    expect(entries()).toBe(before + 1);
+  });
+
+  it('keeps references, annotations and options apart', () => {
+    const pointer = { $ref: item } as const;
+    const strings = jsonSchemaAdapter(pointer, {
+      references: { [item]: { type: 'string', minLength: 3, maxLength: 3 } },
+    });
+    const numbers = jsonSchemaAdapter(pointer, {
+      references: { [item]: { type: 'integer', minimum: 7, maximum: 7 } },
+    });
+    expect(strings.create()).toMatch(/^.{3}$/);
+    expect(numbers.create()).toBe(7);
+    expect([strings.check(7), numbers.check('abc')]).toEqual([false, false]);
+    expect(strings.identity.fingerprint).not.toBe(numbers.identity.fingerprint);
+    // A reference map that was never supplied still leaves the reference unresolved.
+    expect(() => jsonSchemaAdapter(pointer)).toThrow(/Unresolved reference/);
+
+    const annotated = { type: 'string', 'x-label': 'Name' } as const;
+    expect(jsonSchemaAdapter(annotated, { annotations: ['x-label'] }).create()).toEqual(
+      expect.any(String)
+    );
+    expect(() => jsonSchemaAdapter(annotated)).toThrow(/Unsupported schema keyword x-label/);
+    const schema = { type: 'integer', minimum: 1, maximum: 1_000 } as const;
+    const plain = jsonSchemaAdapter(schema);
+    expect(jsonSchemaAdapter(schema, { formatsIdentity: 'formats/v1' }).identity).not.toEqual(
+      plain.identity
+    );
+    expect(jsonSchemaAdapter(schema, { maxAttempts: 3 }).identity).not.toEqual(plain.identity);
+    // Key order changes generated objects, so it is part of the key.
+    const ordered = (keys: string[]) =>
+      jsonSchemaAdapter({
+        type: 'object',
+        properties: Object.fromEntries(keys.map((key) => [key, { const: key }])),
+        required: keys,
+      }).create() as object;
+    expect(Object.keys(ordered(['a', 'b']))).toEqual(['a', 'b']);
+    expect(Object.keys(ordered(['b', 'a']))).toEqual(['b', 'a']);
+  });
+
+  it('never shares callbacks, negative zero or a schema identifier', () => {
+    const schema = { type: 'string', format: 'code' } as const;
+    const formats = (code: string) => ({
+      code: { validate: (value: string) => value === code, generate: () => code },
+    });
+    const before = entries();
+    const a = jsonSchemaAdapter(schema, { formats: formats('a'), formatsIdentity: 'codes/v1' });
+    const b = jsonSchemaAdapter(schema, { formats: formats('b'), formatsIdentity: 'codes/v1' });
+    expect([a.create(), b.create(), a.check('b'), b.check('b')]).toEqual(['a', 'b', false, true]);
+    const keyword = (expected: number) =>
+      jsonSchemaAdapter(
+        { type: 'integer', minimum: 1, maximum: 2, 'x-is': expected },
+        {
+          keywords: { 'x-is': (constraint, value) => value === constraint },
+          extensionIdentity: 'is/v1',
+        }
+      );
+    expect([keyword(1).create(), keyword(2).create()]).toEqual([1, 2]);
+    expect(entries()).toBe(before);
+
+    expect(Object.is(jsonSchemaAdapter({ const: 0 }).create(), 0)).toBe(true);
+    expect(Object.is(jsonSchemaAdapter({ const: -0 }).create(), -0)).toBe(true);
+    expect(Object.is(jsonSchemaAdapter({ const: 0 }).create(), 0)).toBe(true);
+    expect(entries()).toBe(before + 1);
+
+    // Each schema with an `$id` gets its own validator, so equal identifiers never collide.
+    const first = { $id: 'https://example.test/user', type: 'string', minLength: 2, maxLength: 2 };
+    const second = { $id: 'https://example.test/user', type: 'integer', minimum: 3, maximum: 3 };
+    expect(jsonSchemaAdapter(first).create()).toMatch(/^.{2}$/);
+    expect(jsonSchemaAdapter(second).create()).toBe(3);
+    expect(jsonSchemaAdapter(globalThis.structuredClone(first)).create()).toMatch(/^.{2}$/);
+  });
+
+  it('drops the least recently used preparation and can be turned off', () => {
+    configureGeneratorCache({ maxEntries: 2 });
+    const integer = (n: number) => ({ type: 'integer', minimum: n, maximum: n }) as const;
+    jsonSchemaAdapter(integer(1));
+    jsonSchemaAdapter(integer(2));
+    jsonSchemaAdapter(integer(1));
+    jsonSchemaAdapter(integer(3));
+    expect(configureGeneratorCache()).toEqual({ maxEntries: 2, entries: 2 });
+    configureGeneratorCache({ maxEntries: 0 });
+    expect(configureGeneratorCache()).toEqual({ maxEntries: 0, entries: 0 });
+    expect(jsonSchemaAdapter(integer(3)).create()).toBe(3);
+    expect(entries()).toBe(0);
+    for (const maxEntries of [-1, 1.5, 2_000_000, Number.NaN, '3' as never]) {
+      expect(() => configureGeneratorCache({ maxEntries })).toThrow(RangeError);
+    }
+    // Many schemas through shared validators: every one still validates its own values.
+    configureGeneratorCache({ maxEntries: 8 });
+    for (let n = 0; n < 80; n += 1) {
+      const adapter = jsonSchemaAdapter({ type: 'string', minLength: n % 9, maxLength: n % 9 });
+      expect(String(adapter.create()).length).toBe(n % 9);
+      expect(adapter.check('x'.repeat((n % 9) + 1))).toBe(false);
+    }
+    expect(entries()).toBe(8);
+  });
+
+  it('keeps one store per package version on globalThis, also for a module loaded again', async () => {
+    expect(packageVersion).toBe(manifest.version);
+    const schema = { type: 'integer', minimum: 40, maximum: 40 } as const;
+    const registry = Reflect.get(globalThis, Symbol.for('mimlet.generators.v1')) as Map<
+      string,
+      unknown
+    >;
+    // Another version's store is never read.
+    const unreadable = {
+      get() {
+        throw new Error('read another version');
+      },
+    };
+    registry.set('@mimlet/json-schema@0.0.0-other', {
+      prepared: unreadable,
+      validators: unreadable,
+    });
+    try {
+      jsonSchemaAdapter(schema);
+      const before = entries();
+      expect([...registry.keys()]).toContain(`@mimlet/json-schema@${packageVersion}`);
+      // A query makes the module runner evaluate the module again, with new module state.
+      const again = '../../packages/json-schema/src/index.js?evaluated-again';
+      const copy = (await import(/* @vite-ignore */ again)) as typeof JsonSchemaModule;
+      expect(copy.jsonSchemaAdapter).not.toBe(jsonSchemaAdapter);
+      expect(copy.jsonSchemaAdapter(schema).create()).toBe(40);
+      expect(copy.jsonSchemaAdapter({ type: 'integer', minimum: 41, maximum: 41 }).create()).toBe(
+        41
+      );
+      expect(entries()).toBe(before + 1);
+    } finally {
+      registry.delete('@mimlet/json-schema@0.0.0-other');
+    }
+  });
 });

@@ -131,6 +131,7 @@ const builderOptions = new Set([
   'cloneInput',
   'defaultSession',
   'maxListSize',
+  'name',
   'parseOptions',
   'validationOptions',
 ]);
@@ -182,31 +183,261 @@ function sharedGenerator(source: object, options: ZodOptions, prepare: () => Gen
   return generation;
 }
 
+/** A list element, record entry or map/set member, whose index or key the schema does not fix. */
+const anyMember = Symbol('member');
+type Segment = string | number | typeof anyMember;
+
+/** A user function that Zod runs while parsing, and where in the value it runs. */
+interface Callback {
+  readonly kind: string;
+  readonly name: string | undefined;
+  /** Set when it runs at exactly one fixed location. */
+  readonly path: ReadonlyArray<string | number> | undefined;
+  readonly location: string | undefined;
+}
+interface Callbacks {
+  /** False when part of the schema could not be inspected, so a callback may be missing. */
+  readonly complete: boolean;
+  readonly list: ReadonlyArray<Callback>;
+}
+
+/** Zod types without child schemas or callbacks of their own (checks are read separately). */
+const leafTypes = new Set([
+  'any',
+  'bigint',
+  'boolean',
+  'date',
+  'enum',
+  'file',
+  'function',
+  'int',
+  'literal',
+  'nan',
+  'never',
+  'null',
+  'number',
+  'string',
+  'symbol',
+  'template_literal',
+  'undefined',
+  'unknown',
+  'void',
+]);
+/** Wrappers whose callbacks run at the same location as their inner schema. */
+const wrapperTypes = new Set([
+  'catch',
+  'default',
+  'nonoptional',
+  'nullable',
+  'optional',
+  'prefault',
+  'promise',
+  'readonly',
+  'success',
+]);
+
+function formatLocation(path: ReadonlyArray<Segment>): string {
+  if (path.length === 0) {
+    return '(root)';
+  }
+  return path
+    .map((part, index) => {
+      if (part === anyMember) {
+        return '[*]';
+      }
+      if (typeof part === 'number') {
+        return `[${part}]`;
+      }
+      const key = part.length > 32 ? `${part.slice(0, 29)}...` : part;
+      return /^[A-Za-z_$][\w$]*$/.test(part)
+        ? `${index ? '.' : ''}${key}`
+        : `[${JSON.stringify(key)}]`;
+    })
+    .join('');
+}
+
 /**
- * Zod lets an error thrown inside a transform, refinement or other callback escape the parse.
- * Report it as a rejected value: a thrown ZodError keeps its issues and their paths, any other
- * error becomes one issue at the root, and the original error is the `cause`. Zod's async and
- * encode errors report a wrong entry point, not a rejected value, so they pass through.
+ * The user functions that a parse of the schema can run: transforms (including preprocess),
+ * codec decoders, refinements, overwrites and custom schemas, in the order Zod runs them.
+ * Read from the schema's structure only; no callback is called. Default values, catch
+ * values and lazy getters are not counted. Recursion, shared schemas and list members make
+ * a location ambiguous, and then no location is reported.
  */
-function callbackFailure(error: unknown): unknown {
+function zodCallbacks(root: unknown): Callbacks {
+  const found = new Map<unknown, { kind: string; locations: Map<string, Segment[]> }>();
+  const stack = new Set<object>();
+  let complete = true;
+  let recursive = false;
+  let nodes = 0;
+  const add = (kind: string, callback: unknown, path: Segment[]) => {
+    if (typeof callback !== 'function') {
+      complete = false;
+      return;
+    }
+    let entry = found.get(callback);
+    if (!entry) {
+      entry = { kind, locations: new Map() };
+      found.set(callback, entry);
+    }
+    entry.locations.set(formatLocation(path), path);
+  };
+  const visit = (schema: unknown, path: Segment[], depth: number): void => {
+    const internals = (schema as { readonly _zod?: Record<string, unknown> } | null)?._zod;
+    const def = internals?.def as Record<string, unknown> | undefined;
+    if (typeof schema !== 'object' || schema === null || !def || typeof def !== 'object') {
+      complete = false;
+      return;
+    }
+    if (stack.has(schema)) {
+      recursive = true;
+      return;
+    }
+    if (++nodes > 10_000 || depth > 64) {
+      complete = false;
+      return;
+    }
+    stack.add(schema);
+    const next = (child: unknown, segment?: Segment) =>
+      visit(child, segment === undefined ? path : [...path, segment], depth + 1);
+    try {
+      // Children first: Zod parses an object's fields before its own checks run.
+      switch (def.type) {
+        case 'object':
+          for (const [key, child] of Object.entries(def.shape as object)) {
+            next(child, key);
+          }
+          if (def.catchall) {
+            next(def.catchall, anyMember);
+          }
+          break;
+        case 'array':
+          next(def.element, anyMember);
+          break;
+        case 'tuple':
+          (def.items as unknown[]).forEach((item, index) => next(item, index));
+          if (def.rest) {
+            next(def.rest, anyMember);
+          }
+          break;
+        case 'record':
+        case 'map':
+          next(def.keyType, anyMember);
+          next(def.valueType, anyMember);
+          break;
+        case 'set':
+          next(def.valueType, anyMember);
+          break;
+        case 'union':
+          for (const option of def.options as unknown[]) {
+            next(option);
+          }
+          break;
+        case 'intersection':
+          next(def.left);
+          next(def.right);
+          break;
+        case 'pipe':
+          next(def.in);
+          // A codec decodes between its input and output schemas.
+          if (def.transform !== undefined) {
+            add('codec', def.transform, path);
+          }
+          next(def.out);
+          break;
+        case 'transform':
+          add('transform', def.transform, path);
+          break;
+        case 'custom':
+          add('custom schema', def.fn, path);
+          break;
+        case 'lazy':
+          next(internals?.innerType);
+          break;
+        default:
+          if (wrapperTypes.has(def.type as string)) {
+            next(def.innerType);
+          } else if (!leafTypes.has(def.type as string)) {
+            complete = false;
+          }
+      }
+      for (const check of Array.isArray(def.checks) ? (def.checks as unknown[]) : []) {
+        const internal = (check as { readonly _zod?: Record<string, unknown> } | null)?._zod;
+        const checkDef = internal?.def as Record<string, unknown> | undefined;
+        if (checkDef?.check === 'custom') {
+          add('refinement', checkDef.fn ?? internal?.check, path);
+        } else if (checkDef?.check === 'overwrite') {
+          add('overwrite', checkDef.tx ?? internal?.check, path);
+        }
+      }
+    } finally {
+      stack.delete(schema);
+    }
+  };
+  try {
+    visit(root, [], 0);
+  } catch {
+    complete = false;
+  }
+  const list = [...found].map(([callback, { kind, locations }]): Callback => {
+    const own: unknown = Object.getOwnPropertyDescriptor(callback, 'name')?.value;
+    const name =
+      typeof own === 'string' && /^(?:bound )*[A-Za-z_$][\w$]{0,63}$/.test(own) ? own : undefined;
+    const [location, path] = (locations.size === 1 && !recursive && [...locations][0]) || [];
+    return {
+      kind,
+      name,
+      location,
+      path: path && !path.includes(anyMember) ? (path as Array<string | number>) : undefined,
+    };
+  });
+  return { complete, list };
+}
+
+/** `transform fromDto`, or `transform at deal` for an anonymous function. */
+function callbackLabel(callback: Callback): string {
+  if (callback.name) {
+    return `${callback.kind} ${callback.name}`;
+  }
+  return callback.location ? `${callback.kind} at ${callback.location}` : callback.kind;
+}
+
+/**
+ * Zod lets an error thrown inside a transform, refinement or other callback escape the parse,
+ * without a path. Report it as a rejected value whose `cause` is the original error. A thrown
+ * ZodError keeps its issues and their paths, which are relative to that inner parse; any other
+ * error becomes one issue. When the schema has a single callback, the message names it and
+ * its fixed location, if any, prefixes the paths. With several, it lists them, because the one
+ * that threw is unknown; nothing is guessed from the rejected value. Zod's async and encode
+ * errors report a wrong entry point, not a rejected value, so they pass through.
+ */
+function callbackFailure(error: unknown, callbacks: () => Callbacks): unknown {
   if (error instanceof z.$ZodAsyncError || error instanceof z.$ZodEncodeError) {
     return error;
   }
+  const { complete, list } = callbacks();
+  const only = complete && list.length === 1 ? list[0] : undefined;
+  const prefix = only?.path ?? [];
   const issues: ReadonlyArray<ValidationIssue> =
     error instanceof z.$ZodError && error.issues.length > 0
-      ? error.issues
+      ? prefix.length
+        ? error.issues.map((issue) => ({ ...issue, path: [...prefix, ...issue.path] }))
+        : error.issues
       : [
           {
-            message: `A Zod transform or refinement threw ${
+            message: `${only ? `The Zod ${callbackLabel(only)}` : 'A Zod transform or refinement'} threw ${
               error instanceof Error ? `${error.name}: ${error.message}` : `a ${typeof error}`
             }`,
-            path: [],
+            path: [...prefix],
           },
         ];
-  const failure = new BuilderValidationError(issues);
-  // The same own, non-enumerable property that the standard `cause` option defines.
-  Object.defineProperty(failure, 'cause', { value: error, writable: true, configurable: true });
-  return failure;
+  const detail = only
+    ? `thrown by the Zod ${callbackLabel(only)}`
+    : complete && list.length > 1
+      ? `thrown by one of the Zod callbacks ${list.slice(0, 3).map(callbackLabel).join(', ')}${
+          list.length > 3 ? ` and ${list.length - 3} more` : ''
+        }`
+      : 'thrown by a Zod callback';
+  return new BuilderValidationError(issues, { cause: error, detail });
 }
 
 /** Native parsing and codecs; JSON conversion is needed only for automatic generation. */
@@ -218,6 +449,9 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
   // Zod 4.3 and older assign `async` and `direction` to the context they receive, so every
   // call gets its own copy and the configured options stay unchanged.
   const context = () => ({ ...parseOptions });
+  // Read only when a callback throws.
+  let callbacks: Callbacks | undefined;
+  const inspect = () => (callbacks ??= zodCallbacks(source));
   const standard: StandardSchemaV1<Input, Output> = {
     '~standard': {
       version: 1,
@@ -229,7 +463,7 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
           // the native mode explicitly so user callbacks are never probed twice.
           result = z.safeParse(source, value, context());
         } catch (error) {
-          throw callbackFailure(error);
+          throw callbackFailure(error, inspect);
         }
         return result.success ? { value: result.data } : { issues: result.error.issues };
       },
@@ -244,7 +478,7 @@ export function zodAdapter<S extends z.$ZodType>(source: S, options: ZodOptions 
         try {
           result = await z.safeParseAsync(source, value, context());
         } catch (error) {
-          throw callbackFailure(error);
+          throw callbackFailure(error, inspect);
         }
         return result.success ? { value: result.data } : { issues: result.error.issues };
       },

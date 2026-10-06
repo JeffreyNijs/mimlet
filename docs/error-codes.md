@@ -28,6 +28,8 @@ programming errors, not states to branch on.
 
 A `BuilderValidationError` message names the issue count and up to three failing
 paths, for example `Schema validation failed: 2 issues at owner.email, items[0].price`.
+When an adapter reports an error thrown inside a schema callback, the message ends
+with where it came from, for example `; thrown by the Zod transform fromDto`.
 It never includes native issue messages, which can repeat the rejected value. Read
 the non-enumerable `issues` property, or call `formatValidationIssues(error, { messages: true })`,
 to see them. See [validation diagnostics](../packages/core/README.md#validation-diagnostics).

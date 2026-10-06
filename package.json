@@ -87,7 +87,7 @@
     "pack:check": "node scripts/pack-workspace.mjs --check",
     "release:prepare": "node scripts/pack-workspace.mjs",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node scripts/sync-runtime-versions.mjs",
     "test:runtimes": "node scripts/test-runtimes.mjs",
     "test:examples": "node scripts/test-examples.mjs",
     "benchmark": "node scripts/benchmark.ts",

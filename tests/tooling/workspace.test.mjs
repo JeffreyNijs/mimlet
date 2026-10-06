@@ -228,6 +228,25 @@ it('does not follow symbolic package manifests', () =>
     await symlink(join(root, 'other.json'), path);
     await assert.rejects(readWorkspace(root), /symbolic links/);
   }));
+it('requires a runtime version file to match its package version', () =>
+  fixture(async ({ root, write }) => {
+    const version = baseline.coreVersion;
+    await write('packages/json-schema/src/version.ts', "export const packageVersion = '0.0.1';\n");
+    await assert.rejects(readWorkspace(root), /declares 0\.0\.1 but @mimlet\/json-schema is/);
+    await write('packages/json-schema/src/version.ts', 'export const other = 1;\n');
+    await assert.rejects(readWorkspace(root), /unreadable version\.ts/);
+    await write(
+      'packages/json-schema/src/version.ts',
+      `/** Docs. */\nexport const packageVersion = '${version}';\n`
+    );
+    await readWorkspace(root);
+    // The real file is kept in sync.
+    const real = await readFile(
+      new URL('../../packages/json-schema/src/version.ts', import.meta.url),
+      'utf8'
+    );
+    assert.ok(real.includes(`export const packageVersion = '${version}';`));
+  }));
 it('derives supported peer ranges up to the next breaking release and tested ranges from the matrix', () => {
   assert.equal(supportedPeerRange('4.0.0'), '>=4.0.0 <5');
   assert.equal(supportedPeerRange('10.5.0'), '>=10.5.0 <11');

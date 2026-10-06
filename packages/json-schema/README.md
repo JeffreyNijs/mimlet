@@ -151,6 +151,42 @@ Caller-supplied sessions advance deterministically and preserve named isolation.
 The entire schema has one stream; field-stability across schema changes is not
 claimed. Snapshots contain generation state, not user callback implementations.
 
+## Shared preparation
+
+Preparing an adapter copies and checks the schema, compiles its Ajv validator and
+computes the replay identity. Compiling is most of the cost of a first build, so a
+process keeps prepared generators and reuses one for equal content:
+
+- **Key.** The exact JSON text of the schema and of the `references` map, property
+  order included, plus the dialect, profile, limits, `annotations`, `extensionIdentity`,
+  `formatsIdentity` and provider id. Anything that differs prepares its own generator,
+  so two reference maps or two profiles never mix.
+- **Not shared.** Custom `keywords` and `formats` hold callbacks that the validator
+  calls, so an adapter with either always prepares its own. Schema data with a
+  negative zero is not shared either, because its JSON text reads `0`.
+- **Validators.** Ajv instances are shared per dialect, limits, annotations and
+  reference map, so the JSON Schema meta-schema is compiled once instead of once per
+  schema. Ajv keeps every schema an instance compiled, so an instance is replaced after
+  32 schemas. A schema that declares an `$id` gets an instance of its own.
+- **Bound.** The 256 most recently used prepared generators are kept. One holds the
+  compiled validator and copies of the schema, typically 40 to 100 KB for a generated
+  API response schema, so the default keeps a few tens of MB at most.
+- **Scope and versions.** The store is on `globalThis` under
+  `Symbol.for('mimlet.generators.v1')`, with one store per package version, so two
+  versions in one process never share entries. It survives a module that is
+  evaluated again in the same realm, such as Vitest with `isolate: false` and
+  `vi.resetModules()`, or a dev server reloading a mock module. A worker thread,
+  child process, browser frame or `vm` context has its own `globalThis` and starts
+  empty; Vitest's default isolation runs each spec file in a new worker.
+- **Off switch.** `MIMLET_GENERATOR_CACHE=off` (or `0`) turns sharing off, and a number
+  sets the limit; the variable is read when the store is first used.
+  `configureGeneratorCache({ maxEntries })` does the same at runtime, also in a
+  browser, and returns `{ maxEntries, entries }`; `clearGeneratorCache()` drops
+  everything kept. With sharing off, every adapter prepares its own validator.
+
+Generated values, sessions, replay identities and validation issues are the same with
+sharing on or off.
+
 ## References and trust boundary
 
 `references` is an explicit URI-to-schema dictionary. No remote resolver, network

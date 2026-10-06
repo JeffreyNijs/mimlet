@@ -260,3 +260,10 @@ try {
 It accepts the error or its `issues` array, lists up to `limit` issues (default 10)
 one per line, and includes messages only with `messages: true`. Exceptions thrown
 directly by trusted factories or validator callbacks retain their original behavior.
+
+An adapter that turns a thrown error into a validation failure can say where it came
+from: `new BuilderValidationError(issues, { cause, detail })` appends the detail after a
+semicolon, for example
+`Schema validation failed: 1 issue at (root); thrown by the Zod transform fromDto`.
+The detail is written from schema structure such as callback names, never from the
+rejected value, and is cut at 200 characters.
