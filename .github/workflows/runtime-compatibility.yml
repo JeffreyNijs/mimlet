@@ -22,7 +22,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [zod, typebox, typebox-legacy, arktype, faker, effect, valibot, fast-check]
+        adapter:
+          - zod
+          - typebox
+          - typebox-legacy
+          - arktype
+          - faker
+          - effect
+          - valibot
+          - fast-check
+          - class-validator
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -37,7 +46,8 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: native-version-report-${{ matrix.adapter }}
-          path: test-results/vendor-versions-${{ matrix.adapter }}.json
+          # One report per native library; an adapter with several adds the library's name.
+          path: test-results/vendor-versions-${{ matrix.adapter }}*.json
           if-no-files-found: error
           retention-days: 7
 

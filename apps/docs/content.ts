@@ -39,7 +39,7 @@ export const quickstart = {
 };
 
 /** Implemented in source, but excluded from the currently published release train. */
-export const previewPackages: readonly string[] = [];
+export const previewPackages: readonly string[] = ['@mimlet/class-validator'];
 
 export const stories = [
   {

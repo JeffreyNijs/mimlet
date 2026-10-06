@@ -21,7 +21,8 @@
       "@mimlet/typebox-legacy",
       "@mimlet/valibot",
       "@mimlet/zod",
-      "@mimlet/arktype"
+      "@mimlet/arktype",
+      "@mimlet/class-validator"
     ]
   ],
   "linked": [],

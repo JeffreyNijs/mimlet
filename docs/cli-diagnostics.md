@@ -22,7 +22,9 @@ Workspace symlinks and ordinary Node-style ancestor resolution are supported.
 Missing optional dependencies are allowed; installed optional peers must match.
 
 An adapter's peer range is its supported range: it runs up to the native library's
-next major release (the next minor for 0.x libraries). Inside it, the adapter's
+next major release (the next minor for 0.x libraries, or the minor after the last tested
+0.x minor line where an adapter tests several; see
+[compatibility](compatibility.md#supported-and-tested-versions)). Inside it, the adapter's
 `package.json` names the versions the release was tested with in
 `mimlet.testedPeers`. A peer outside the supported range is the error
 `PEER_VERSION_UNSUPPORTED`. A peer inside the supported range but outside the

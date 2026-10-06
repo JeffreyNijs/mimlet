@@ -49,6 +49,7 @@ body:
         - '@mimlet/zod'
         - '@mimlet/arktype'
         - '@mimlet/valibot'
+        - '@mimlet/class-validator'
         - '@mimlet/typebox'
         - '@mimlet/typebox-legacy'
         - '@mimlet/effect'

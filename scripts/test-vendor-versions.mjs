@@ -14,9 +14,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import {
   compareVersions,
+  groupSupportedRange,
   readVendorMatrix,
   satisfiesPeerRange,
-  supportedPeerRange,
 } from './check-workspace.mjs';
 import { locateNpm } from './packed-consumer.mjs';
 import { checkPackedFixture } from './test-optional.mjs';
@@ -152,6 +152,16 @@ async function withFixture(group, edit, run) {
   }
 }
 
+/**
+ * The report file of a group: `<kind>-<adapter>.json`, plus the library's name when the adapter
+ * has several groups (for example `vendor-versions-class-validator-class-transformer.json`).
+ */
+function reportName(kind, group) {
+  const shared = matrix.groups.filter((other) => other.adapter === group.adapter).length > 1;
+  const library = group.dependency.replace(/^@/, '').replaceAll('/', '-');
+  return `${kind}-${group.adapter}${shared && library !== group.adapter ? `-${library}` : ''}.json`;
+}
+
 async function report(name, value) {
   await mkdir(join(root, 'test-results'), { recursive: true });
   await writeFile(
@@ -172,13 +182,15 @@ for (const group of matrix.groups.filter((group) => !selected || group.adapter =
       'effect',
       'valibot',
       'fast-check',
+      'class-validator',
+      'class-transformer',
     ].includes(group.dependency)
   )
     throw new Error('Invalid version matrix');
   const pkg = JSON.parse(
     await readFile(join(root, 'packages', group.adapter, 'package.json'), 'utf8')
   );
-  const supported = supportedPeerRange(group.minimum);
+  const supported = groupSupportedRange(group);
   assert.equal(pkg.peerDependencies[group.dependency], supported, 'Peer range must be supported');
   assert.equal(
     pkg.mimlet?.testedPeers?.[group.dependency],
@@ -202,7 +214,7 @@ for (const group of matrix.groups.filter((group) => !selected || group.adapter =
       console.error(
         `${group.dependency}@${version} is outside the supported peer range ${supported} of @mimlet/${group.adapter}`
       );
-      await report(`vendor-canary-${group.adapter}.json`, {
+      await report(reportName('vendor-canary', group), {
         ...result,
         status: 'outside-supported-range',
       });
@@ -235,7 +247,7 @@ for (const group of matrix.groups.filter((group) => !selected || group.adapter =
         await checkPackedFixture(fixture);
       }
     );
-    await report(`vendor-canary-${group.adapter}.json`, { ...result, status: 'passed' });
+    await report(reportName('vendor-canary', group), { ...result, status: 'passed' });
     continue;
   }
   const results = [];
@@ -257,7 +269,7 @@ for (const group of matrix.groups.filter((group) => !selected || group.adapter =
     );
     results.push({ version: version.version, integrity: version.integrity, status: 'passed' });
   }
-  await report(`vendor-versions-${group.adapter}.json`, {
+  await report(reportName('vendor-versions', group), {
     dependency: group.dependency,
     range: group.range,
     supported,

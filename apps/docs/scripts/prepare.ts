@@ -217,6 +217,11 @@ export async function prepare(): Promise<void> {
       'Dedicated native builders, codecs and factories, published since alpha.1',
     ],
     [
+      'NestJS DTOs',
+      'class-validator',
+      'class-validator DTO payloads and the instances ValidationPipe produces, next train',
+    ],
+    [
       'Replay',
       'sessions-and-replay',
       'Explicit seeds, compatibility identities and bounded sessions',
@@ -252,7 +257,7 @@ export async function prepare(): Promise<void> {
       packages
         .map(
           ({ name, directory }) =>
-            `- [${name}](${base}packages/${directory}.md)${previewPackages.includes(name) ? ': Next-release source preview; not in the published alpha.' : ''}`
+            `- [${name}](${base}packages/${directory}.md)${previewPackages.includes(name) ? ': Next-release source preview; not in the published train.' : ''}`
         )
         .join('\n') +
       `\n\n## Optional\n\n- [Mimlet skill](${sourceUrl}skills/mimlet/SKILL.md): Optional agent usage guide; install only when requested.\n`

@@ -26,7 +26,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [zod, typebox, typebox-legacy, arktype, faker, effect, valibot, fast-check]
+        adapter:
+          - zod
+          - typebox
+          - typebox-legacy
+          - arktype
+          - faker
+          - effect
+          - valibot
+          - fast-check
+          - class-validator
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +54,6 @@ jobs:
         if: always()
         with:
           name: native-canary-${{ matrix.adapter }}
-          path: test-results/vendor-canary-${{ matrix.adapter }}.json
+          path: test-results/vendor-canary-${{ matrix.adapter }}*.json
           if-no-files-found: ignore
           retention-days: 14

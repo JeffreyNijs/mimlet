@@ -98,6 +98,7 @@ export default defineConfig({
           { text: 'Compare fixture approaches', link: '/guide/checkout-comparison' },
           { text: 'Choose an adapter', link: '/guide/adapters' },
           { text: 'Zod and ArkType', link: '/guide/zod-and-arktype' },
+          { text: 'NestJS DTOs (class-validator)', link: '/guide/class-validator' },
           { text: 'For coding agents', link: '/guide/agents' },
         ],
       },

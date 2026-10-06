@@ -44,10 +44,44 @@ export function compareVersions(left, right) {
  * The peer range an adapter publishes for its native library: from the tested minimum up to the
  * next release that may break it. That is the next major from 1.0.0, and the next minor for 0.x,
  * so a compatible upstream patch or minor never makes `npm install` fail with ERESOLVE.
+ *
+ * Exception: a 0.x library whose group in `tests/vendor-versions.json` lists `minorLines` (for
+ * example `["0.14", "0.15"]`) is supported up to the minor after the last line, here `<0.16`.
+ * `readVendorMatrix` accepts the list only when the lines are consecutive, run from the minimum's
+ * line to the maximum's, and each line has at least one tested version.
  */
-export function supportedPeerRange(minimum) {
+export function supportedPeerRange(minimum, minorLines) {
   const [major, minor] = parseExact(minimum);
-  return `>=${minimum} <${major > 0 ? major + 1 : `0.${minor + 1}`}`;
+  if (minorLines === undefined) return `>=${minimum} <${major > 0 ? major + 1 : `0.${minor + 1}`}`;
+  const last = minorLines.at(-1);
+  const match = typeof last === 'string' ? /^0\.(0|[1-9]\d*)$/.exec(last) : null;
+  if (major !== 0 || !match) fail('minorLines applies to 0.x libraries only');
+  return `>=${minimum} <0.${Number(match[1]) + 1}`;
+}
+
+/** The supported peer range of a group in `tests/vendor-versions.json`. */
+export function groupSupportedRange(group) {
+  return supportedPeerRange(group.minimum, group.minorLines);
+}
+
+/** Validate a group's `minorLines` exception against its tested versions. */
+function checkMinorLines(id, group) {
+  const lines = group.minorLines;
+  if (lines === undefined) return;
+  const minor = (version) => parseExact(version)[1];
+  if (
+    !Array.isArray(lines) ||
+    lines.length < 2 ||
+    lines.length > 8 ||
+    parseExact(group.minimum)[0] !== 0 ||
+    lines.some((line, index) => line !== `0.${minor(group.minimum) + index}`) ||
+    lines.at(-1) !== `0.${minor(group.maximum)}`
+  )
+    fail(`${id}: minorLines must list consecutive 0.x minor lines from the minimum to the maximum`);
+  for (const line of lines) {
+    if (!group.versions.some((entry) => entry.version.startsWith(`${line}.`)))
+      fail(`${id}: minorLines ${line} has no tested version`);
+  }
 }
 
 /** The range of versions that `tests/vendor-versions.json` installs and tests one by one. */
@@ -101,6 +135,7 @@ export async function readVendorMatrix(root) {
       fail(`${id}: minimum and maximum must be the first and last tested versions`);
     if (group.range !== testedPeerRange(group.minimum, group.maximum))
       fail(`${id}: range must be ${testedPeerRange(group.minimum, group.maximum)}`);
+    checkMinorLines(id, group);
   }
   return matrix;
 }
@@ -137,7 +172,7 @@ function checkNativePeers(packages, matrix) {
       if (!group)
         fail(`${pkg.name}: native peer ${name} has no group in tests/vendor-versions.json`);
       used.add(group);
-      const supported = supportedPeerRange(group.minimum);
+      const supported = groupSupportedRange(group);
       if (pkg.peerDependencies?.[name] !== supported)
         fail(`${pkg.name}: peerDependencies.${name} must be ${supported}`);
       if (tested[name] !== group.range)

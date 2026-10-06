@@ -1,0 +1,73 @@
+{
+  "name": "@mimlet/class-validator",
+  "version": "0.1.0-beta.3",
+  "private": false,
+  "description": "class-validator DTOs as Standard Schemas: fixtures validated the way NestJS's ValidationPipe validates requests.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "class-transformer": ">=0.5.1 <0.6",
+    "class-validator": ">=0.14.1 <0.16"
+  },
+  "mimlet": {
+    "testedPeers": {
+      "class-transformer": "0.5.1",
+      "class-validator": ">=0.14.1 <=0.15.1"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeffreyNijs/mimlet.git",
+    "directory": "packages/class-validator"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "pnpm type-check",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src",
+    "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-class-validator.test.ts"
+  },
+  "dependencies": {
+    "@mimlet/core": "0.1.0-beta.3"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "tag": "latest"
+  },
+  "bugs": {
+    "url": "https://github.com/JeffreyNijs/mimlet/issues"
+  },
+  "homepage": "https://jeffreynijs.github.io/mimlet/packages/class-validator",
+  "keywords": [
+    "test-data",
+    "fixtures",
+    "builders",
+    "standard-schema",
+    "class-validator",
+    "nestjs"
+  ],
+  "devDependencies": {
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1"
+  }
+}

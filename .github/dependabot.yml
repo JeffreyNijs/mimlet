@@ -29,6 +29,8 @@ updates:
       - dependency-name: typebox
       - dependency-name: '@sinclair/typebox'
       - dependency-name: fast-check
+      - dependency-name: class-validator
+      - dependency-name: class-transformer
       # The workspace builds and generates with TypeScript 6: tsup's declaration build and
       # @hey-api/openapi-ts load TypeScript's compiler API at runtime, which TypeScript 7 no
       # longer ships. Revisit when both support TypeScript 7. Consumers on TypeScript 7 are
