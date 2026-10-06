@@ -1,6 +1,6 @@
 # Compatibility contract
 
-This describes the published `0.1.0-beta.4` train and its tested source contracts. A supported interface, a native parser,
+This describes the published `0.1.0-beta.5` train and its tested source contracts. A supported interface, a native parser,
 an automatic generator and a shrinker are different capabilities. Native package
 versions below are the tested versions; each adapter's peer range, its supported
 range, can be wider (see [supported and tested versions](#supported-and-tested-versions)).
