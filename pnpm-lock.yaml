@@ -15,6 +15,7 @@ overrides:
   js-yaml@4: 4.3.2
   vitepress>vite: 6.4.3
   brace-expansion@5: 5.0.12
+  source-map-js: 1.2.2
 
 importers:
 
@@ -2587,10 +2588,6 @@ packages:
     resolution: {integrity: sha512-kUMbT1oBJCpgrnKoSr0o6wPtvRWT9W9UKvGLwfJYO2WuahZRHOpEyL1ckyMGgMWh0UdpmaoFqKKD29WTomNEGA==}
     engines: {node: '>=8'}
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
-    engines: {node: '>=0.10.0'}
-
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
@@ -4072,7 +4069,7 @@ snapshots:
       estree-walker: 2.0.2
       magic-string: 0.30.21
       postcss: 8.5.26
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   '@vue/compiler-ssr@3.5.43':
     dependencies:
@@ -5158,8 +5155,6 @@ snapshots:
   skin-tone@2.0.0:
     dependencies:
       unicode-emoji-modifier-base: 1.0.0
-
-  source-map-js@1.2.1: {}
 
   source-map-js@1.2.2: {}
 
