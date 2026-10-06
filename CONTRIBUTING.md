@@ -45,6 +45,10 @@ and the packed Hey API consumer. The browser and portable-runtime workflows are
 additional release gates. Run `pnpm test:runtimes` for the active Node contract;
 `node scripts/test-runtimes.mjs bun` or `deno` requires that runtime to be installed.
 `pnpm benchmark` produces a correctness-checked hardware-specific report.
+`node scripts/benchmark-zod.ts` measures the start-up cost of Zod builders for the
+generated API in `tests/unit/fixtures/zod-crm.gen.ts`: import, a builder per schema
+at module load and a few first builds, each sample in a fresh process. Pass the path
+of another build of `@mimlet/zod` to compare two versions.
 
 TypeScript expected-error assertions are real tests: an unused expectation fails
 compilation. Test both inference and the absence of `any`/`never` degradation.
