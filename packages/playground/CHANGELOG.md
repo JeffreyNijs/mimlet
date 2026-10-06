@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.4
+
+### Patch Changes
+
+- ae36328: The playground offers the new `realistic` profile.
+- Updated dependencies [62b95de]
+- Updated dependencies [ae36328]
+- Updated dependencies [ae36328]
+- Updated dependencies [c1282f7]
+  - @mimlet/core@0.1.0-beta.4
+  - @mimlet/json-schema@0.1.0-beta.4
+
 ## 0.1.0-beta.3
 
 ### Patch Changes

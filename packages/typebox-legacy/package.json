@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/typebox-legacy",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "private": false,
   "description": "Native @sinclair/typebox fixtures, strict validation and codecs for Mimlet.",
   "type": "module",
@@ -63,6 +63,6 @@
     "@sinclair/typebox": "0.34.52"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.3"
+    "@mimlet/core": "0.1.0-beta.4"
   }
 }
