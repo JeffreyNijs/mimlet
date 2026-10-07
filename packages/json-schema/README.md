@@ -165,8 +165,9 @@ process keeps prepared generators and reuses one for equal content:
   calls, so an adapter with either always prepares its own. Schema data with a
   negative zero is not shared either, because its JSON text reads `0`.
 - **Validators.** Ajv instances are shared per dialect, limits, annotations and
-  reference map, so the JSON Schema meta-schema is compiled once instead of once per
-  schema. Ajv keeps every schema an instance compiled, so an instance is replaced after
+  reference map, so the JSON Schema meta-schema, when it is needed (see
+  [preparation cost](#preparation-cost)), is compiled once instead of once per schema.
+  Ajv keeps every schema an instance compiled, so an instance is replaced after
   32 schemas. A schema that declares an `$id` gets an instance of its own.
 - **Bound.** The 256 most recently used prepared generators are kept. One holds the
   compiled validator and copies of the schema, typically 40 to 100 KB for a generated
@@ -186,6 +187,32 @@ process keeps prepared generators and reuses one for equal content:
 
 Generated values, sessions, replay identities and validation issues are the same with
 sharing on or off.
+
+## Preparation cost
+
+A new process, such as a Vitest worker for each spec file, prepares every schema it
+uses again. Two steps keep that short without changing any result:
+
+- **Meta-schema check.** Ajv checks each schema against the JSON Schema meta-schema
+  before compiling it, and compiling the meta-schema itself took several milliseconds
+  in every new process. A quick check now accepts a schema when every keyword has a
+  value of the kind the meta-schema requires, and then Ajv's check is skipped. A
+  schema it cannot decide (an `$id`, anchors, an extension keyword, an unusual value)
+  or that is invalid gets Ajv's full check, at the same point and with the same error
+  (`SchemaPreparationError` with code `SCHEMA_PREPARATION_FAILED` and Ajv's
+  `schema is invalid: ...` message as its `cause`). Adapters with custom `keywords` or
+  `formats` always get the full check.
+- **No code tidying.** Validators are compiled with Ajv's `code.optimize` pass turned
+  off. That pass only tidies the generated code: the validator accepts and reports
+  the same, runs as fast once warm, and compiling took about a third less time.
+
+For five generated API response schemas in a new process, the first validated builds
+went from about 62 ms to 42 ms on an Apple M5.
+
+Compiled validators are not cached on disk. Such a cache could skip most of the
+remaining compile time in a new worker, but it would run code read back from the
+file system, and it needs a safe location, invalidation by content and version,
+concurrent writers and a way to stay out of browsers. That is not done for now.
 
 ## References and trust boundary
 

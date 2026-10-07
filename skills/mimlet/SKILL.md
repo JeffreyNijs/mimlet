@@ -42,7 +42,9 @@ that a schema has valid generated values.
 4. Model relationships as scenario dependencies. For shrinking, shrink independent
    inputs and recompute foreign keys/totals from them. To vary one field of a derived
    node (0.1.0-beta.5 and newer), use `scenario.patch(name, patcher)`
-   instead of an override that repeats the derivation.
+   instead of an override that repeats the derivation. For a class instance node,
+   releases after 0.1.0-beta.5 also take the changed fields,
+   `scenario.patch(name, { status: 'sent' })`, which keeps the class; a spread copy does not.
 5. Use explicit seeds and compatible provider/schema/configuration identities.
    Save before an operation to reproduce it. Preserve replay errors and the original
    failing test; a seed does not control arbitrary user I/O or external state.
@@ -64,7 +66,8 @@ For DTO classes validated with class-validator (NestJS), `@mimlet/class-validato
 (0.1.0-beta.4 and newer; check that it is installed) builds payloads with `build()` and the
 DTO instances `ValidationPipe` produces with `buildValidated()`:
 `fromClassValidator(Dto, factory, validationPipeOptions)`, with `wire: qs` for query
-DTOs and `fromClassValidatorAsync` for async constraints. See `docs/class-validator.md`.
+DTOs and `fromClassValidatorAsync` for async constraints. Releases after 0.1.0-beta.5 add
+`withClassValidatorDefaults(options)` to bind those options once. See `docs/class-validator.md`.
 
 The Zod/ArkType adapters are documented in `docs/zod-and-arktype.md` and included
 from `0.1.0-alpha.1`. Match the installed toolkit train. Zod schemas with async

@@ -6,14 +6,18 @@ import {
   type AsyncSchemaBuilder,
   type InstanceInput,
   type SchemaBuilder,
+  type SchemaFields,
 } from '@mimlet/core';
 import {
   classValidatorFields,
   classValidatorSchema,
   fromClassValidator,
   fromClassValidatorAsync,
+  withClassValidatorDefaults,
   type AsyncClassValidatorBuilder,
   type ClassValidatorBuilder,
+  type ClassValidatorFieldNames,
+  type ClassValidatorWithDefaults,
   type DtoClass,
   type DtoInput,
 } from '@mimlet/class-validator';
@@ -130,3 +134,57 @@ expectType<Order>(createInstanceBuilder(Order, () => ({ uuid: 'o-1' })).build())
 // @ts-expect-error Schema builders have no map().
 orders.map((value) => value);
 classValidatorSchema(CreateOrderCommand, { wire: false });
+
+// A key that is not a payload field is an error without a return type annotation.
+// @ts-expect-error A misspelled field.
+fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows', titel: 'Doors' }));
+// @ts-expect-error A field typed never.
+fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows', sort: 'name' }));
+// @ts-expect-error A misspelled field of a nested DTO.
+fromClassValidator(CreateOrderCommand, () => ({ location: { side: null, floor: null, flor: 1 } }));
+// @ts-expect-error The same in an async factory.
+fromClassValidatorAsync(CreateOrderCommand, async () => ({ title: 'Windows', count: 1 }));
+// Literals and nested DTOs need no annotation.
+fromClassValidator(CreateOrderCommand, () => ({
+  title: 'Windows',
+  location: { side: Side.BACK, floor: 2 },
+  tags: ['a'],
+}));
+
+// Options bound once keep the builder types.
+const query = withClassValidatorDefaults({ whitelist: true, transform: true, wire: qs });
+expectExact<typeof query.defaults.transform, true>(true);
+// @ts-expect-error The defaults are readonly.
+query.defaults.whitelist = false;
+const helperDefaults = (
+  defaults: ClassValidatorWithDefaults<{ transform: true }>
+): ClassValidatorBuilder<CreateOrderCommand, typeof factory> =>
+  defaults.fromClassValidator(CreateOrderCommand, factory);
+helperDefaults(withClassValidatorDefaults({ transform: true }));
+const viewed = query.fromClassValidator(CreateOrderCommand, factory);
+expectExact<typeof viewed, ClassValidatorBuilder<CreateOrderCommand, typeof factory>>(true);
+const payloads = withClassValidatorDefaults({ transform: false, wire: qs });
+const plainViewed = payloads.fromClassValidator(CreateOrderCommand, factory);
+expectExact<ReturnType<typeof plainViewed.buildValidated>, DtoInput<CreateOrderCommand>>(true);
+const asyncViewed = payloads.fromClassValidatorAsync(CreateOrderCommand, factory, {
+  transform: true,
+});
+expectExact<typeof asyncViewed, AsyncClassValidatorBuilder<CreateOrderCommand, typeof factory>>(
+  true
+);
+// @ts-expect-error Bound builders check the factory's keys too.
+query.fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows', titel: 'Doors' }));
+// @ts-expect-error async, name and defaultSession are per-builder options.
+withClassValidatorDefaults({ async: true });
+
+// The field list's type holds the fields typed never until they are excluded.
+expectExact<
+  ClassValidatorFieldNames<CreateOrderCommand>,
+  'title' | 'productCount' | 'location' | 'tags' | 'sort'
+>(true);
+const payloadFields = classValidatorFields(CreateOrderCommand, { exclude: ['sort'] });
+expectExact<typeof payloadFields, SchemaFields<'title' | 'productCount' | 'location' | 'tags'>>(
+  true
+);
+// @ts-expect-error Excluded names are fields of the DTO.
+classValidatorFields(CreateOrderCommand, { exclude: ['sortt'] });

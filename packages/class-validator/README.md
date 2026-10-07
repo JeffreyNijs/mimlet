@@ -47,7 +47,12 @@ const command = createOrderCommandBuilder.buildValidated(); // a CreateOrderComm
 
 The factory returns `DtoInput<CreateOrderCommand>`, the payload type: the DTO's data fields,
 recursively for nested DTOs, without methods and without fields typed `never`. The type comes
-from the class, so the factory needs no annotation.
+from the class, so the factory needs no annotation. A key that is not a payload field (a
+misspelled field, a field typed `never` or a method, also in nested DTOs and arrays) is a
+compile error, although TypeScript on its own does not report extra keys of a returned object:
+`() => ({ title: 'Windows', titel: 'Doors' })` fails with
+`Type 'string' is not assignable to type '"titel is not a field of the class"'`. A nested type
+without known keys (`object`, `Record<string, unknown>`) accepts any key.
 
 ## Entry points
 
@@ -56,7 +61,8 @@ from the class, so the factory needs no annotation.
 | `fromClassValidator(Dto, factory, options)`                       | A schema builder. Validation is synchronous (`validateSync()`), so async constraints are skipped. Factory arguments and async factories are kept.               |
 | `fromClassValidatorAsync(Dto, factory, options)`                  | The same with class-validator's async `validate()`, as the pipe runs it, so async constraints apply. Only the async build methods exist.                        |
 | `classValidatorSchema(Dto, options)`                              | The Standard Schema on its own: input `DtoInput<Dto>`, output `Dto` (or the payload with `transform: false`). Use it with `createSchemaBuilder()` or elsewhere. |
-| `classValidatorFields(Dto)`                                       | **Experimental.** The DTO's payload fields, for `fluent(builder, classValidatorFields(Dto))`. See [its limits](#setters-for-every-field).                       |
+| `withClassValidatorDefaults(options)`                             | The three functions above with `options` applied first. See [binding options once](#binding-options-once).                                                      |
+| `classValidatorFields(Dto, { exclude })`                          | **Experimental.** The DTO's fields, for `fluent(builder, classValidatorFields(Dto))`. See [its limits](#setters-for-every-field).                               |
 | `DtoInput<T>`, `DtoClass<T>`                                      | The payload type of a DTO and the class type the functions accept.                                                                                              |
 | `ClassValidatorBuilder<T, F>`, `AsyncClassValidatorBuilder<T, F>` | The builder types, to name as a generic helper's return type.                                                                                                   |
 
@@ -87,7 +93,28 @@ app.useGlobalPipes(new ValidationPipe(validationPipeOptions));
 | `exceptionFactory`, `errorHttpStatusCode`, `disableErrorMessages`, `validateCustomDecorators`, `expectedType` | Accepted so the pipe's options object can be passed unchanged; they have no effect. A failed build reports issues, not an HTTP error.                                                                     |
 
 `fromClassValidator()` and `fromClassValidatorAsync()` also take the core builder options
-(`cloneInput`, `maxListSize`, `validationOptions`, `defaultSession`) in the same object.
+(`cloneInput`, `maxListSize`, `name`, `validationOptions`, `defaultSession`) in the same
+object.
+
+## Binding options once
+
+`withClassValidatorDefaults(options)` returns `fromClassValidator`, `fromClassValidatorAsync`
+and `classValidatorSchema` with `options` applied first, so the pipe's options and the query
+wire are written once:
+
+```ts
+export const body = withClassValidatorDefaults(validationPipeOptions);
+export const query = withClassValidatorDefaults({ ...validationPipeOptions, wire: qs });
+
+const viewOrders = query.fromClassValidator(ViewOrdersQuery, () => ({}));
+const plain = query.fromClassValidator(ViewOrdersQuery, () => ({}), { transform: false });
+```
+
+A call's own options override the defaults key by key; an option object such as
+`transformOptions` replaces the default one. The builders have the same types as the unbound
+functions return, and `transform: false` in the defaults types `buildValidated()` as the
+payload. `defaults` holds the bound options, frozen. `async`, `name` and `defaultSession`
+belong to one builder and throw as defaults. The returned functions do not use `this`.
 
 Like the pipe, the schema turns an absent payload into `{}`, drops `__proto__`, `prototype`
 and `constructor` keys before class-transformer sees the payload, and validates a primitive
@@ -112,6 +139,7 @@ export const viewOrdersQueryBuilder = fluent(
   fromClassValidator(ViewOrdersQuery, () => ({}), { ...validationPipeOptions, wire: qs }),
   ['search', 'statuses', 'pagination']
 );
+// or, with the options bound once: query.fromClassValidator(ViewOrdersQuery, () => ({}))
 
 const query = viewOrdersQueryBuilder.withPagination({ limit: 5, offset: 10 });
 await request(app.getHttpServer()).get(`/orders?${qs.stringify(query.build())}`);
@@ -132,13 +160,23 @@ roles[1].roleUuid: roleUuid must be a UUID
 
 ## Setters for every field
 
-`classValidatorFields(Dto)` is **experimental**. It lists every property that has a
-class-validator decorator, inherited ones included, plus the fields `new Dto()` defines.
-TypeScript cannot compare that list with the class, so a DTO field that has no decorator and
-is not emitted as a class field (a `declare` field, or any field when
-`useDefineForClassFields` is off, as with `target` below ES2022) gets a typed setter that does
-not exist at runtime. With `whitelist: true` the API rejects such a field anyway. Listing the
-fields, as in `fluent(builder, ['title', 'productCount'])`, has no such gap.
+`classValidatorFields(Dto, { exclude })` is **experimental**. It lists every property that
+has a class-validator decorator, inherited ones included, plus the data fields `new Dto()`
+defines (not functions), without the names in `exclude`.
+
+The runtime cannot see TypeScript types, so a field typed `never` with a decorator, such as
+`sort?: never` with `@Equals(undefined)`, is in the list. The list's type,
+`ClassValidatorFieldNames<Dto>`, includes such fields for that reason, and `fluent()` gives
+them no typed setter. Name them in `exclude`, which is checked against the class, to leave
+them out of both: `classValidatorFields(ViewOrdersQuery, { exclude: ['sort'] })`.
+
+TypeScript cannot compare the list with the class in the other direction either: a DTO field
+that has no decorator and is not emitted as a class field (a `declare` field, or any field
+when `useDefineForClassFields` is off, as with `target` below ES2022) gets a typed setter that
+does not exist at runtime. With `whitelist: true` the API rejects such a field anyway. When
+nothing is found at all, as for an undecorated DTO compiled that way, the function throws
+instead of returning an empty list. Listing the fields, as in
+`fluent(builder, ['title', 'productCount'])`, has none of these gaps.
 
 ## Package copies
 

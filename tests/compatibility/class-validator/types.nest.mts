@@ -5,6 +5,7 @@ import * as classValidator from 'class-validator';
 import {
   classValidatorSchema,
   fromClassValidator,
+  withClassValidatorDefaults,
   type ClassValidatorSchemaOptions,
 } from '@mimlet/class-validator';
 
@@ -24,6 +25,11 @@ fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows' }), validationP
 declare const pipeOptions: ValidationPipeOptions;
 const fromPipe: ClassValidatorSchemaOptions = pipeOptions;
 classValidatorSchema(CreateOrderCommand, fromPipe);
+// The same objects can be bound once.
+withClassValidatorDefaults(validationPipeOptions).fromClassValidator(CreateOrderCommand, () => ({
+  title: 'Windows',
+}));
+withClassValidatorDefaults(pipeOptions).classValidatorSchema(CreateOrderCommand);
 // The libraries' module namespaces are valid packages, as in ValidationPipe.
 classValidatorSchema(CreateOrderCommand, {
   validatorPackage: classValidator,

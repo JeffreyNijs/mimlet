@@ -50,11 +50,16 @@ createInstanceBuilder(User, () => ({
 }));
 ```
 
-Methods and private fields are reported the same way. A class with an index signature accepts
-any key, and a factory typed as returning `any` is not checked. When one branch of a conditional
-returns a typed record and the other the same record plus a key, TypeScript merges the two
-types and the extra key is not reported; give that factory a return type
-(`(): InstanceInput<User> => ...`) if it matters.
+A method gets its own message (`"isBlocked is a method of the class, not a field"`), and so
+does a field typed `never` (`"search is typed never in the class and cannot be set"`). Private
+fields are reported as keys that are not fields. A class with an index signature accepts any
+key, and a factory typed as returning `any`, or declared to return exactly the record (such
+as `make: () => InstanceInput<T>` in a generic helper), is not checked. When one branch of a
+conditional returns a typed record and the other the same record plus a key, TypeScript merges
+the two types and the extra key is not reported; give that factory a return type
+(`(): InstanceInput<User> => ...`) if it matters. Adapters reuse the check through the exported
+`KnownFieldsFactory` type; `@mimlet/class-validator` uses `KnownNestedFieldsFactory`, which
+also checks nested records and arrays.
 
 The check is compile-time only. At runtime, every own enumerable key of the record is copied,
 and Mimlet does not compare the keys with the class. A new instance has no own property for a

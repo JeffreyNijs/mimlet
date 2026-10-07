@@ -102,7 +102,13 @@ BuilderValidationError: Schema validation failed: 1 issue at (root); thrown by t
 ```
 
 The callback is named by its function name, or by its location for an anonymous
-function (`thrown by the Zod transform at deal`). This is read from the schema's
+function (`thrown by the Zod transform at deal`). Any non-empty `name` property is
+used, also one set with `Object.defineProperty()`: an identifier or a dotted path such
+as `LeadIndex.toModel` is shown as it is (`thrown by the Zod transform
+LeadIndex.toModel`), and any other name as a JSON string, for example
+`thrown by the Zod transform "to model"`. Control, line-break and invisible
+formatting characters are removed, a name is cut to 100 characters, and a name
+getter is never called. This is read from the schema's
 structure, so it is exact only when the schema has one callback: transforms,
 preprocessors, codecs, refinements, overwrites and `z.custom()` count; default and
 catch values do not. Then a thrown error also gets that callback's location as a path
@@ -290,15 +296,31 @@ generation budgets do not sandbox them. DOM types are needed by Zod's declaratio
 
 Vitest runs each spec file in a new worker by default (`isolate: true`), so each file
 converts and compiles the schemas it builds again; nothing carries over from the
-previous file, also not through the shared preparation above. In a new worker the
-first build costs the most (about 70 ms for a large generated response schema on an
-Apple M5, mostly loading and warming up the validator), and each further schema
-about 5 to 30 ms depending on its size. Validators are shared within the worker, so
-the JSON Schema meta-schema is compiled once per worker instead of once per schema.
-Building fewer distinct schemas per file keeps the cost down. With `isolate: false`,
-Vitest keeps modules between the files that run in one worker, so their builders and
-generators are reused; use it only where your tests do not depend on fresh module
-state. `node scripts/benchmark-zod.ts` in the repository measures both cases.
+previous file, also not through the shared preparation above. On an Apple M5,
+importing `@mimlet/zod` and its validator takes about 20 ms per worker. The first
+build in a worker takes about 30 ms for a large generated response schema, most of
+it warming up the validator compiler and the generator, and the first build of each
+further schema about 2 to 15 ms depending on its size: Zod's conversion, compiling
+the JSON Schema validator (the largest part) and the first generation. Building
+fewer distinct schemas per file keeps the cost down.
+
+`@mimlet/json-schema` keeps that compile step short. It skips compiling the JSON
+Schema meta-schema when a quick check shows that the converted schema is valid,
+which it does for Zod's own output; anything the check cannot decide, such as an
+`$id` added with `.meta()`, gets the full check and the same error as before. It
+also compiles validators without Ajv's optional code tidying. Values, replay
+identities and errors are unchanged; see
+[preparation cost](../json-schema/README.md#preparation-cost).
+In a Vitest project with 14 spec files that each import a module of 80 Hey API Zod
+schemas and validate 10 builds of 5 of them, this cut the summed test time from
+1.9 s to 1.2 s and the run from 0.76 s to 0.66 s (0.44 s without Mimlet). Compiled
+validators are not cached on disk, so every worker still compiles the schemas it
+builds.
+
+With `isolate: false`, Vitest keeps modules between the files that run in one
+worker, so their builders and generators are reused; use it only where your tests do
+not depend on fresh module state. `node scripts/benchmark-zod.ts` in the repository
+measures both cases.
 
 ## Generated Hey API schemas
 

@@ -103,6 +103,45 @@ const asyncThenPatched = asyncCart.patch('external', (name) => name.toUpperCase(
 // @ts-expect-error The scenario was already async.
 asyncThenPatched.build(session);
 
+// patch(name, fields) sets fields of the node's value; keys and values are checked.
+const sent = crm.patch('deal', { status: 'won' });
+expectType<typeof crm>(sent);
+expectType<'open' | 'won' | 'lost'>(sent.build(session).deal.status);
+// @ts-expect-error A misspelled field is a compile error.
+crm.patch('deal', { stauts: 'won' });
+// @ts-expect-error Field values keep the node's type.
+crm.patch('deal', { status: 'closed' });
+// @ts-expect-error A node without fields (here a number) takes a patcher function.
+cart.patch('total', { value: 1 });
+// @ts-expect-error Arrays take a patcher function too.
+cart.patch('lines', { length: 0 });
+// The fields of a class instance node exclude methods and fields typed never.
+class Account {
+  uuid!: string;
+  name!: string;
+  search?: never;
+  get label(): string {
+    return this.uuid;
+  }
+  rename(): void {}
+}
+const accounts = createScenario().node('account', [], () => new Account());
+accounts.patch('account', { name: 'Ada' });
+// @ts-expect-error Methods are not fields.
+accounts.patch('account', { rename: () => undefined });
+// @ts-expect-error Fields typed never cannot be set.
+accounts.patch('account', { search: 'x' as never as string });
+// A function with a `name` field in common is still a patcher, checked as one.
+// @ts-expect-error The patcher must return the node's type.
+accounts.patch('account', () => ({ uuid: 1 }));
+expectType<Account>(accounts.patch('account', (account) => account).build(session).account);
+// An async scenario stays async after a patch of fields.
+// @ts-expect-error The scenario was already async.
+asyncCart.patch('customer', { name: 'Grace' }).build(session);
+const nullable = createScenario().node('deal', [], (): Deal | null => null);
+// Nullable values accept the fields of the object they may hold; a null value fails the build.
+nullable.patch('deal', { status: 'lost' });
+
 // A function returning a scenario can declare its return type with the exported Scenario type.
 import type { Scenario } from '../src/index.js';
 interface CartNodes {

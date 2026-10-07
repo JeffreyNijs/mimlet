@@ -20,6 +20,7 @@ import {
   type ConstructOption,
   type InstanceInput,
 } from './class-instance.js';
+import type { KnownFieldsFactory } from './known-fields.js';
 
 export type * from './types.js';
 export type * from './standard-schema.js';
@@ -89,29 +90,6 @@ type RecordOf<C extends AnyClass> = InstanceInput<InstanceType<C>>;
 type RecordFactory<C extends AnyClass> = (
   ...args: never[]
 ) => NoInfer<RecordOf<C>> | PromiseLike<NoInfer<RecordOf<C>>>;
-/** The type a key gets when the class does not declare it: the message TypeScript reports. */
-type UnknownField<K> = K extends string | number ? `${K} is not a field of the class` : never;
-/** Keys of the record `R` (or of any member of a union) that `Shape` does not declare. */
-type UnknownKeys<R, Shape> = R extends unknown ? Exclude<keyof R, keyof Shape> : never;
-/** `R` with each key that `Shape` does not declare typed as an error message. */
-type KnownFieldsOf<R, Shape> = R extends unknown
-  ? { [K in keyof R]: K extends keyof Shape ? R[K] : UnknownField<K> }
-  : never;
-type KnownFieldsReturn<R, Shape> =
-  R extends PromiseLike<infer V> ? PromiseLike<KnownFieldsOf<V, Shape>> : KnownFieldsOf<R, Shape>;
-/**
- * TypeScript does not report excess properties of an object literal that a function returns,
- * so without this check a misspelled field in an unannotated factory would compile and be
- * copied onto the instance. Intersected with the factory's own type, it is `unknown` when every
- * key the factory returns is a field of the class (or the return type is `any`), and otherwise
- * a signature that types each unknown key as `"<key> is not a field of the class"`.
- */
-type KnownFieldsFactory<F extends AnyFactory, Shape> =
-  unknown extends ReturnType<F>
-    ? unknown
-    : [UnknownKeys<Awaited<ReturnType<F>>, Shape>] extends [never]
-      ? unknown
-      : (...args: Parameters<F>) => KnownFieldsReturn<ReturnType<F>, Shape>;
 /** The configuration of an instance builder: builder options plus the `construct` option. */
 type InstanceConfig<C extends AnyClass, F extends AnyFactory> = BuilderConfig &
   ConstructOption<C> &
@@ -138,7 +116,7 @@ export function createInstanceBuilder<
   ) => NoInfer<RecordOf<C>> | PromiseLike<NoInfer<RecordOf<C>>>,
 >(
   target: C,
-  factory: F & KnownFieldsFactory<F, RecordOf<C>>,
+  factory: F & KnownFieldsFactory<F, RecordOf<C>, InstanceType<C>>,
   config: BuilderConfig & ConstructOption<C> & DefaultedSessionFor<F>
 ): MappedBuilderFor<F, RecordOf<C>, InstanceType<C>, true>;
 /**
@@ -153,7 +131,7 @@ export function createInstanceBuilder<
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function createInstanceBuilder<C extends AnyClass, F extends RecordFactory<C>>(
   target: C,
-  factory: F & KnownFieldsFactory<F, RecordOf<C>>,
+  factory: F & KnownFieldsFactory<F, RecordOf<C>, InstanceType<C>>,
   ...config: C extends ConstructibleClass
     ? [config?: InstanceConfig<C, F>]
     : [config: InstanceConfig<C, F>]
@@ -180,6 +158,8 @@ export * from './facade.js';
 export * from './fluent.js';
 
 export * from './path.js';
+
+export type { KnownFieldsFactory, KnownNestedFieldsFactory } from './known-fields.js';
 
 export { intoClass } from './class-instance.js';
 export type {
