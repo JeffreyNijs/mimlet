@@ -1,5 +1,6 @@
 import { facadeClass, facadeMethods } from './facade-class.js';
 import type { FacadeFor } from './facade.js';
+import { withPathKey } from './path-update.js';
 import type { AnyFactory, BuilderDescription, BuilderPatch } from './types.js';
 
 type Source = { buildAsync: AnyFactory; describe(): BuilderDescription };
@@ -26,7 +27,12 @@ type PatchKey<I> = [I] extends [object]
           ? Extract<keyof I, string>
           : never
   : never;
-type Selection<I> = readonly PatchKey<I>[] | Readonly<Record<string, PatchKey<I>>>;
+/**
+ * A path alias: a top-level field, then up to 7 keys inside it (array indexes as numbers).
+ * `LiteralSelection` checks each key, so that a wrong one is named in the error.
+ */
+type PathAlias = readonly [string, ...(string | number | symbol)[]];
+type Selection<I> = readonly PatchKey<I>[] | Readonly<Record<string, PatchKey<I> | PathAlias>>;
 type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
 type Single<T> = true extends IsUnion<T> ? never : string extends T ? never : T;
 type Letter =
@@ -74,7 +80,7 @@ type Pascal<
       : never;
 type Method<K extends string> = `with${Pascal<K> extends '' ? 'Value' : Pascal<K>}`;
 type FieldMap<S> = S extends readonly string[] ? { [K in S[number] as Method<K>]: K } : S;
-type LiteralSelection<S> = S extends readonly string[]
+type LiteralSelection<S, I> = S extends readonly string[]
   ? number extends S['length']
     ? never
     : {
@@ -86,7 +92,13 @@ type LiteralSelection<S> = S extends readonly string[]
       }
   : string extends keyof S
     ? never
-    : { readonly [K in keyof S]: Single<S[K]> };
+    : {
+        readonly [K in keyof S]: S[K] extends readonly unknown[]
+          ? [RootedAlias<I, S[K]>] extends [never]
+            ? `${Joined<S[K]>} is not a path of plain records and arrays in the builder input`
+            : S[K]
+          : Single<S[K]>;
+      };
 
 /**
  * What a patch may assign to one field. Indexed access adds `undefined` to every optional key,
@@ -94,6 +106,71 @@ type LiteralSelection<S> = S extends readonly string[]
  */
 type SetterValue<T, K extends keyof T> =
   { [P in K]: undefined } extends Pick<T, K> ? T[K] : Exclude<T[K], undefined>;
+
+/** Values a path alias cannot go into: built-in objects with internal state and functions. */
+type PathLeaf =
+  | Date
+  | RegExp
+  | Error
+  | ReadonlyMap<unknown, unknown>
+  | ReadonlySet<unknown>
+  | ArrayBuffer
+  | ArrayBufferView
+  | ((...args: never[]) => unknown);
+type TupleIndex<T extends readonly unknown[]> = number extends T['length']
+  ? number
+  : Exclude<keyof T, keyof (readonly unknown[])> extends infer K
+    ? K extends `${infer N extends number}`
+      ? N
+      : never
+    : never;
+/**
+ * The keys a path alias may take inside `T`: the fields of a record or the indexes of an array.
+ * A parent that may be null or undefined is typed as present (the build fails if it is not);
+ * a union of records has no keys, as in `setPath()`: set a variant as a whole.
+ */
+type PathKeys<T> =
+  true extends IsUnion<T>
+    ? never
+    : T extends PathLeaf
+      ? never
+      : T extends readonly unknown[]
+        ? TupleIndex<T>
+        : T extends object
+          ? keyof T
+          : never;
+/** `P` when each of its keys exists in `T` (at most 8), otherwise never. */
+type CheckedAlias<T, P, Depth extends readonly unknown[] = []> = P extends readonly []
+  ? P
+  : Depth['length'] extends 8
+    ? never
+    : P extends readonly [infer K, ...infer R]
+      ? K extends PathKeys<NonNullable<T>> & keyof NonNullable<T>
+        ? readonly [K, ...CheckedAlias<NonNullable<T>[K], R, readonly [...Depth, 0]>]
+        : never
+      : never;
+/** `P` when its first key is a field `fluent()` can set and every key exists, otherwise never. */
+type RootedAlias<I, P> = P extends readonly [infer K extends PatchKey<I>, ...infer R]
+  ? readonly [K, ...CheckedAlias<I[K], R, readonly [0]>]
+  : never;
+/** A path for a message, such as `pagination.limit` or `lines[0].quantity`. */
+type Joined<P, First extends boolean = true> = P extends readonly [infer K, ...infer R]
+  ? `${K extends number ? `[${K}]` : K extends string ? `${First extends true ? '' : '.'}${K}` : '[symbol]'}${Joined<R, false>}`
+  : '';
+/** The value a path setter takes: the type at the path, with `.with()`'s optional-key rules. */
+type PathValue<T, P> = P extends readonly [infer K]
+  ? K extends keyof T
+    ? SetterValue<T, K>
+    : never
+  : P extends readonly [infer K, ...infer R]
+    ? K extends keyof T
+      ? PathValue<NonNullable<T[K]>, R>
+      : never
+    : never;
+/** The value a selected setter takes: a top-level field or a path alias. */
+type AliasValue<I, Target> = Target extends readonly unknown[]
+  ? PathValue<I, Target>
+  : SetterValue<I, Target & keyof I>;
 
 /** Names fluent() never adds as a setter or carries over from the builder it wraps. */
 type Capability =
@@ -161,7 +238,7 @@ export type FluentBuilder<
     >;
   } & {
     [M in keyof FieldMap<S>]: (
-      value: SetterValue<Input<B>, FieldMap<S>[M] & keyof Input<B>>
+      value: AliasValue<Input<B>, FieldMap<S>[M]>
     ) => FluentBuilder<B, S, O>;
   };
 
@@ -285,7 +362,62 @@ function automaticMethod(property: string): string {
   return `with${suffix}`;
 }
 
-function entries(selection: unknown): [string, string][] {
+/** What a setter sets: a top-level field, or the keys of a path alias (2 to 8). */
+type Target = string | readonly PropertyKey[];
+function sameTarget(a: Target, b: Target): boolean {
+  return typeof a === 'string' || typeof b === 'string'
+    ? a === b
+    : a.length === b.length && a.every((key, index) => Object.is(key, b[index]));
+}
+/** The fields and paths that already have a setter. */
+function targets() {
+  const fields = new Set<string>();
+  const paths: (readonly PropertyKey[])[] = [];
+  return {
+    has: (target: Target) =>
+      typeof target === 'string'
+        ? fields.has(target)
+        : paths.some((path) => sameTarget(path, target)),
+    add: (target: Target) => (typeof target === 'string' ? fields.add(target) : paths.push(target)),
+  };
+}
+
+/**
+ * A path alias of a method map: a plain array of 1 to 8 keys, read without accessors and
+ * frozen. The first key is a field name; later keys are field names, array indexes or symbols.
+ * A path of one field is that field.
+ */
+function aliasPath(value: unknown[]): Target {
+  const count = value.length;
+  if (
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    count < 1 ||
+    count > 8 ||
+    Reflect.ownKeys(value).length !== count + 1
+  ) {
+    throw new TypeError('A path alias is a plain array of 1 to 8 keys');
+  }
+  const path: PropertyKey[] = [];
+  for (let index = 0; index < count; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    const key: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    const valid =
+      typeof key === 'string'
+        ? key.length <= 1024
+        : index > 0 &&
+          (typeof key === 'symbol' ||
+            (typeof key === 'number' && Number.isSafeInteger(key) && key >= 0));
+    if (!valid) {
+      throw new TypeError(
+        'A path alias starts with a field name, followed by field names, array indexes or symbols'
+      );
+    }
+    path.push(key as PropertyKey);
+  }
+  return count === 1 ? (path[0] as string) : Object.freeze(path);
+}
+
+function entries(selection: unknown): [string, Target][] {
   if (!selection || typeof selection !== 'object') {
     throw new TypeError('Expected a field tuple or a method-to-field map');
   }
@@ -311,6 +443,13 @@ function entries(selection: unknown): [string, string][] {
       throw new TypeError('Field selection cannot contain symbols, accessors or hidden entries');
     }
     const property: unknown = descriptor.value;
+    if (!array && Array.isArray(property)) {
+      const method = key;
+      if (!/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(method)) {
+        throw new TypeError('Expected a JavaScript method name of at most 128 characters');
+      }
+      return [method, aliasPath(property)];
+    }
     if (typeof property !== 'string' || property.length > (array ? 64 : 1024)) {
       throw new TypeError(
         'Expected a bounded string field name; use explicit method names for long fields'
@@ -324,8 +463,8 @@ function entries(selection: unknown): [string, string][] {
   });
 }
 
-/** The field behind each setter of a fluent() builder, by the builder's prototype. */
-const setterFields = new WeakMap<object, ReadonlyMap<string, string>>();
+/** The field or path behind each setter of a fluent() builder, by the builder's prototype. */
+const setterFields = new WeakMap<object, ReadonlyMap<string, Target>>();
 const notKept = new Set([...facadeMethods, 'constructor', 'then', 'toJSON']);
 
 /**
@@ -378,7 +517,7 @@ export function fluent<B extends Source, K extends string>(
 // eslint-disable-next-line no-redeclare -- TypeScript overload
 export function fluent<B extends Source, const S extends Selection<Input<B>>>(
   builder: B,
-  selection: S & LiteralSelection<S>
+  selection: S & LiteralSelection<S, Input<B>>
 ): FluentBuilder<B, S>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
 export function fluent(builder: Source, selection: unknown): unknown {
@@ -391,11 +530,11 @@ export function fluent(builder: Source, selection: unknown): unknown {
     typeof builder === 'object' && builder !== null
       ? setterFields.get(Object.getPrototypeOf(builder) as object)
       : undefined;
-  const setters = new Map<string, string>();
+  const setters = new Map<string, Target>();
   for (const method of kept) {
-    const property = known?.get(method);
-    if (property !== undefined) {
-      setters.set(method, property);
+    const target = known?.get(method);
+    if (target !== undefined) {
+      setters.set(method, target);
     }
   }
   const capability = (method: string) =>
@@ -411,31 +550,51 @@ export function fluent(builder: Source, selection: unknown): unknown {
     }
     fields = candidates.filter(([method]) => counts.get(method) === 1 && !capability(method));
   }
+  if (
+    fields.some(([, target]) => typeof target !== 'string') &&
+    typeof (builder as { [withPathKey]?: unknown })[withPathKey] !== 'function'
+  ) {
+    throw new TypeError(
+      'Path aliases need a builder from @mimlet/core with path setters; this builder comes from an older version or another library'
+    );
+  }
+  // The facade forwards a path setter to the wrapped builder's path operation.
+  const withPath = (Base.prototype as { [withPathKey]: (...args: unknown[]) => unknown })[
+    withPathKey
+  ];
   const forwarded = new Set(kept);
-  const used = new Set<string>();
-  for (const [method, property] of fields) {
+  const used = targets();
+  for (const [method, target] of fields) {
     const field = setters.get(method);
-    // A kept setter for the same field already does what this one would.
-    const repeated = field === property && !used.has(property);
+    // A kept setter for the same field or path already does what this one would.
+    const repeated = field !== undefined && sameTarget(field, target) && !used.has(target);
     // A kept method whose field is unknown, such as a generated class method, is replaced by the
     // explicit setter, as before nesting kept methods. Lists never get here: they skip kept names.
-    const replaced = field === undefined && forwarded.has(method) && !used.has(property);
-    if (!repeated && !replaced && (capability(method) || used.has(property))) {
+    const replaced = field === undefined && forwarded.has(method) && !used.has(target);
+    if (!repeated && !replaced && (capability(method) || used.has(target))) {
       throw new TypeError(
         'Fluent methods must be unique and cannot replace builder capabilities; choose an explicit alias'
       );
     }
-    used.add(property);
+    used.add(target);
     if (repeated) {
       continue;
     }
-    setters.set(method, property);
-    Object.defineProperty(Base.prototype, method, {
-      configurable: false,
-      value(this: object, value: unknown) {
-        return Reflect.apply(Base.prototype.with, this, [{ [property]: value }]);
-      },
-    });
+    setters.set(method, target);
+    const label = `${method}()`;
+    const setter =
+      typeof target === 'string'
+        ? {
+            value(this: object, value: unknown) {
+              return Reflect.apply(Base.prototype.with, this, [{ [target]: value }]);
+            },
+          }
+        : {
+            value(this: object, value: unknown) {
+              return Reflect.apply(withPath, this, [target, value, label]);
+            },
+          };
+    Object.defineProperty(Base.prototype, method, { configurable: false, value: setter.value });
   }
   setterFields.set(Base.prototype as object, setters);
   return new Base();

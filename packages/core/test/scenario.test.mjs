@@ -211,7 +211,7 @@ describe('correlated immutable scenarios', () => {
     assert.equal((await value.override('a', async () => 3).buildAsync(session())).b, 6);
     assert.equal((await value.trait('async', { a: async () => 4 }).buildAsync(session())).b, 8);
   });
-  it('preserves the failing node and native cause without exposing fixture values', async () => {
+  it('preserves the failing node and native cause and names both in the message', async () => {
     const cause = new Error('original');
     const broken = createScenario().node('failure', [], () => {
       throw cause;
@@ -221,16 +221,175 @@ describe('correlated immutable scenarios', () => {
       e.code === 'SCENARIO_EXECUTION' &&
       e.node === 'failure' &&
       e.cause === cause &&
-      !e.message.includes('original');
+      e.message === 'Scenario node "failure" failed: original';
     assert.throws(() => broken.build(session()), check);
     await assert.rejects(broken.buildAsync(session()), check);
     const asynchronous = createScenario().node('failure', [], () => Promise.reject(cause));
     assert.throws(
       () => asynchronous.build(session()),
-      (e) => e.cause.message.includes('buildAsync')
+      (e) =>
+        e.cause.message.includes('buildAsync') &&
+        e.message ===
+          'Scenario node "failure" failed: Asynchronous scenario nodes require buildAsync()'
     );
     await assert.rejects(asynchronous.buildAsync(session()), check);
     await setImmediate();
+  });
+  it('names the step that failed: the factory, an override, a trait or a patch', async () => {
+    const boom = (message) => () => {
+      throw new TypeError(message);
+    };
+    const failing = (scenario, message) => {
+      assert.throws(
+        () => scenario.build(session()),
+        (e) =>
+          e instanceof ScenarioError && e.code === 'SCENARIO_EXECUTION' && e.message === message
+      );
+      return assert.rejects(
+        scenario.buildAsync(session()),
+        (e) => e instanceof ScenarioError && e.message === message
+      );
+    };
+    await failing(
+      recipe().override('lines', boom('no lines')),
+      'Scenario node "lines" failed in its override: no lines'
+    );
+    await failing(
+      recipe().trait('empty', { lines: boom('no lines') }),
+      'Scenario node "lines" failed in trait "empty": no lines'
+    );
+    await failing(
+      recipe()
+        .patch('customer', (customer) => customer)
+        .patch('customer', boom('second patch')),
+      'Scenario node "customer" failed in patch 2: second patch'
+    );
+    // A patch after an override is still a patch.
+    await failing(
+      recipe()
+        .override('total', () => 0)
+        .patch('total', boom('patched')),
+      'Scenario node "total" failed in patch 1: patched'
+    );
+  });
+  it('names the dependency that failed, not the nodes that depend on it', async () => {
+    const scenario = createScenario()
+      .node('lead', [], () => {
+        throw new RangeError('no lead');
+      })
+      .node('deal', ['lead'], ({ lead }) => ({ lead }));
+    const check = (e) =>
+      e.node === 'lead' &&
+      e.message === 'Scenario node "lead" failed: no lead' &&
+      e.cause instanceof RangeError;
+    assert.throws(() => scenario.build(session()), check);
+    await assert.rejects(scenario.buildAsync(session()), check);
+    // A node whose factory fails on a dependency's value is the failed node.
+    const broken = createScenario()
+      .node('lead', [], () => null)
+      .node('deal', ['lead'], ({ lead }) => ({ name: lead.name }));
+    assert.throws(
+      () => broken.build(session()),
+      (e) =>
+        e.node === 'deal' &&
+        /^Scenario node "deal" failed: Cannot read properties of null/.test(e.message)
+    );
+    // A scenario built inside a node reports its own node inside the outer one.
+    const inner = createScenario().node('score', [], () => {
+      throw new Error('no score');
+    });
+    const outer = createScenario().node('report', [], (_deps, s) => inner.build(s));
+    assert.throws(
+      () => outer.build(session()),
+      (e) =>
+        e.node === 'report' &&
+        e.message === 'Scenario node "report" failed: Scenario node "score" failed: no score'
+    );
+  });
+  it('bounds the message: one line, a clipped node name and at most 200 characters of the cause', () => {
+    const long = 'x'.repeat(500);
+    const cases = [
+      [
+        new Error(`first line\n   second\tline`),
+        'Scenario node "n" failed: first line second line',
+      ],
+      [new Error(long), `Scenario node "n" failed: ${'x'.repeat(197)}...`],
+      // A thrown string is its own message; other values and empty messages add nothing.
+      ['thrown text', 'Scenario node "n" failed: thrown text'],
+      [{ message: 7 }, 'Scenario node "n" failed'],
+      [42, 'Scenario node "n" failed'],
+      [undefined, 'Scenario node "n" failed'],
+      [new Error(''), 'Scenario node "n" failed'],
+      // A getter is not called for the message.
+      [
+        Object.defineProperty({}, 'message', {
+          get() {
+            throw new Error('getter ran');
+          },
+        }),
+        'Scenario node "n" failed',
+      ],
+      // An exotic cause cannot replace the node failure itself.
+      [
+        new Proxy(
+          {},
+          {
+            getOwnPropertyDescriptor() {
+              throw new Error('trap');
+            },
+          }
+        ),
+        'Scenario node "n" failed',
+      ],
+    ];
+    for (const [cause, message] of cases) {
+      const scenario = createScenario().node('n', [], () => {
+        throw cause;
+      });
+      assert.throws(
+        () => scenario.build(session()),
+        (e) => e.message === message && e.cause === cause
+      );
+    }
+    const name = `node ${'y'.repeat(100)}`;
+    assert.throws(
+      () =>
+        createScenario()
+          .node(name, [], () => {
+            throw new Error('boom');
+          })
+          .build(session()),
+      (e) =>
+        e.node === name && e.message === `Scenario node "node ${'y'.repeat(56)}..." failed: boom`
+    );
+  });
+  it('names the node in definition and conflict errors', () => {
+    assert.throws(
+      () => recipe().node('order', ['custmer'], () => 1),
+      (e) =>
+        e.code === 'SCENARIO_DEFINITION' &&
+        e.node === 'custmer' &&
+        e.message === 'Scenario dependency or replacement names an unknown node: "custmer"'
+    );
+    assert.throws(
+      () => recipe().node('customer', [], () => 1),
+      (e) => e.message === 'Duplicate scenario node: "customer"'
+    );
+    assert.throws(
+      () => recipe().patch('customer', []),
+      (e) =>
+        e.code === 'SCENARIO_DEFINITION' &&
+        e.message === 'A scenario patch is a function or a plain record of fields: "customer"'
+    );
+    assert.throws(
+      () =>
+        recipe()
+          .override('customer', () => ({ id: 1, name: 'x' }))
+          .trait('t', { customer: () => ({}) }),
+      (e) =>
+        e.code === 'SCENARIO_CONFLICT' &&
+        e.message === 'Trait conflicts with an existing node override: "customer"'
+    );
   });
   it('validates allocation budgets before touching sessions or callbacks', async () => {
     const base = createScenario({ maxListSize: 2 }).node('a', [], () =>
@@ -525,7 +684,10 @@ describe('correlated immutable scenarios', () => {
       e.code === 'SCENARIO_EXECUTION' &&
       e.node === 'deal' &&
       e.cause instanceof TypeError &&
-      e.cause.message.includes('plain object in place of a Deal instance');
+      e.cause.message.includes('plain object in place of a Deal instance') &&
+      // The explanation is in the message itself, not only in the cause.
+      e.message ===
+        `Scenario node "deal" failed in patch 1: A patch of deal returned a plain object in place of a Deal instance; pass the changed fields, as in patch('deal', { ... }), to keep the class, or return a Deal`;
     assert.throws(() => spread.build(session()), check);
     await assert.rejects(
       scenario.patch('deal', async (deal) => ({ ...deal })).buildAsync(session()),

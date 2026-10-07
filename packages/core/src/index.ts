@@ -20,7 +20,7 @@ import {
   type ConstructOption,
   type InstanceInput,
 } from './class-instance.js';
-import type { KnownFieldsFactory } from './known-fields.js';
+import type { KnownFieldsConstraint, KnownFieldsFactory } from './known-fields.js';
 
 export type * from './types.js';
 export type * from './standard-schema.js';
@@ -86,10 +86,12 @@ export function createSchemaBuilder(
 
 /** The record a builder for class `C` patches. */
 type RecordOf<C extends AnyClass> = InstanceInput<InstanceType<C>>;
+/** What a record factory's constraint accepts; see `KnownFieldsConstraint`. */
+type RecordReturn<C extends AnyClass> = NoInfer<KnownFieldsConstraint<RecordOf<C>>>;
 /** A factory of the record, with any arguments, sync or async. */
 type RecordFactory<C extends AnyClass> = (
   ...args: never[]
-) => NoInfer<RecordOf<C>> | PromiseLike<NoInfer<RecordOf<C>>>;
+) => RecordReturn<C> | PromiseLike<RecordReturn<C>>;
 /** The configuration of an instance builder: builder options plus the `construct` option. */
 type InstanceConfig<C extends AnyClass, F extends AnyFactory> = BuilderConfig &
   ConstructOption<C> &
@@ -111,9 +113,7 @@ export type InstanceBuilder<C extends AnyClass, Args extends unknown[] = []> = B
  */
 export function createInstanceBuilder<
   C extends AnyClass,
-  F extends (
-    session: GenerationSession
-  ) => NoInfer<RecordOf<C>> | PromiseLike<NoInfer<RecordOf<C>>>,
+  F extends (session: GenerationSession) => RecordReturn<C> | PromiseLike<RecordReturn<C>>,
 >(
   target: C,
   factory: F & KnownFieldsFactory<F, RecordOf<C>, InstanceType<C>>,
@@ -159,7 +159,11 @@ export * from './fluent.js';
 
 export * from './path.js';
 
-export type { KnownFieldsFactory, KnownNestedFieldsFactory } from './known-fields.js';
+export type {
+  KnownFieldsConstraint,
+  KnownFieldsFactory,
+  KnownNestedFieldsFactory,
+} from './known-fields.js';
 
 export { intoClass } from './class-instance.js';
 export type {

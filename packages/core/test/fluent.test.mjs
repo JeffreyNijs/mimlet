@@ -4,11 +4,13 @@ import {
   builderClass,
   createBuilder,
   createBuilderClass,
+  createInstanceBuilder,
   createScenario,
   createSchemaBuilder,
   createSession,
   fluent,
   schemaFields,
+  BuilderPathError,
   BuilderValidationError,
 } from '../dist/index.js';
 
@@ -527,5 +529,432 @@ describe('fluent() over builders with their own methods', () => {
     for (let depth = 0; depth < 63; depth++) chain = Object.create(chain);
     assert.equal(fluent(chain, ['id']).withId(1).build().id, 1);
     assert.throws(() => fluent(Object.create(chain), ['id']), /64 prototypes/);
+  });
+});
+
+describe('path aliases', () => {
+  const withPath = Symbol.for('mimlet.builder.withPath');
+  const query = () =>
+    createBuilder((search = 'ramp') => ({ search, pagination: { limit: 10, offset: 0 } }));
+  const paged = (builder = query()) =>
+    fluent(builder, {
+      withLimit: ['pagination', 'limit'],
+      withOffset: ['pagination', 'offset'],
+    });
+  const pathError = (message) => (error) =>
+    error instanceof BuilderPathError &&
+    error instanceof TypeError &&
+    error.code === 'INVALID_BUILDER_PATH' &&
+    error.message === message;
+
+  it('sets a value inside the parent record and keeps its other fields, in call order', () => {
+    let calls = 0;
+    const shared = { limit: 10, offset: 0 };
+    const source = createBuilder((search = 'ramp') => {
+      calls++;
+      return { search, pagination: shared };
+    });
+    const base = paged(source);
+    const changed = base.withLimit(5).withOffset(20);
+    assert.equal(calls, 0);
+    assert.deepEqual(changed.build(), { search: 'ramp', pagination: { limit: 5, offset: 20 } });
+    // The factory's value and earlier branches are never changed.
+    assert.deepEqual(shared, { limit: 10, offset: 0 });
+    assert.deepEqual(base.build(), { search: 'ramp', pagination: { limit: 10, offset: 0 } });
+    assert.deepEqual(changed.describe().operations, ['factory', 'mergePath', 'mergePath']);
+    // Operations apply in the order of the calls, mixed with .with(), .withFactory() and .replace().
+    assert.equal(changed.with({ pagination: { limit: 1, offset: 1 } }).build().pagination.limit, 1);
+    assert.equal(
+      base
+        .withFactory(() => ({ pagination: { limit: 2, offset: 2 } }))
+        .withLimit(3)
+        .build().pagination.limit,
+      3
+    );
+    assert.deepEqual(
+      base
+        .withLimit(4)
+        .replace({ search: 'x', pagination: { limit: 9, offset: 9 } })
+        .withOffset(8)
+        .build(),
+      { search: 'x', pagination: { limit: 9, offset: 8 } }
+    );
+    // A transform runs after every patch and sees the path setters' values.
+    assert.equal(
+      base
+        .transform((value) => ({ ...value, search: String(value.pagination.limit) }))
+        .withLimit(6)
+        .build('a').search,
+      '6'
+    );
+    // Factory arguments and lists work as for any setter.
+    assert.deepEqual(
+      base
+        .withLimit(7)
+        .buildList(2, 'b')
+        .map((value) => [value.search, value.pagination.limit]),
+      [
+        ['b', 7],
+        ['b', 7],
+      ]
+    );
+    // An absent leaf is added; a one-key path is a top-level setter.
+    const more = fluent(query(), { withCursor: ['pagination', 'cursor'], withTerm: ['search'] });
+    assert.deepEqual(more.withCursor('c').withTerm('t').build(), {
+      search: 't',
+      pagination: { limit: 10, offset: 0, cursor: 'c' },
+    });
+    assert.deepEqual(more.withTerm('t').describe().operations, ['factory', 'merge']);
+  });
+
+  it('copies each record and array on the path and keeps prototypes and descriptors', () => {
+    const marker = Symbol('marker');
+    const bare = Object.create(null);
+    bare.limit = 1;
+    const parent = Object.freeze({ inner: bare, untouched: { id: 1 } });
+    const hidden = Object.defineProperty({ value: 1 }, 'secret', { value: 's', enumerable: false });
+    const source = createBuilder(() => ({
+      parent,
+      lines: [{ quantity: 1 }, { quantity: 2 }],
+      pair: [{ id: 'a' }, { id: 'b' }],
+      hidden,
+      box: { [marker]: 0 },
+      tags: {},
+    }));
+    const value = fluent(source, {
+      withLimit: ['parent', 'inner', 'limit'],
+      withQuantity: ['lines', 1, 'quantity'],
+      withFirst: ['pair', 0],
+      withValue: ['hidden', 'value'],
+      withMarker: ['box', marker],
+      withTag: ['tags', 'team'],
+    })
+      .withLimit(2)
+      .withQuantity(5)
+      .withFirst({ id: 'z' })
+      .withValue(2)
+      .withMarker(1)
+      .withTag('core')
+      .build();
+    assert.equal(Object.getPrototypeOf(value.parent.inner), null);
+    assert.equal(value.parent.inner.limit, 2);
+    assert.equal(value.parent.untouched, parent.untouched);
+    assert.equal(bare.limit, 1);
+    assert.deepEqual(value.lines, [{ quantity: 1 }, { quantity: 5 }]);
+    assert.deepEqual(value.pair, [{ id: 'z' }, { id: 'b' }]);
+    assert.equal(value.hidden.value, 2);
+    assert.equal(Object.getOwnPropertyDescriptor(value.hidden, 'secret').enumerable, false);
+    assert.equal(hidden.value, 1);
+    assert.equal(value.box[marker], 1);
+    assert.deepEqual(value.tags, { team: 'core' });
+  });
+
+  it('explains a missing parent and other values a path cannot go into', () => {
+    const empty = fluent(
+      createBuilder(() => ({ search: 'secret value' })),
+      { withLimit: ['pagination', 'limit'] }
+    );
+    const missing =
+      'withLimit() cannot set pagination.limit: pagination is missing; set pagination first (with .with() or its own setter) or give it a default in the factory';
+    assert.throws(() => empty.withLimit(5).build(), pathError(missing));
+    assert.throws(
+      () => empty.with({ pagination: undefined }).withLimit(5).build(),
+      pathError(missing)
+    );
+    assert.throws(
+      () => empty.with({ pagination: null }).withLimit(5).build(),
+      pathError(
+        'withLimit() cannot set pagination.limit: pagination is null; set pagination first (with .with() or its own setter) or give it a default in the factory'
+      )
+    );
+    // Setting the parent first, or a default, makes the setter work.
+    assert.deepEqual(empty.with({ pagination: {} }).withLimit(5).build().pagination, { limit: 5 });
+    // A deeper missing parent is named by its path.
+    const deep = fluent(
+      createBuilder(() => ({ owner: {} })),
+      { withCity: ['owner', 'address', 'city'] }
+    );
+    assert.throws(
+      () => deep.withCity('Gent').build(),
+      pathError(
+        'withCity() cannot set owner.address.city: owner.address is missing; set owner.address first (with .with() or its own setter) or give it a default in the factory'
+      )
+    );
+    class Lead {
+      name = 'Ada';
+    }
+    const values = fluent(
+      createBuilder(() => ({ lead: new Lead(), date: new Date(0), text: 'secret value' })),
+      { withName: ['lead', 'name'], withTime: ['date', 'time'], withLength: ['text', 'length'] }
+    );
+    assert.throws(
+      () => values.withName('Grace').build(),
+      pathError(
+        'withName() cannot set lead.name: lead is a Lead instance, and path setters only change plain records and arrays; set lead as a whole instead'
+      )
+    );
+    assert.throws(
+      () => values.withTime(1).build(),
+      pathError(
+        'withTime() cannot set date.time: date is a Date value, not a plain record or an array'
+      )
+    );
+    assert.throws(
+      () => values.withLength(1).build(),
+      pathError(
+        'withLength() cannot set text.length: text is a string value, not a plain record or an array'
+      )
+    );
+    const lines = fluent(
+      createBuilder(() => ({ lines: [] })),
+      { withQuantity: ['lines', 0, 'quantity'] }
+    );
+    assert.throws(
+      () => lines.withQuantity(1).build(),
+      pathError('withQuantity() cannot set lines[0].quantity: lines has no item 0')
+    );
+    let reads = 0;
+    const accessor = {};
+    Object.defineProperty(accessor, 'limit', {
+      enumerable: true,
+      get() {
+        reads++;
+        return 1;
+      },
+    });
+    const accessors = fluent(
+      createBuilder(() => ({ pagination: accessor, other: accessor })),
+      { withLimit: ['pagination', 'limit'], withOther: ['other', 'offset'] }
+    );
+    assert.throws(
+      () => accessors.withLimit(1).build(),
+      pathError(
+        'withLimit() cannot set pagination.limit: pagination.limit is an accessor, not a data field'
+      )
+    );
+    assert.throws(
+      () => accessors.withOther(1).build(),
+      pathError(
+        'withOther() cannot set other.offset: other has an accessor; path setters copy data fields only'
+      )
+    );
+    assert.equal(reads, 0);
+    // The value being built must be a record or an array.
+    const scalar = fluent(
+      createBuilder(() => ({ a: { b: 1 } })),
+      { withB: ['a', 'b'] }
+    ).replace('secret value');
+    assert.throws(
+      () => scalar.withB(1).build(),
+      pathError('withB() cannot set a.b: the value being built is not a plain record or an array')
+    );
+    // Messages name keys, never values.
+    for (const failing of [() => empty.withLimit(5).build(), () => values.withLength(1).build()]) {
+      assert.throws(failing, (error) => !error.message.includes('secret value'));
+    }
+  });
+
+  it('works with async, schema and instance builders', async () => {
+    const asynchronous = paged(
+      createBuilder(async () => ({ pagination: { limit: 10, offset: 0 } }))
+    );
+    assert.deepEqual(await asynchronous.withLimit(5).buildAsync(), {
+      pagination: { limit: 5, offset: 0 },
+    });
+    const transformed = paged()
+      .withLimit(5)
+      .transformAsync(async (value) => value)
+      .withOffset(3);
+    assert.deepEqual((await transformed.buildAsync()).pagination, { limit: 5, offset: 3 });
+    await assert.rejects(
+      paged(createBuilder(async () => ({})))
+        .withLimit(1)
+        .buildAsync(),
+      BuilderPathError
+    );
+    const schema = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: (value) =>
+          value.pagination.limit > 100
+            ? { issues: [{ message: 'too large', path: ['pagination', 'limit'] }] }
+            : { value: { ...value, valid: true } },
+      },
+    };
+    const validated = paged(
+      createSchemaBuilder(schema, () => ({ pagination: { limit: 1, offset: 0 } }))
+    );
+    assert.deepEqual(validated.withLimit(5).buildValidated(), {
+      pagination: { limit: 5, offset: 0 },
+      valid: true,
+    });
+    assert.throws(() => validated.withLimit(500).buildValidated(), BuilderValidationError);
+    class Query {
+      pagination = undefined;
+      get limit() {
+        return this.pagination?.limit;
+      }
+    }
+    const instances = paged(
+      createInstanceBuilder(Query, () => ({ pagination: { limit: 1, offset: 0 } }))
+    );
+    const built = instances.withLimit(7).build();
+    assert.ok(built instanceof Query);
+    assert.equal(built.limit, 7);
+    assert.deepEqual(
+      instances
+        .withLimit(7)
+        .map((query) => query.limit)
+        .build(),
+      7
+    );
+    // A generated or hand-written class facade gets path setters through its runtime.
+    class Users extends createBuilderClass(() => ({ profile: { name: 'Ada', age: 1 } })) {
+      older() {
+        return this.with({ profile: { name: 'Old', age: 99 } });
+      }
+    }
+    const users = fluent(new Users(), { withName: ['profile', 'name'] });
+    assert.deepEqual(users.older().withName('Grace').build(), {
+      profile: { name: 'Grace', age: 99 },
+    });
+  });
+
+  it('keeps path setters through nesting, like other setters', () => {
+    const base = paged();
+    const outer = fluent(base, ['search']);
+    assert.deepEqual(outer.withSearch('x').withLimit(1).withOffset(2).build(), {
+      search: 'x',
+      pagination: { limit: 1, offset: 2 },
+    });
+    const inner = fluent(fluent(query(), ['search']), { withLimit: ['pagination', 'limit'] });
+    assert.deepEqual(inner.withLimit(3).withSearch('y').build(), {
+      search: 'y',
+      pagination: { limit: 3, offset: 0 },
+    });
+    // Repeating a kept path setter for the same path adds nothing; a new name is a second setter.
+    const repeated = fluent(base, { withLimit: ['pagination', 'limit'] });
+    assert.equal(repeated.withLimit(5).build().pagination.limit, 5);
+    const renamed = fluent(base, { withSize: ['pagination', 'limit'] });
+    assert.equal(renamed.withSize(4).build().pagination.limit, 4);
+    assert.equal(renamed.withLimit(5).build().pagination.limit, 5);
+    // A kept name for another path or field throws; a path cannot reuse a field setter's name.
+    assert.throws(() => fluent(base, { withLimit: ['pagination', 'offset'] }), /unique/);
+    assert.throws(() => fluent(outer, { withSearch: ['pagination', 'limit'] }), /unique/);
+    assert.throws(() => fluent(base, { withLimit: 'search' }), /unique/);
+    // Two setters for one path in one call, or a capability name, throw as for fields.
+    assert.throws(
+      () =>
+        fluent(query(), { withLimit: ['pagination', 'limit'], withSize: ['pagination', 'limit'] }),
+      /unique/
+    );
+    assert.throws(() => fluent(query(), { with: ['pagination', 'limit'] }), /capabilities/);
+    // A third level still knows the paths of the first.
+    const third = fluent(fluent(outer, { withTerm: 'search' }), {
+      withLimit: ['pagination', 'limit'],
+    });
+    assert.equal(third.withLimit(8).withTerm('z').build().pagination.limit, 8);
+    // Symbols and indexes compare by identity and value.
+    const marker = Symbol('marker');
+    const symbols = fluent(
+      createBuilder(() => ({ box: { [marker]: 1 }, list: [{ a: 1 }] })),
+      {
+        withMarker: ['box', marker],
+        withItem: ['list', 0, 'a'],
+      }
+    );
+    assert.equal(
+      fluent(symbols, { withMarker: ['box', marker] })
+        .withMarker(2)
+        .build().box[marker],
+      2
+    );
+    assert.throws(() => fluent(symbols, { withMarker: ['box', Symbol('marker')] }), /unique/);
+    assert.throws(() => fluent(symbols, { withItem: ['list', 1, 'a'] }), /unique/);
+    assert.throws(() => fluent(symbols, { withItem: ['list', '0', 'a'] }), /unique/);
+    assert.throws(() => fluent(symbols, { withMarker: ['list', 0, 'a'] }), /unique/);
+  });
+
+  it('validates path aliases as data, and needs a builder with path setters', () => {
+    const base = query();
+    let reads = 0;
+    const getter = ['pagination', 'limit'];
+    Object.defineProperty(getter, 1, {
+      enumerable: true,
+      get() {
+        reads++;
+        return 'limit';
+      },
+    });
+    class Path extends Array {}
+    const sparse = ['pagination'];
+    sparse.length = 2;
+    for (const path of [
+      [],
+      new Array(9).fill('pagination'),
+      sparse,
+      Object.assign(['pagination', 'limit'], { extra: true }),
+      Path.from(['pagination', 'limit']),
+      getter,
+      [1, 'limit'],
+      [Symbol('first'), 'limit'],
+      ['pagination', {}],
+      ['pagination', -1],
+      ['pagination', 1.5],
+      ['pagination', 'x'.repeat(1025)],
+    ]) {
+      assert.throws(() => fluent(base, { withLimit: path }), TypeError);
+    }
+    assert.equal(reads, 0);
+    assert.throws(() => fluent(base, { 'not valid': ['pagination', 'limit'] }), TypeError);
+    // Tuple selections take field names only.
+    assert.throws(() => fluent(base, [['pagination', 'limit']]), TypeError);
+    // The alias is copied: changing the array afterwards changes nothing.
+    const alias = ['pagination', 'limit'];
+    const copied = fluent(base, { withLimit: alias });
+    alias[1] = 'offset';
+    assert.deepEqual(copied.withLimit(3).build().pagination, { limit: 3, offset: 0 });
+    // A builder without path setters, such as one from an older core, is rejected.
+    const custom = {
+      with: () => custom,
+      build: () => ({}),
+      buildAsync: async () => ({}),
+      describe: () => base.describe(),
+    };
+    assert.throws(() => fluent(custom, { withLimit: ['pagination', 'limit'] }), /path setters/);
+    assert.deepEqual(fluent(custom, { withLimit: 'limit' }).withLimit(1).build(), {});
+    const facade = new (builderClass(() => custom))();
+    assert.throws(
+      () => fluent(facade, { withLimit: ['pagination', 'limit'] }).withLimit(1),
+      /no path setters/
+    );
+  });
+
+  it('checks the internal path operation of a builder', () => {
+    const base = query();
+    for (const path of [undefined, 'pagination', [], new Array(9).fill('a'), [{}], [-1], [0.5]]) {
+      assert.throws(() => base[withPath](path, 1, 'label'), TypeError);
+    }
+    assert.deepEqual(base[withPath](['search'], 'x').build(), {
+      search: 'x',
+      pagination: { limit: 10, offset: 0 },
+    });
+    assert.throws(
+      () =>
+        fluent(
+          createBuilder(() => ({})),
+          {}
+        )[withPath],
+      TypeError
+    );
+    assert.throws(
+      () => base[withPath](['missing', 'x'], 1).build(),
+      /^BuilderPathError: A path setter cannot set missing\.x: missing is missing/
+    );
+    assert.throws(
+      () => base[withPath](['missing', 'x'], 1, `with${'X'.repeat(200)}()`).build(),
+      (error) => error.message.startsWith(`with${'X'.repeat(136)} cannot set`)
+    );
   });
 });

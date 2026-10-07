@@ -314,3 +314,127 @@ renamedAsync.buildAsync(1);
 renamedAsync.withName(1);
 // @ts-expect-error Replacing does not restore synchronous build methods.
 renamedAsync.build(1);
+
+// Path aliases: a tuple in an alias map sets a value inside a nested record.
+type Equal<A, B> =
+  (<V>() => V extends A ? 1 : 2) extends <V>() => V extends B ? 1 : 2 ? true : false;
+declare function expectExact<A, B>(proof: Equal<A, B>): void;
+type Setter<F> = F extends (value: infer V) => unknown ? V : never;
+interface ViewQuery {
+  search?: string;
+  pagination?: { limit?: number; offset?: number; cursor?: string | undefined };
+  page: { size: number; after: string | null };
+  lines: { quantity: number; note?: string }[];
+  pair: readonly [{ id: string }, { id: number }];
+  owner: { address: { city: string; zip?: string } } | null;
+  shape: { kind: 'a'; a: number } | { kind: 'b'; b: number };
+  createdAt: Date;
+  tags: Record<string, string>;
+  deep: { a: { b: { c: { d: { e: { f: { g: { h: number } } } } } } } };
+}
+const viewQuery = createBuilder((): ViewQuery => ({
+  page: { size: 10, after: null },
+  lines: [],
+  pair: [{ id: 'a' }, { id: 1 }],
+  owner: null,
+  shape: { kind: 'a', a: 1 },
+  createdAt: new Date(0),
+  tags: {},
+  deep: { a: { b: { c: { d: { e: { f: { g: { h: 1 } } } } } } } },
+}));
+const paged = fluent(viewQuery, {
+  withLimit: ['pagination', 'limit'],
+  withOffset: ['pagination', 'offset'],
+  withCursor: ['pagination', 'cursor'],
+  withSize: ['page', 'size'],
+  withAfter: ['page', 'after'],
+  withQuantity: ['lines', 0, 'quantity'],
+  withLineNote: ['lines', 0, 'note'],
+  withSecondId: ['pair', 1, 'id'],
+  withCity: ['owner', 'address', 'city'],
+  withZip: ['owner', 'address', 'zip'],
+  withTag: ['tags', 'team'],
+  withG: ['deep', 'a', 'b', 'c', 'd', 'e', 'f', 'g'],
+  withSearch: ['search'],
+  withPage: 'page',
+});
+// The setter takes the type at the path; an optional key follows .with()'s rules under
+// exactOptionalPropertyTypes, so `limit?: number` takes a number and not undefined.
+expectExact<Setter<typeof paged.withLimit>, number>(true);
+expectExact<Setter<typeof paged.withCursor>, string | undefined>(true);
+expectExact<Setter<typeof paged.withAfter>, string | null>(true);
+expectExact<Setter<typeof paged.withQuantity>, number>(true);
+expectExact<Setter<typeof paged.withLineNote>, string>(true);
+expectExact<Setter<typeof paged.withSecondId>, number>(true);
+expectExact<Setter<typeof paged.withCity>, string>(true);
+expectExact<Setter<typeof paged.withZip>, string>(true);
+expectExact<Setter<typeof paged.withTag>, string>(true);
+expectExact<Setter<typeof paged.withG>, { h: number }>(true);
+// A one-key path is the field itself.
+expectExact<Setter<typeof paged.withSearch>, string>(true);
+expectType<ViewQuery>(
+  paged.withLimit(5).withOffset(10).withSize(2).withPage({ size: 1, after: 'x' }).build()
+);
+// @ts-expect-error The setter keeps the type at the path.
+paged.withLimit('5');
+// @ts-expect-error An optional key does not take undefined under exactOptionalPropertyTypes.
+paged.withLimit(undefined);
+// @ts-expect-error Path setters return the builder, which has only the selected setters.
+paged.withLimit(5).withMissing();
+// Each key of a path must exist.
+// @ts-expect-error "pagination.limti is not a path of plain records and arrays in the builder input"
+fluent(viewQuery, { withLimit: ['pagination', 'limti'] });
+// @ts-expect-error The first key is a field of the input.
+fluent(viewQuery, { withLimit: ['paginaton', 'limit'] });
+// @ts-expect-error A path does not go through a union of records: set a variant whole.
+fluent(viewQuery, { withA: ['shape', 'a'] });
+// @ts-expect-error Nor into a built-in value such as a date.
+fluent(viewQuery, { withTime: ['createdAt', 'getTime'] });
+// @ts-expect-error An array takes a number index, not a field name.
+fluent(viewQuery, { withQuantity: ['lines', 'first', 'quantity'] });
+// @ts-expect-error A tuple index must exist.
+fluent(viewQuery, { withThird: ['pair', 2, 'id'] });
+// @ts-expect-error Paths have at most 8 keys.
+fluent(viewQuery, { withTooDeep: ['deep', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] });
+// @ts-expect-error An empty path sets nothing.
+fluent(viewQuery, { withNothing: [] });
+// @ts-expect-error A path of runtime length cannot promise a setter type.
+fluent(viewQuery, { withLimit: ['pagination', 'limit'] as string[] });
+// Path setters survive builder operations, async transitions and nesting, like other setters.
+const pagedAsync = paged
+  .withFactory(() => ({ pagination: { limit: 1, offset: 0 } }))
+  .withLimit(5)
+  .transformAsync(async (value) => value)
+  .withOffset(2);
+void pagedAsync.buildAsync();
+// @ts-expect-error Path setters do not restore synchronous build methods.
+pagedAsync.build();
+const searched = fluent(paged, ['search']);
+expectExact<Setter<typeof searched.withLimit>, number>(true);
+searched.withSearch('ramp').withLimit(5).build();
+const nestedPaths = fluent(fluent(viewQuery, ['search', 'page']), {
+  withLimit: ['pagination', 'limit'],
+});
+nestedPaths.withSearch('ramp').withLimit(5).withPage({ size: 1, after: null }).build();
+// @ts-expect-error Kept setters keep their types beside path setters.
+nestedPaths.withSearch(1);
+// map() keeps path setters.
+expectType<number | undefined>(
+  paged
+    .map((value) => value.pagination?.limit)
+    .withLimit(3)
+    .build()
+);
+// Schema builders type path setters from their input, not their output.
+const pagedSchema = {} as StandardSchemaV1<
+  { pagination?: { limit?: string } },
+  { pagination?: { limit?: number } }
+>;
+const pagedRows = fluent(
+  createSchemaBuilder(pagedSchema, () => ({})),
+  { withLimit: ['pagination', 'limit'] }
+);
+expectExact<Setter<typeof pagedRows.withLimit>, string>(true);
+pagedRows.withLimit('5').buildValidated();
+// @ts-expect-error The input type, not the output type.
+pagedRows.withLimit(5);

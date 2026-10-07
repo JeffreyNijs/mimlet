@@ -126,7 +126,8 @@ node's own stream after the factory's draws.
   `build()` reports the async node before any patcher runs.
 - **Values.** Return a new value, such as a spread copy of a plain record. Like a factory, a
   patcher should not change its dependencies.
-- **Failures.** An error in a patcher is a `SCENARIO_EXECUTION` error for the node.
+- **Failures.** An error in a patcher is a `SCENARIO_EXECUTION` error for the node; its
+  message names the patch, as in `Scenario node "deal" failed in patch 2: ...`.
 
 ### Patch fields of class instances
 
@@ -171,8 +172,23 @@ Promise-producing nodes, overrides, patches, or traits yield async-only capabili
 uncontrolled parallel work. Runtime misuse of a synchronous method observes an
 accidental rejected promise before reporting the required async method.
 
-`ScenarioError` identifies the failed node and retains the original cause. Its
-own message does not print fixture values. Failed runs may have consumed session
+`ScenarioError` identifies the failed node in `node` and retains the original error
+in `cause`. Its message names the node, the step that failed and the cause's
+message, on one line and cut at 200 characters:
+
+```text
+Scenario node "deal" failed in patch 1: A patch of deal returned a plain object in place of a Deal instance; pass the changed fields, as in patch('deal', { ... }), to keep the class, or return a Deal
+```
+
+The step is the node's factory (no step in the message), `in its override`,
+`in trait "name"` or `in patch 2` (counted from 1). When a dependency fails, the
+message names the dependency, because the nodes after it never run. A
+`BuilderValidationError` cause keeps fixture values out, as its own message names
+paths only, and so do Mimlet's other errors; an error your factory or patcher throws
+appears as you wrote it. A thrown string is used as the message; other thrown values
+add nothing. Definition and conflict errors end with the node's name, as in
+`Duplicate scenario node: "deal"`. Before `0.1.0-beta.7`, every node failure had the
+message `Scenario node failed`. Failed runs may have consumed session
 state or application effects; the scenario does not claim transactional rollback.
 Restore a snapshot taken before execution to replay controlled session state.
 Include recipe and override changes in the consumer-supplied replay fingerprint

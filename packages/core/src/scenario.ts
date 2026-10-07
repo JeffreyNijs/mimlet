@@ -207,8 +207,63 @@ interface Definition {
   readonly nodes: ReadonlyArray<NodeDefinition>;
   readonly traits: ReadonlyArray<string>;
 }
+const NAME_LIMIT = 64;
+const CAUSE_LIMIT = 200;
+/** On one line, at most `limit` characters. */
+function bounded(text: string, limit: number): string {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return line.length > limit ? `${line.slice(0, limit - 3)}...` : line;
+}
+/** A node or trait name for a message: quoted, on one line and bounded. */
+function quoted(name: unknown): string {
+  return typeof name === 'string' ? JSON.stringify(bounded(name, NAME_LIMIT)) : `(${typeof name})`;
+}
+/**
+ * The cause's message for the scenario's own message: on one line and at most 200 characters,
+ * as `BuilderValidationError` bounds its detail. Only a thrown string or an error's own
+ * `message` data property is read, so no getter runs; other values add nothing.
+ */
+function summary(cause: unknown): string {
+  try {
+    const message: unknown =
+      typeof cause === 'object' && cause !== null
+        ? Object.getOwnPropertyDescriptor(cause, 'message')?.value
+        : cause;
+    return typeof message === 'string' ? bounded(message, CAUSE_LIMIT) : '';
+  } catch {
+    return '';
+  }
+}
+/** Where a node failed: its factory, override or trait, or one of its patches. */
+function stepOf(node: NodeDefinition, patch?: number): string {
+  if (patch !== undefined) {
+    return ` in patch ${patch + 1}`;
+  }
+  if (node.origin === 'override') {
+    return ' in its override';
+  }
+  return node.origin.startsWith('trait:') ? ` in trait ${quoted(node.origin.slice(6))}` : '';
+}
+/**
+ * A failed node: the message names the node, where it failed and the cause's message, for
+ * example `Scenario node "deal" failed in patch 1: A patch of deal returned a plain object ...`.
+ */
+function failed(node: NodeDefinition, cause: unknown, patch?: number): ScenarioError {
+  const reason = summary(cause);
+  return new ScenarioError(
+    'SCENARIO_EXECUTION',
+    `Scenario node ${quoted(node.name)} failed${stepOf(node, patch)}${reason ? `: ${reason}` : ''}`,
+    node.name,
+    cause
+  );
+}
+/** A definition error; the message ends with the node's name when there is one. */
 function fail(message: string, node?: string): never {
-  throw new ScenarioError('SCENARIO_DEFINITION', message, node);
+  throw new ScenarioError(
+    'SCENARIO_DEFINITION',
+    node === undefined ? message : `${message}: ${quoted(node)}`,
+    node
+  );
 }
 function validName(name: string): void {
   if (typeof name !== 'string' || !name || name.length > 1024 || name === 'then') {
@@ -289,10 +344,12 @@ function makeScenario(definition: Definition) {
   const build = (session: GenerationSession = createTestSession()) => {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
+      let patch: number | undefined;
       try {
         const [dependencies, scoped] = inputs(node, values, session);
         let value = synchronous(Reflect.apply(node.factory, undefined, [dependencies, scoped]));
-        for (const patcher of node.patches) {
+        for (const [index, patcher] of node.patches.entries()) {
+          patch = index;
           const result = synchronous(
             Reflect.apply(patcher, undefined, [value, dependencies, scoped])
           );
@@ -300,7 +357,7 @@ function makeScenario(definition: Definition) {
         }
         install(values, node.name, value);
       } catch (cause) {
-        throw new ScenarioError('SCENARIO_EXECUTION', 'Scenario node failed', node.name, cause);
+        throw failed(node, cause, patch);
       }
     }
     return values;
@@ -308,10 +365,12 @@ function makeScenario(definition: Definition) {
   const buildAsync = async (session: GenerationSession = createTestSession()) => {
     const values: Record<string, unknown> = {};
     for (const node of definition.nodes) {
+      let patch: number | undefined;
       try {
         const [dependencies, scoped] = inputs(node, values, session);
         let value: unknown = await Reflect.apply(node.factory, undefined, [dependencies, scoped]);
-        for (const patcher of node.patches) {
+        for (const [index, patcher] of node.patches.entries()) {
+          patch = index;
           const result: unknown = await Reflect.apply(patcher, undefined, [
             value,
             dependencies,
@@ -321,7 +380,7 @@ function makeScenario(definition: Definition) {
         }
         install(values, node.name, value);
       } catch (cause) {
-        throw new ScenarioError('SCENARIO_EXECUTION', 'Scenario node failed', node.name, cause);
+        throw failed(node, cause, patch);
       }
     }
     return values;
@@ -379,7 +438,7 @@ function makeScenario(definition: Definition) {
         } catch (cause) {
           throw new ScenarioError(
             'SCENARIO_DEFINITION',
-            cause instanceof Error ? cause.message : 'Invalid scenario patch',
+            `${cause instanceof Error ? cause.message : 'Invalid scenario patch'}: ${quoted(name)}`,
             name,
             cause
           );
@@ -434,9 +493,11 @@ function makeScenario(definition: Definition) {
         ) {
           throw new ScenarioError(
             'SCENARIO_CONFLICT',
-            node.origin === 'definition'
-              ? 'Trait conflicts with an existing node patch'
-              : 'Trait conflicts with an existing node override',
+            `${
+              node.origin === 'definition'
+                ? 'Trait conflicts with an existing node patch'
+                : 'Trait conflicts with an existing node override'
+            }: ${quoted(node.name)}`,
             node.name
           );
         }

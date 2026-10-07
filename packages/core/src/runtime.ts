@@ -1,5 +1,6 @@
 import { className, mappedClass, type AnyClass } from './class-instance.js';
 import { summarizeValidationIssues } from './issues.js';
+import { update, withPathKey } from './path-update.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type {
   BuilderConfig,
@@ -50,7 +51,14 @@ type Operation =
       readonly kind: 'mergeFactory' | 'replaceFactory';
       readonly factory: (...args: unknown[]) => unknown;
     }
-  | { readonly kind: 'omit'; readonly keys: ReadonlyArray<PropertyKey> };
+  | { readonly kind: 'omit'; readonly keys: ReadonlyArray<PropertyKey> }
+  | {
+      /** A fluent() path alias: `value` at `path`, every key but the last must exist. */
+      readonly kind: 'mergePath';
+      readonly path: ReadonlyArray<PropertyKey>;
+      readonly value: unknown;
+      readonly label: string;
+    };
 type Transform = {
   readonly asynchronous: boolean;
   /** A map is a transform whose result may have another type. */
@@ -159,9 +167,33 @@ function applyOperations(state: State, initial: unknown, args: unknown[]): unkno
         value = copy;
         break;
       }
+      case 'mergePath':
+        value = update(value, operation.path, operation.value, false, operation.label);
+        break;
     }
   }
   return value;
+}
+/** A path for a path setter: 1 to 8 strings, array indexes or symbols, copied and frozen. */
+function checkedPath(path: unknown): ReadonlyArray<PropertyKey> {
+  const keys: PropertyKey[] = [];
+  const count = Array.isArray(path) ? path.length : 0;
+  if (count < 1 || count > 8) {
+    throw new TypeError('A path setter takes a path of 1 to 8 keys');
+  }
+  for (let index = 0; index < count; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(path, index);
+    const key: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    if (
+      typeof key !== 'string' &&
+      typeof key !== 'symbol' &&
+      !(typeof key === 'number' && Number.isSafeInteger(key) && key >= 0)
+    ) {
+      throw new TypeError('A path holds strings, array indexes or symbols');
+    }
+    keys.push(key);
+  }
+  return Object.freeze(keys);
 }
 function unwrap(result: StandardSchemaV1.Result<unknown>): unknown {
   if (result.issues !== undefined) {
@@ -273,6 +305,15 @@ export function makeRuntime(state: State) {
     },
     omit(...keys: PropertyKey[]) {
       return operation({ kind: 'omit', keys: [...keys] });
+    },
+    /** Internal: the operation behind fluent() path aliases. */
+    [withPathKey](path: unknown, value: unknown, label: unknown) {
+      return operation({
+        kind: 'mergePath',
+        path: checkedPath(path),
+        value,
+        label: typeof label === 'string' ? label.slice(0, 140) : 'A path setter',
+      });
     },
     transform(run: (value: unknown, ...args: unknown[]) => unknown) {
       callable(run, 'transform()');

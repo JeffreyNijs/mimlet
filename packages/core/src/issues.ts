@@ -45,7 +45,8 @@ function segment(part: unknown, first: boolean): string {
   return `[${JSON.stringify(clip(key, KEY_LIMIT))}]`;
 }
 
-function formatPath(path: unknown): string {
+/** A bounded path such as `owner.email` or `items[0].price`; `(root)` for an empty path. */
+export function formatPath(path: unknown): string {
   if (!Array.isArray(path) || path.length === 0) {
     return '(root)';
   }

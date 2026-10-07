@@ -51,8 +51,11 @@ from the class, so the factory needs no annotation. A key that is not a payload 
 misspelled field, a field typed `never` or a method, also in nested DTOs and arrays) is a
 compile error, although TypeScript on its own does not report extra keys of a returned object:
 `() => ({ title: 'Windows', titel: 'Doors' })` fails with
-`Type 'string' is not assignable to type '"titel is not a field of the class"'`. A nested type
-without known keys (`object`, `Record<string, unknown>`) accepts any key.
+`Type 'string' is not assignable to type '"titel is not a field of the class"'`. The message
+names the key also when it is the only key and every payload field is optional, as in a query
+DTO: `() => ({ sort: 'name' })` fails with
+`Type 'string' is not assignable to type '"sort is typed never in the class and cannot be set"'`.
+A nested type without known keys (`object`, `Record<string, unknown>`) accepts any key.
 
 ## Entry points
 
@@ -146,6 +149,13 @@ await request(app.getHttpServer()).get(`/orders?${qs.stringify(query.build())}`)
 ```
 
 The package does not depend on `qs`; any object with `stringify()` and `parse()` is a wire.
+
+For one nested parameter, add a path alias:
+`fluent(viewOrdersQueryBuilder, { withLimit: ['pagination', 'limit'] })`. `withLimit(5)` sets
+`pagination.limit` and keeps `offset`. The parent must exist when the setter runs, so with
+the `{}` default above, set `pagination` first (`withPagination({ limit: 10, offset: 0 })`) or
+default it in the factory; otherwise the build fails with a message that says so. See
+[setters for nested fields](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html#setters-for-nested-fields).
 
 ## Validation errors
 

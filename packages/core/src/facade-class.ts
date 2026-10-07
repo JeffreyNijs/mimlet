@@ -1,4 +1,5 @@
 // Internal: shared by builderClass() and fluent(). index.ts does not re-export this module.
+import { withPathKey } from './path-update.js';
 
 const configurationMethods = new Set([
   'with',
@@ -24,7 +25,7 @@ export const facadeMethods: readonly string[] = [
   'buildValidatedList',
   'buildValidatedListAsync',
 ];
-type Runtime = Record<string, (...args: unknown[]) => unknown>;
+type Runtime = Record<PropertyKey, (...args: unknown[]) => unknown>;
 
 /**
  * The facade class behind builderClass(). `forwarded` names extra methods of the builder, such
@@ -39,10 +40,14 @@ export function facadeClass(
     throw new TypeError('Expected a builder definition');
   }
   const states = new WeakMap<object, Runtime>();
-  const invoke = (base: Runtime, key: string, args: unknown[]): unknown => {
+  const invoke = (base: Runtime, key: PropertyKey, args: unknown[]): unknown => {
     const method = base[key];
     if (typeof method !== 'function') {
-      throw new TypeError(`Builder capability ${key} is unavailable`);
+      throw new TypeError(
+        key === withPathKey
+          ? 'This builder has no path setters: it comes from an older @mimlet/core or another library'
+          : `Builder capability ${String(key)} is unavailable`
+      );
     }
     return Reflect.apply(method, base, args);
   };
@@ -68,7 +73,7 @@ export function facadeClass(
       states.set(this, initial === undefined ? base : (invoke(base, 'with', [initial]) as Runtime));
     }
   }
-  const define = (key: string, branches: (result: unknown, base: Runtime) => boolean) => {
+  const define = (key: PropertyKey, branches: (result: unknown, base: Runtime) => boolean) => {
     Object.defineProperty(Facade.prototype, key, {
       configurable: true,
       value: function (this: object, ...args: unknown[]) {
@@ -93,6 +98,8 @@ export function facadeClass(
     const configuration = configurationMethods.has(key);
     define(key, () => configuration);
   }
+  // Internal: the operation behind fluent() path aliases, also through nested facades.
+  define(withPathKey, () => true);
   for (const key of forwarded) {
     define(key, sameKind);
   }

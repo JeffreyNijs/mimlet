@@ -22,8 +22,8 @@ const named = fluent(builder, { withUserName: 'user_name' });
 Literal field tuples and alias maps are checked against finite, ordinary object
 records. Runtime-length inventories, index signatures, atomic values, arrays,
 nullable root objects and root object unions cannot acquire unsound partial setters.
-Use `.replace()` for variant transitions. For typed nested updates, use
-[`setPath` inside `.transform()`](generated-facades-and-paths.md#typed-nested-changes).
+Use `.replace()` for variant transitions. For a setter of a nested field, use a
+[path alias](#setters-for-nested-fields).
 `map()` keeps the setters: `fluent(builder, ['name']).map((user) => user.name)` still has
 `withName()`, and its builds return the mapped value (see
 [class instances](class-instances.md#map-change-what-builds-return)).
@@ -34,6 +34,68 @@ Selections contain 1–1,000 fields. Automatic field names allow up to 64 charac
 explicit aliases allow a 1,024-character field and a 128-character method name.
 Duplicate fields, colliding names, getters and sparse arrays are rejected before
 factory execution.
+
+## Setters for nested fields
+
+In an alias map, a tuple in place of a field name is a path alias. Its setter changes
+one value inside a nested record and keeps the record's other fields:
+
+```ts
+const viewOrders = fluent(
+  createBuilder(() => ({ search: 'ramp', pagination: { limit: 10, offset: 0 } })),
+  { withLimit: ['pagination', 'limit'], withOffset: ['pagination', 'offset'] }
+);
+viewOrders.withLimit(5).build(); // { search: 'ramp', pagination: { limit: 5, offset: 0 } }
+```
+
+- **Typed from the input.** Each key of the path must exist in the builder's input type,
+  so `['pagination', 'limti']` is a compile error
+  (`"pagination.limti is not a path of plain records and arrays in the builder input"`).
+  The setter takes the type at the path, with the same rules as `.with()` for optional
+  keys under `exactOptionalPropertyTypes`: `limit?: number` takes a `number`.
+- **1 to 8 keys.** A path starts with a top-level field, followed by field names, array
+  indexes (`['lines', 0, 'quantity']`) or symbols. `['search']` is the same as
+  `'search'`. Paths do not go through unions of records or built-in values such as
+  dates; set those as a whole.
+- **An operation in call order.** The setter joins the builder's patches like
+  `.with()`: `.with({ pagination: { limit: 1, offset: 0 } }).withLimit(5)` builds a
+  limit of 5, and a later `.with()` or `.withFactory()` can change it again. Transforms
+  still run after every patch. `describe()` lists the step as `'mergePath'`.
+- **The parent must exist.** A path setter changes a value inside an existing record or
+  array; it does not create the parent, because `{ limit: 5 }` alone could be an
+  invalid parent (here, without `offset`). A parent typed as optional or nullable still
+  gets a setter, since the factory or an earlier patch may set it. When it is missing,
+  the build throws a `BuilderPathError` (`INVALID_BUILDER_PATH`) that names keys only:
+
+  ```text
+  withLimit() cannot set pagination.limit: pagination is missing; set pagination first (with .with() or its own setter) or give it a default in the factory
+  ```
+
+- **Plain records and arrays.** Each record and array on the path is copied, keeping its
+  prototype (also `null`) and property descriptors; the factory's value and other
+  branches never change. A class instance on the path fails the build with a message
+  that names its class: set that field as a whole. `createInstanceBuilder()` builders
+  patch their record, so path setters work on its nested records.
+
+Path setters work on Mimlet's builders: async builders, schema builders (typed from
+the schema's input), generated and hand-written class facades,
+`createInstanceBuilder()` and the `@mimlet/class-validator` builders. They survive the
+same operations as other setters, including async transitions and `map()`. Nesting
+keeps them like any other setter: repeating a kept path setter for the same path adds
+nothing, and reusing its name for another field or path throws. Schema field lists
+stay top level, so add path aliases in an outer call:
+
+```ts
+const rows = fluent(fromZod(ViewOrdersQuery), zodFields(ViewOrdersQuery));
+const paged = fluent(rows, { withLimit: ['pagination', 'limit'] });
+paged.withSearch('ramp').withLimit(5);
+```
+
+Path aliases need `0.1.0-beta.7` or newer. A builder from an older `@mimlet/core` copy
+or from another library has no path operation, and `fluent()` rejects a path alias for
+it with a `TypeError`. For a change computed from the built value, use
+[`setPath` inside `.transform()`](generated-facades-and-paths.md#typed-nested-changes),
+which runs after every patch.
 
 ## A setter for every schema field
 

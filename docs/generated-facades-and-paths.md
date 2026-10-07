@@ -74,3 +74,8 @@ properties and accessors are rejected. Null-prototype records, symbol keys, and
 prototype-looking own keys are handled without invoking prototype setters.
 Unchanged nested values retain their identity; use the existing clone policy
 when complete fixture isolation is desired.
+
+A transform runs after every patch. For a named setter that changes one nested
+value in call order with the other patches, use a `fluent()` path alias such as
+`fluent(users, { withName: ['profile', 'name'] })`; it follows the same copying
+rules. See [setters for nested fields](fluent-builders.md#setters-for-nested-fields).

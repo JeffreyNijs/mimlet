@@ -180,3 +180,39 @@ it('lets an explicit setter replace a generated class method, with its own type'
   // A list leaves the class method in place.
   expect(fluent(new Users(), ['id']).withName('ada').build(3).name).toBe('ADA');
 });
+
+it('adds path setters on top of schema field lists of every adapter', () => {
+  const zodQuery = z.object({
+    search: z.string().optional(),
+    pagination: z.object({ limit: z.coerce.number().max(100), offset: z.number() }).optional(),
+  });
+  const zodRows = fluent(
+    fluent(
+      fromZodFactory(zodQuery, () => ({ pagination: { limit: 10, offset: 0 } })),
+      zodFields(zodQuery)
+    ),
+    { withLimit: ['pagination', 'limit'] }
+  );
+  // The setter takes the input type at the path: z.coerce.number() accepts unknown input.
+  expectTypeOf(zodRows.withLimit).parameter(0).toEqualTypeOf<unknown>();
+  expect(zodRows.withSearch('ramp').withLimit('5').buildValidated()).toEqual({
+    search: 'ramp',
+    pagination: { limit: 5, offset: 0 },
+  });
+  expect(() => zodRows.withLimit(500).buildValidated()).toThrow(/at pagination\.limit/);
+  const boxQuery = Type.Object({
+    pagination: Type.Object({ limit: Type.Number(), offset: Type.Number() }),
+  });
+  const boxRows = fluent(fluent(fromTypeBox(boxQuery), typeBoxFields(boxQuery)), {
+    withOffset: ['pagination', 'offset'],
+  });
+  expectTypeOf(boxRows.withOffset).parameter(0).toEqualTypeOf<number>();
+  expect(boxRows.withOffset(7).buildValidated().pagination.offset).toBe(7);
+  const valibotQuery = v.object({ page: v.object({ size: v.number() }) });
+  const valibotRows = fluent(fluent(fromValibot(valibotQuery), valibotFields(valibotQuery)), {
+    withSize: ['page', 'size'],
+  });
+  expect(valibotRows.withSize(3).withPage({ size: 4 }).withSize(5).buildValidated()).toEqual({
+    page: { size: 5 },
+  });
+});

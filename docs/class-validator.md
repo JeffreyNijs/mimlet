@@ -98,6 +98,11 @@ fromClassValidator(ViewRolesQuery, () => ({ search: 'x' }));
 // '"search is typed never in the class and cannot be set"'.
 ```
 
+The message names the key also when the factory returns no payload field at all and every
+payload field is optional, as in most query DTOs. Before `0.1.0-beta.7`, TypeScript rejected
+such a factory with a message that named no key (`Type '{ sort: string; }' is not assignable
+to type 'NoInfer<{ search?: ...; }> | PromiseLike<...>'`).
+
 The check covers async factories, factories with arguments or a session, block bodies and
 spreads. A nested type without known keys (`object`, `Record<string, unknown>`) accepts any
 key, and a factory declared to return exactly `DtoInput<T>`, as in a generic helper, is not
@@ -152,6 +157,25 @@ await request(app.getHttpServer())
 Fields typed `never`, such as `sort?: never` with `@Equals(undefined)`, are not part of
 `DtoInput`, so the builder cannot set them by accident: a factory that returns one and
 `.with({ sort })` are type errors.
+
+A path alias gives one nested parameter its own setter:
+
+```ts
+const pagedOrders = fluent(viewOrdersQueryBuilder, {
+  withLimit: ['pagination', 'limit'],
+  withOffset: ['pagination', 'offset'],
+});
+pagedOrders.withPagination({ limit: 10, offset: 0 }).withLimit(5).build();
+// { pagination: { limit: 5, offset: 0 } }
+```
+
+A path setter changes a field of an existing `pagination` and never creates one, because
+`{ limit: 5 }` alone would fail `@ValidateNested()` for the missing `offset`. With the `{}`
+default above, `pagedOrders.withLimit(5).build()` throws
+`withLimit() cannot set pagination.limit: pagination is missing; set pagination first (with
+.with() or its own setter) or give it a default in the factory`. Set `pagination` first, as
+above, or default it in the factory (`() => ({ pagination: { limit: 10, offset: 0 } })`). See
+[setters for nested fields](fluent-builders.md#setters-for-nested-fields).
 
 ### Bind the options once
 

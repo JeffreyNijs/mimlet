@@ -376,6 +376,24 @@ describe('builders from the packed package', () => {
     assert.ok(query.pagination instanceof PaginatedOffsetQuery);
     assert.deepEqual({ ...query.pagination }, { limit: 5, offset: 10 });
     assert.match(failure(() => queries.withSearch('').buildValidated()).message, /at search/);
+    // Path setters change one nested parameter once pagination exists.
+    const paged = fluent(queries, {
+      withLimit: ['pagination', 'limit'],
+      withOffset: ['pagination', 'offset'],
+    });
+    assert.throws(
+      () => paged.withLimit(5).build(),
+      (error) =>
+        error.code === 'INVALID_BUILDER_PATH' &&
+        error.message.startsWith('withLimit() cannot set pagination.limit: pagination is missing')
+    );
+    const page = paged.withPagination({ limit: 5, offset: 0 }).withOffset(20).buildValidated();
+    assert.deepEqual({ ...page.pagination }, { limit: 5, offset: 20 });
+    assert.match(
+      failure(() => paged.withPagination({ limit: 5, offset: 0 }).withLimit(500).buildValidated())
+        .message,
+      /at pagination\.limit/
+    );
   });
 
   it('binds options once for every builder', async () => {

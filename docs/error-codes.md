@@ -12,19 +12,19 @@ programming errors, not states to branch on.
 
 ## Core (`@mimlet/core`)
 
-| Class                    | Code                       | When                                                                                                                  |
-| ------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `BuilderValidationError` | `VALIDATION_FAILED`        | A validated build was rejected by its schema. The validator's issues are on the non-enumerable `issues` property.     |
-| `BuilderGenerationError` | `GENERATION_FAILED`        | Generation could not produce a value, for example a selected union variant that does not satisfy the enclosing union. |
-| `BuilderPathError`       | `INVALID_BUILDER_PATH`     | A typed path operation received a path that does not exist on the value. Extends `TypeError`.                         |
-| `FixtureCaptureError`    | `UNSUPPORTED_FIXTURE`      | Capture met a value it cannot record, such as a class instance, function, accessor, promise or weak collection.       |
-|                          | `CAPTURE_LIMIT`            | Capture exceeded its size or depth budget.                                                                            |
-|                          | `INVALID_CAPTURE`          | A capture record being restored is malformed or uses an unsupported format.                                           |
-| `ScenarioError`          | `SCENARIO_DEFINITION`      | A scenario definition is invalid. The error names the node.                                                           |
-|                          | `SCENARIO_CONFLICT`        | A trait was applied twice, or conflicts with an existing node override.                                               |
-|                          | `SCENARIO_EXECUTION`       | A scenario node failed while building; the original error is the `cause`.                                             |
-| `SessionBudgetError`     | `SESSION_BUDGET_EXHAUSTED` | A generation session ran out of its operation, tracked-key, unique-value or uniqueness-attempt budget.                |
-| `SessionReplayError`     | `INVALID_SESSION_REPLAY`   | A session replay is malformed, or its fingerprint, provider/version or configuration does not match.                  |
+| Class                    | Code                       | When                                                                                                                                       |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BuilderValidationError` | `VALIDATION_FAILED`        | A validated build was rejected by its schema. The validator's issues are on the non-enumerable `issues` property.                          |
+| `BuilderGenerationError` | `GENERATION_FAILED`        | Generation could not produce a value, for example a selected union variant that does not satisfy the enclosing union.                      |
+| `BuilderPathError`       | `INVALID_BUILDER_PATH`     | A typed path operation received a path that does not exist on the value, or a `fluent()` path setter found no parent. Extends `TypeError`. |
+| `FixtureCaptureError`    | `UNSUPPORTED_FIXTURE`      | Capture met a value it cannot record, such as a class instance, function, accessor, promise or weak collection.                            |
+|                          | `CAPTURE_LIMIT`            | Capture exceeded its size or depth budget.                                                                                                 |
+|                          | `INVALID_CAPTURE`          | A capture record being restored is malformed or uses an unsupported format.                                                                |
+| `ScenarioError`          | `SCENARIO_DEFINITION`      | A scenario definition is invalid. The error names the node.                                                                                |
+|                          | `SCENARIO_CONFLICT`        | A trait was applied twice, or conflicts with an existing node override.                                                                    |
+|                          | `SCENARIO_EXECUTION`       | A scenario node failed while building. The message names the node, the step and the cause's message; the original error is the `cause`.    |
+| `SessionBudgetError`     | `SESSION_BUDGET_EXHAUSTED` | A generation session ran out of its operation, tracked-key, unique-value or uniqueness-attempt budget.                                     |
+| `SessionReplayError`     | `INVALID_SESSION_REPLAY`   | A session replay is malformed, or its fingerprint, provider/version or configuration does not match.                                       |
 
 A `BuilderValidationError` message names the issue count and up to three failing
 paths, for example `Schema validation failed: 2 issues at owner.email, items[0].price`.
@@ -33,6 +33,15 @@ with where it came from, for example `; thrown by the Zod transform fromDto`.
 It never includes native issue messages, which can repeat the rejected value. Read
 the non-enumerable `issues` property, or call `formatValidationIssues(error, { messages: true })`,
 to see them. See [validation diagnostics](../packages/core/README.md#validation-diagnostics).
+
+A `SCENARIO_EXECUTION` message names the node, where it failed and the first 200
+characters of the cause's message on one line, for example
+`Scenario node "deal" failed in patch 1: A patch of deal returned a plain object ...`. A
+`fluent()` path setter's `BuilderPathError` names the setter, the path and the missing
+parent, for example `withLimit() cannot set pagination.limit: pagination is missing; ...`.
+The path setter's message names keys only. The scenario message repeats the cause's
+message, so an error your own code throws appears as written; Mimlet's own errors keep
+fixture values out of their messages.
 
 ## Adapters and schema packages
 
