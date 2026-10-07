@@ -19,7 +19,7 @@ and the seeding steps are the same for PostgreSQL or MySQL; only the SQL in the
 write step changes. [Prisma and Drizzle](#prisma-and-drizzle) are covered below.
 
 ```sh
-npm install --save-dev @mimlet/core@0.1.0-beta.6 @mimlet/consumers@0.1.0-beta.6
+npm install --save-dev @mimlet/core@0.1.0-beta.7 @mimlet/consumers@0.1.0-beta.7
 ```
 
 ## 1. Describe the rows as a scenario
