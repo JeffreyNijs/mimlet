@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/graphql",
-  "version": "0.1.0-beta.7",
+  "version": "0.1.0-beta.8",
   "private": false,
   "description": "Native GraphQL input and operation-response fixtures without application resolvers or network access.",
   "type": "module",
@@ -34,7 +34,7 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-graphql.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.7",
+    "@mimlet/core": "0.1.0-beta.8",
     "graphql": "17.0.2"
   },
   "engines": {

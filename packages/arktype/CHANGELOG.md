@@ -1,5 +1,14 @@
 # @mimlet/arktype
 
+## 0.1.0-beta.8
+
+### Patch Changes
+
+- Updated dependencies [f9f37ba]
+- Updated dependencies [f9f37ba]
+  - @mimlet/core@0.1.0-beta.8
+  - @mimlet/json-schema@0.1.0-beta.8
+
 ## 0.1.0-beta.7
 
 ### Patch Changes

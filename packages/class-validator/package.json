@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/class-validator",
-  "version": "0.1.0-beta.7",
+  "version": "0.1.0-beta.8",
   "private": false,
   "description": "class-validator DTOs as Standard Schemas: fixtures validated the way NestJS's ValidationPipe validates requests.",
   "type": "module",
@@ -44,7 +44,7 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-class-validator.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.7"
+    "@mimlet/core": "0.1.0-beta.8"
   },
   "engines": {
     "node": ">=22.18.0"

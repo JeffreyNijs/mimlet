@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/avro",
-  "version": "0.1.0-beta.7",
+  "version": "0.1.0-beta.8",
   "private": false,
   "description": "Native Avro fixtures, explicit unions and lossless bigint binary codecs.",
   "type": "module",
@@ -34,7 +34,7 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-avro.test.ts"
   },
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.7",
+    "@mimlet/core": "0.1.0-beta.8",
     "avsc": "5.7.9"
   },
   "engines": {
