@@ -169,6 +169,20 @@ pagedOrders.withPagination({ limit: 10, offset: 0 }).withLimit(5).build();
 // { pagination: { limit: 5, offset: 0 } }
 ```
 
+The same setters fit in the call that lists the fields, as a third argument:
+
+```ts
+export const viewOrdersQueryBuilder = fluent(
+  fromClassValidator(ViewOrdersQuery, () => ({}), { ...validationPipeOptions, wire: qs }),
+  ['search', 'statuses', 'pagination'],
+  { withLimit: ['pagination', 'limit'], withOffset: ['pagination', 'offset'] }
+);
+```
+
+A schema field list such as `classValidatorFields(ViewOrdersQuery)` takes the alias map the
+same way. A mistyped key is a compile error that names the path, such as
+`"pagination.limti is not a path of plain records and arrays in the builder input"`.
+
 A path setter changes a field of an existing `pagination` and never creates one, because
 `{ limit: 5 }` alone would fail `@ValidateNested()` for the missing `offset`. With the `{}`
 default above, `pagedOrders.withLimit(5).build()` throws

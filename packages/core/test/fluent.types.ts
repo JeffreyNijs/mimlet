@@ -438,3 +438,129 @@ expectExact<Setter<typeof pagedRows.withLimit>, string>(true);
 pagedRows.withLimit('5').buildValidated();
 // @ts-expect-error The input type, not the output type.
 pagedRows.withLimit(5);
+
+// A field list and an alias map in one call: the setters of fluent(fluent(builder, list), map).
+const views = fluent(viewQuery, ['search', 'page', 'pagination'], {
+  withLimit: ['pagination', 'limit'],
+  withCity: ['owner', 'address', 'city'],
+  withTerm: 'search',
+});
+expectExact<Setter<typeof views.withLimit>, number>(true);
+expectExact<Setter<typeof views.withCity>, string>(true);
+expectExact<Setter<typeof views.withTerm>, string>(true);
+expectExact<Setter<typeof views.withSearch>, string>(true);
+expectExact<Setter<typeof views.withPagination>, NonNullable<ViewQuery['pagination']>>(true);
+expectType<ViewQuery>(
+  views.withPagination({}).withLimit(5).withSearch('s').withTerm('t').withPage(page()).build()
+);
+function page(): ViewQuery['page'] {
+  return { size: 1, after: null };
+}
+// @ts-expect-error Setters keep the type at the path.
+views.withLimit('5');
+// @ts-expect-error An optional key does not take undefined under exactOptionalPropertyTypes.
+views.withLimit(undefined);
+// @ts-expect-error Only the listed and aliased setters exist.
+views.withLines([]);
+// The result type is the nested call's type.
+const viewsNested: FluentBuilder<
+  FluentBuilder<typeof viewQuery, readonly ['search', 'page', 'pagination']>,
+  {
+    readonly withLimit: readonly ['pagination', 'limit'];
+    readonly withCity: readonly ['owner', 'address', 'city'];
+    readonly withTerm: 'search';
+  }
+> = views;
+void viewsNested;
+// A tuple name may be repeated for the same field; another name for a field is a new setter.
+fluent(viewQuery, ['search', 'page'], { withSearch: 'search' }).withSearch('s').build();
+const renamedViews = fluent(viewQuery, ['search', 'page'], { withQ: ['search'] });
+renamedViews.withSearch('s').withQ('q').withPage(page()).build();
+// @ts-expect-error "withPage already sets page in the field list: choose another setter name"
+fluent(viewQuery, ['search', 'page'], { withPage: ['page', 'size'] });
+// @ts-expect-error "pagination.limti is not a path of plain records and arrays in the builder input"
+fluent(viewQuery, ['search'], { withLimit: ['pagination', 'limti'] });
+// @ts-expect-error "serach is not a field of the builder input"
+fluent(viewQuery, ['page'], { withTerm: 'serach' });
+// @ts-expect-error "serach is not a field of the builder input", in the list too
+fluent(viewQuery, ['serach'], { withLimit: ['pagination', 'limit'] });
+// @ts-expect-error "withFactory is a builder method: choose another setter name"
+fluent(viewQuery, ['search'], { withFactory: 'page' });
+// @ts-expect-error An alias map follows a field list, not another alias map.
+fluent(viewQuery, { withTerm: 'search' }, { withLimit: ['pagination', 'limit'] });
+// @ts-expect-error The alias map is a map, not a tuple.
+fluent(viewQuery, ['search'], ['page']);
+// @ts-expect-error An alias map needs at least one setter.
+fluent(viewQuery, ['search'], {});
+// A schema field list skips the names the alias map uses, so the map's setter types apply.
+const viewFields = schemaFields(['search', 'page', 'pagination', 'tags'] as const);
+const listedViews = fluent(viewQuery, viewFields, {
+  withPage: ['page', 'size'],
+  withLimit: ['pagination', 'limit'],
+});
+expectExact<Setter<typeof listedViews.withPage>, number>(true);
+expectExact<Setter<typeof listedViews.withSearch>, string>(true);
+listedViews.withPage(2).withLimit(5).withSearch('s').build();
+// @ts-expect-error withPage() now sets page.size, not page.
+listedViews.withPage(page());
+// @ts-expect-error "pagination.limti is not a path of plain records and arrays in the builder input"
+fluent(viewQuery, viewFields, { withLimit: ['pagination', 'limti'] });
+// A name the list skips for two fields can be given to one of them in the alias map.
+const firstNamed = fluent(orderSource, orderFields, { withFirstName: 'first_name' });
+expectType<Order>(firstNamed.withFirstName('Ada').withStatus('PAID').build('o'));
+// Async transitions, map() and nesting keep both kinds of setters.
+const viewsAsync = views
+  .transformAsync(async (value) => value)
+  .withLimit(2)
+  .withSearch('s');
+void viewsAsync.buildAsync();
+// @ts-expect-error Async transitions remove synchronous build methods.
+viewsAsync.build();
+expectType<number | undefined>(
+  views
+    .map((value) => value.pagination?.limit)
+    .withLimit(3)
+    .withSearch('s')
+    .build()
+);
+const viewsAround = fluent(fluent(viewQuery, ['lines']), ['search'], {
+  withLimit: ['pagination', 'limit'],
+});
+viewsAround.withLines([]).withSearch('s').withLimit(1).build();
+// @ts-expect-error Kept setters keep their types.
+viewsAround.withLines('x');
+const initiallyAsyncViews = fluent(
+  createBuilder(async () => ({ search: '', pagination: { limit: 1 } })),
+  ['search'],
+  { withLimit: ['pagination', 'limit'] }
+);
+void initiallyAsyncViews.withLimit(2).withSearch('s').buildAsync();
+// @ts-expect-error Async factories never have synchronous build methods.
+initiallyAsyncViews.withLimit(2).build();
+// Schema builders type both from their input.
+const pagedSearch = fluent(
+  createSchemaBuilder(pagedSchema, () => ({})),
+  schemaFields(['pagination'] as const),
+  { withLimit: ['pagination', 'limit'] }
+);
+expectExact<Setter<typeof pagedSearch.withLimit>, string>(true);
+pagedSearch.withPagination({}).withLimit('5').buildValidated();
+// A name of a class method is replaced by the alias map's setter, as when nesting.
+const flaggedCustomers = fluent(new Customers(), ['id'], { withName: 'vip' });
+expectType<{ id: number; name: string; vip: boolean }>(
+  flaggedCustomers.withName(true).vip().withId(2).build(1)
+);
+// @ts-expect-error The replaced class method's parameter type is gone.
+flaggedCustomers.withName('Ada');
+// In a generic helper the alias map cannot be checked against the input, as for a tuple, but
+// the field list alone works, and the alias map can be added where the helper is called.
+function aliasedHelper<S extends ObjectSchema<object>>(schema: S) {
+  // @ts-expect-error The alias map cannot be checked against a generic schema's input.
+  return fluent(fromObject(schema), objectFields(schema), { withKey: 'id' });
+}
+void aliasedHelper;
+const helperKeyed = fluent(rows(OrderSchema), { withKey: 'id' });
+helperKeyed.withKey('k').withStatus('PAID').buildValidated();
+// Editors complete field names: a start of field names stands for those fields.
+// @ts-expect-error "pag" is not a field: the parameter type lists page and pagination.
+fluent(viewQuery, ['pag']);

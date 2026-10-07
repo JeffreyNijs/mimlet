@@ -122,6 +122,17 @@ expectType<string>(
 const loose = z.looseObject({ id: z.string() });
 // @ts-expect-error Index signatures require complete patches, so there is no setter.
 fluent(fromZod(loose), zodFields(loose)).withId('a');
+// A schema field list and path aliases in one call.
+const Paged = z.object({
+  search: z.string().optional(),
+  pagination: z.object({ key: z.string(), limit: z.number() }),
+});
+const paged = fluent(fromZod(Paged), zodFields(Paged), { withKey: ['pagination', 'key'] });
+expectType<string>(paged.withSearch('s').withKey('k').buildValidated().pagination.key);
+// @ts-expect-error The path setter keeps the type at the path.
+paged.withKey(1);
+// @ts-expect-error "pagination.kye is not a path of plain records and arrays in the builder input"
+fluent(fromZod(Paged), zodFields(Paged), { withKey: ['pagination', 'kye'] });
 // @ts-expect-error Only object schemas list fields.
 zodFields(z.string());
 // @ts-expect-error A nullable root has no single field list.

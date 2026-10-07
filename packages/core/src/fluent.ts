@@ -29,10 +29,18 @@ type PatchKey<I> = [I] extends [object]
   : never;
 /**
  * A path alias: a top-level field, then up to 7 keys inside it (array indexes as numbers).
- * `LiteralSelection` checks each key, so that a wrong one is named in the error.
+ * `Explicit` checks each key, so that a wrong one is named in the error.
  */
 type PathAlias = readonly [string, ...(string | number | symbol)[]];
 type Selection<I> = readonly PatchKey<I>[] | Readonly<Record<string, PatchKey<I> | PathAlias>>;
+/**
+ * What `fluent()` accepts before checking: any field names, so that a wrong one reaches
+ * `Explicit`, which names it in the error, instead of failing the constraint without a name.
+ */
+type FieldList = readonly string[];
+type AliasMap = Readonly<Record<string, string | PathAlias>>;
+/** A schema field list, by its marker, so a list of another package copy is one too. */
+type Listed = { readonly '~schemaFields': unknown };
 type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
 type Single<T> = true extends IsUnion<T> ? never : string extends T ? never : T;
 type Letter =
@@ -80,25 +88,88 @@ type Pascal<
       : never;
 type Method<K extends string> = `with${Pascal<K> extends '' ? 'Value' : Pascal<K>}`;
 type FieldMap<S> = S extends readonly string[] ? { [K in S[number] as Method<K>]: K } : S;
-type LiteralSelection<S, I> = S extends readonly string[]
+
+/**
+ * `F` when it is one field that `fluent()` can set. A start of field names, such as `''` while
+ * typing, becomes those fields, so editors complete them; anything else becomes an error that
+ * names it (never for a union or a plain string, which cannot promise a particular setter).
+ */
+type CheckedField<F, I> = [F] extends [string]
+  ? [Single<F>] extends [never]
+    ? never
+    : [F] extends [PatchKey<I>]
+      ? F
+      : [Extract<PatchKey<I>, `${F}${string}`>] extends [never]
+        ? [PatchKey<I>] extends [never]
+          ? `${F} cannot get a setter: fluent() needs a builder input of one record with known fields`
+          : `${F} is not a field of the builder input`
+        : Extract<PatchKey<I>, `${F}${string}`>
+  : never;
+/** `P` when each of its keys exists in the input, otherwise an error that names the path. */
+type CheckedPath<P, I> = [RootedAlias<I, P>] extends [never]
+  ? `${Joined<P>} is not a path of plain records and arrays in the builder input`
+  : P;
+/** A field of a tuple: also an error when its automatic name is a builder method. */
+type TupleEntry<F, I> = [F] extends [CheckedField<F, I>]
+  ? Method<F & string> extends Capability
+    ? `${F & string} would get ${Method<F & string>}(), a builder method: name its setter in an alias map`
+    : F
+  : CheckedField<F, I>;
+/** An entry of an alias map: a field or a path, under a name that is not a builder method. */
+type AliasEntry<N, T, I> = [T] extends [readonly unknown[]]
+  ? CheckedPath<T, I>
+  : [T] extends [CheckedField<T, I>]
+    ? N extends Capability
+      ? `${N} is a builder method: choose another setter name`
+      : T
+    : CheckedField<T, I>;
+/**
+ * A literal field tuple or alias map, with each wrong entry replaced by an error that names it.
+ * `fluent()` checks its argument against this type, so a typo reports the named error only.
+ * Runtime-length tuples and maps with computed names cannot promise setters.
+ */
+type Explicit<S, I> = S extends readonly unknown[]
   ? number extends S['length']
-    ? never
-    : {
-        readonly [K in keyof S]: S[K] extends string
-          ? Method<S[K]> extends never
-            ? never
-            : Single<S[K]>
-          : never;
-      }
+    ? 'fluent() needs a literal field tuple, such as ["name"], or a schema field list'
+    : S extends readonly []
+      ? 'fluent() needs at least one field'
+      : { readonly [K in keyof S]: TupleEntry<S[K], I> }
   : string extends keyof S
-    ? never
+    ? 'fluent() needs an alias map with literal setter names'
+    : [keyof S] extends [never]
+      ? 'fluent() needs at least one setter'
+      : { readonly [K in keyof S]: AliasEntry<K, S[K], I> };
+/** The type of a checked argument: the argument itself when it is valid, so that it is inferred. */
+type Checked<S, E> = [S] extends [E] ? S : NoInfer<E>;
+/** Whether a setter of an alias map sets what the field list's setter of that name sets. */
+type SameTarget<T, F> = [T] extends [F] ? true : [T] extends [readonly [F]] ? true : false;
+/**
+ * The alias map that follows a field list. Names follow the nesting rules: a name of a tuple
+ * field may repeat that field, not set another; a schema field list skips the map's names.
+ */
+type CheckedAliases<A, I, S> = A extends readonly unknown[]
+  ? 'fluent() takes an alias map after the field list, such as { withKey: ["pagination", "key"] }'
+  : NamedAliases<Explicit<A, I>, A, S>;
+type NamedAliases<E, A, S> = [E] extends [string]
+  ? E
+  : S extends Listed
+    ? E
     : {
-        readonly [K in keyof S]: S[K] extends readonly unknown[]
-          ? [RootedAlias<I, S[K]>] extends [never]
-            ? `${Joined<S[K]>} is not a path of plain records and arrays in the builder input`
-            : S[K]
-          : Single<S[K]>;
+        readonly [N in keyof E]: N extends keyof FieldMap<S>
+          ? [E[N]] extends [A[N & keyof A]]
+            ? SameTarget<E[N], FieldMap<S>[N]> extends true
+              ? E[N]
+              : `${N & string} already sets ${FieldMap<S>[N] & string} in the field list: choose another setter name`
+            : E[N]
+          : E[N];
       };
+/** The builder a field list makes: one setter per field, as fluent(builder, fields) types it. */
+type ListBuilder<B extends Source, S> =
+  S extends SchemaFields<infer K>
+    ? FluentFieldsBuilder<B, K>
+    : S extends Selection<Input<B>>
+      ? FluentBuilder<B, S>
+      : FluentBuilder<B, never>;
 
 /**
  * What a patch may assign to one field. Indexed access adds `undefined` to every optional key,
@@ -497,32 +568,65 @@ function keptMethods(builder: unknown): string[] {
 }
 
 /**
- * Add a setter for every field of a schema field list, such as `typeBoxFields(schema)`.
- * Names that two fields share, names of builder methods and fields longer than 64
- * characters are skipped, and the setter types leave them out too. Works in generic helpers.
- * Wrapping a fluent() builder keeps its setters; a field whose name it already has is skipped.
- */
-export function fluent<B extends Source, K extends string>(
-  builder: B,
-  fields: SchemaFields<K>
-): FluentFieldsBuilder<B, K>;
-/**
  * Opt into named methods without executing a factory or inspecting a native schema.
- * Use a literal field tuple, or a map such as { withUserName: 'user_name' }.
+ * Pass a literal field tuple such as `['name']`, an alias map such as
+ * `{ withUserName: 'user_name', withLimit: ['pagination', 'limit'] }` (a tuple is a path
+ * alias), or a schema field list such as `typeBoxFields(schema)`, which adds a setter for every
+ * field and also works in generic helpers.
  * Ambiguous/default collisions require explicit aliases; core methods are never replaced.
+ * A schema field list skips names that two fields share, names of builder methods and fields
+ * longer than 64 characters, and the setter types leave them out too.
  * Wrapping a fluent() builder keeps its setters. Repeating one of them for the same field is
- * allowed; reusing its name for another field throws. A name that matches another kept method,
- * such as a generated class method, replaces that method.
+ * allowed; reusing its name for another field throws, and a schema field list skips it. A name
+ * that matches another kept method, such as a generated class method, replaces that method.
+ */
+export function fluent<B extends Source, const S extends FieldList | AliasMap>(
+  builder: B,
+  selection: [S] extends [Listed] ? S : Checked<S, Explicit<S, Input<B>>>
+): S extends SchemaFields<infer K>
+  ? FluentFieldsBuilder<B, K>
+  : S extends Selection<Input<B>>
+    ? FluentBuilder<B, S>
+    : FluentBuilder<B, never>;
+/**
+ * A field list and an alias map in one call:
+ * `fluent(builder, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'key'] })`.
+ * The field list is a literal tuple or a schema field list; the alias map names more setters,
+ * such as path aliases. The result is the builder of `fluent(fluent(builder, fields), aliases)`,
+ * except that a schema field list skips the names the alias map uses.
  */
 // eslint-disable-next-line no-redeclare -- TypeScript overload
-export function fluent<B extends Source, const S extends Selection<Input<B>>>(
+export function fluent<
+  B extends Source,
+  const S extends FieldList | AliasMap,
+  const A extends FieldList | AliasMap,
+>(
   builder: B,
-  selection: S & LiteralSelection<S, Input<B>>
-): FluentBuilder<B, S>;
+  fields: [S] extends [Listed]
+    ? S
+    : Checked<
+        S,
+        S extends FieldList
+          ? Explicit<S, Input<B>>
+          : 'fluent() takes a field tuple or a schema field list before the alias map'
+      >,
+  aliases: Checked<A, CheckedAliases<A, Input<B>, S>>
+): ListBuilder<B, S> extends infer L extends Source
+  ? A extends Selection<Input<L>>
+    ? FluentBuilder<L, A>
+    : FluentBuilder<L, never>
+  : never;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
-export function fluent(builder: Source, selection: unknown): unknown {
+export function fluent(builder: Source, selection: unknown, aliases?: unknown): unknown {
   const listed = listedFields(selection);
+  if (aliases !== undefined && (!Array.isArray(selection) || Array.isArray(aliases))) {
+    throw new TypeError(
+      'Pass a field tuple or a schema field list, then an alias map such as { withKey: ["pagination", "key"] }'
+    );
+  }
   let fields = listed ? [] : entries(selection);
+  // The alias map is a second selection over the first, as in fluent(fluent(builder, fields), aliases).
+  const named = aliases === undefined ? [] : entries(aliases);
   // Keep what the builder already has, such as the setters of an inner fluent() call.
   const kept = keptMethods(builder);
   const Base = facadeClass(() => builder, kept);
@@ -540,7 +644,9 @@ export function fluent(builder: Source, selection: unknown): unknown {
   const capability = (method: string) =>
     method in Base.prototype || method === 'then' || method === 'toJSON';
   if (listed) {
-    // A schema list cannot take aliases, so skip what an explicit selection would reject.
+    // A schema list cannot take aliases, so skip what an explicit selection would reject, and
+    // the names that the alias map after it uses.
+    const taken = new Set(named.map(([method]) => method));
     const candidates = listed
       .filter((property) => property.length <= 64)
       .map((property): [string, string] => [automaticMethod(property), property]);
@@ -548,10 +654,12 @@ export function fluent(builder: Source, selection: unknown): unknown {
     for (const [method] of candidates) {
       counts.set(method, (counts.get(method) ?? 0) + 1);
     }
-    fields = candidates.filter(([method]) => counts.get(method) === 1 && !capability(method));
+    fields = candidates.filter(
+      ([method]) => counts.get(method) === 1 && !capability(method) && !taken.has(method)
+    );
   }
   if (
-    fields.some(([, target]) => typeof target !== 'string') &&
+    [...fields, ...named].some(([, target]) => typeof target !== 'string') &&
     typeof (builder as { [withPathKey]?: unknown })[withPathKey] !== 'function'
   ) {
     throw new TypeError(
@@ -563,38 +671,41 @@ export function fluent(builder: Source, selection: unknown): unknown {
     withPathKey
   ];
   const forwarded = new Set(kept);
-  const used = targets();
-  for (const [method, target] of fields) {
-    const field = setters.get(method);
-    // A kept setter for the same field or path already does what this one would.
-    const repeated = field !== undefined && sameTarget(field, target) && !used.has(target);
-    // A kept method whose field is unknown, such as a generated class method, is replaced by the
-    // explicit setter, as before nesting kept methods. Lists never get here: they skip kept names.
-    const replaced = field === undefined && forwarded.has(method) && !used.has(target);
-    if (!repeated && !replaced && (capability(method) || used.has(target))) {
-      throw new TypeError(
-        'Fluent methods must be unique and cannot replace builder capabilities; choose an explicit alias'
-      );
+  // The alias map sees the field list's setters as kept setters of an inner call.
+  for (const selected of [fields, named]) {
+    const used = targets();
+    for (const [method, target] of selected) {
+      const field = setters.get(method);
+      // A kept setter for the same field or path already does what this one would.
+      const repeated = field !== undefined && sameTarget(field, target) && !used.has(target);
+      // A kept method whose field is unknown, such as a generated class method, is replaced by the
+      // explicit setter, as before nesting kept methods. Lists never get here: they skip kept names.
+      const replaced = field === undefined && forwarded.has(method) && !used.has(target);
+      if (!repeated && !replaced && (capability(method) || used.has(target))) {
+        throw new TypeError(
+          'Fluent methods must be unique and cannot replace builder capabilities; choose an explicit alias'
+        );
+      }
+      used.add(target);
+      if (repeated) {
+        continue;
+      }
+      setters.set(method, target);
+      const label = `${method}()`;
+      const setter =
+        typeof target === 'string'
+          ? {
+              value(this: object, value: unknown) {
+                return Reflect.apply(Base.prototype.with, this, [{ [target]: value }]);
+              },
+            }
+          : {
+              value(this: object, value: unknown) {
+                return Reflect.apply(withPath, this, [target, value, label]);
+              },
+            };
+      Object.defineProperty(Base.prototype, method, { configurable: false, value: setter.value });
     }
-    used.add(target);
-    if (repeated) {
-      continue;
-    }
-    setters.set(method, target);
-    const label = `${method}()`;
-    const setter =
-      typeof target === 'string'
-        ? {
-            value(this: object, value: unknown) {
-              return Reflect.apply(Base.prototype.with, this, [{ [target]: value }]);
-            },
-          }
-        : {
-            value(this: object, value: unknown) {
-              return Reflect.apply(withPath, this, [target, value, label]);
-            },
-          };
-    Object.defineProperty(Base.prototype, method, { configurable: false, value: setter.value });
   }
   setterFields.set(Base.prototype as object, setters);
   return new Base();

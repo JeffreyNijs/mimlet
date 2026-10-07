@@ -19,7 +19,9 @@ train is alpha.2 or newer. When the installed adapter exports a field list funct
 `standardJsonSchemaFields`; beta.1 and newer), `fluent(fromZod(schema), zodFields(schema))`
 adds a setter per field, also inside generic helpers. For a nested field (beta.7 and newer),
 use a path alias, `fluent(builder, { withLimit: ['pagination', 'limit'] })`; the parent
-must exist when the setter runs. Keep small declarations beside
+must exist when the setter runs. With beta.8 and newer, a field list takes the alias map as a
+third argument: `fluent(builder, ['filter', 'pagination'], { withLimit: ['pagination', 'limit'] })`
+or `fluent(builder, zodFields(schema), { ... })`. Keep small declarations beside
 tests; do not create builder files or a generation step unless the task needs them. For class
 instances such as ORM entities (beta.4 and newer), use `createInstanceBuilder(Entity, factory)`
 instead of a hand-written transform; `map()` changes what builds return. See
