@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0-beta.7
+
+### Patch Changes
+
+- Updated dependencies [d1d3fd6]
+- Updated dependencies [d1d3fd6]
+- Updated dependencies [d1d3fd6]
+  - @mimlet/core@0.1.0-beta.7
+
 ## 3.0.0-beta.6
 
 ### Patch Changes

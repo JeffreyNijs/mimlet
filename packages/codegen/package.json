@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/codegen",
-  "version": "0.1.0-beta.6",
+  "version": "0.1.0-beta.7",
   "private": false,
   "description": "Deterministic schema-independent builder classes, owned output and CLI.",
   "type": "module",
@@ -34,9 +34,9 @@
     "test:unit": "vitest run --root ../.. --project unit tests/unit/mimlet-codegen.test.ts"
   },
   "dependencies": {
-    "@mimlet/api": "0.1.0-beta.6",
-    "@mimlet/core": "0.1.0-beta.6",
-    "@mimlet/json-schema": "0.1.0-beta.6",
+    "@mimlet/api": "0.1.0-beta.7",
+    "@mimlet/core": "0.1.0-beta.7",
+    "@mimlet/json-schema": "0.1.0-beta.7",
     "json-schema-to-typescript": "16.0.0",
     "semver": "7.8.5"
   },
