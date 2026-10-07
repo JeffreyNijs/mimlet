@@ -1,9 +1,9 @@
 # Hey API migration to the shared runtime
 
-This is the `3.0.0-beta.7` major-version migration, published on npm's `next`
+This is the `3.0.0-beta.8` major-version migration, published on npm's `next`
 channel. Existing v2 packages and the `latest` tag are unchanged. Newly generated
-builders import `@mimlet/core`; install `@mimlet/core@0.1.0-beta.7` alongside
-`hey-api-builders@3.0.0-beta.7` and regenerate clients together.
+builders import `@mimlet/core`; install `@mimlet/core@0.1.0-beta.8` alongside
+`hey-api-builders@3.0.0-beta.8` and regenerate clients together.
 
 The plugin still discovers Hey API model/request/response factories, applies
 existing naming settings, resolves symbol collisions, and exposes the same named

@@ -4,7 +4,7 @@
 
 The repository is a private pnpm workspace containing twenty independently
 packable packages, all published. The published scoped train is
-`0.1.0-beta.7`; the unscoped Hey API integration is `3.0.0-beta.7`. The scoped train is on
+`0.1.0-beta.8`; the unscoped Hey API integration is `3.0.0-beta.8`. The scoped train is on
 npm's `latest` tag and
 the Hey API integration on `next`. The train
 includes the dedicated Zod and ArkType adapters. The existing Hey API `latest`
