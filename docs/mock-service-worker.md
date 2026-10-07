@@ -17,7 +17,7 @@ The recipe uses Zod for the response schema, `@mimlet/consumers` for the JSON
 response and MSW 3.0.2:
 
 ```sh
-npm install --save-dev @mimlet/core@0.1.0-beta.6 @mimlet/consumers@0.1.0-beta.6 @mimlet/zod@0.1.0-beta.6 zod@4.6.5 msw@3.0.2
+npm install --save-dev @mimlet/core@0.1.0-beta.7 @mimlet/consumers@0.1.0-beta.7 @mimlet/zod@0.1.0-beta.7 zod@4.6.5 msw@3.0.2
 ```
 
 Any Mimlet builder works the same way. Use your own adapter if your API schema

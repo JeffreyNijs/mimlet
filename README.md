@@ -23,12 +23,12 @@ has guides and a live demo.
 To try Mimlet without installing anything, [run the examples in your browser](https://jeffreynijs.github.io/mimlet/guide/try-it.html).
 The sandbox runs locally in the page and uses the beta packages.
 
-The published beta is **0.1.0-beta.6** for the toolkit and **3.0.0-beta.6** for
+The published beta is **0.1.0-beta.7** for the toolkit and **3.0.0-beta.7** for
 the Hey API integration. Use matching versions. Existing `hey-api-builders@latest`
 remains on v2; opt into the beta explicitly.
 
 ```sh
-npm install --save-dev @mimlet/core@0.1.0-beta.6
+npm install --save-dev @mimlet/core@0.1.0-beta.7
 ```
 
 Add only the adapters you need.
@@ -69,7 +69,7 @@ and opt-in cloning avoid accidentally shared nested fixture data.
 For Zod 4, start with the native adapter (no Hey API or code generation required):
 
 ```sh
-npm install --save-dev @mimlet/zod@0.1.0-beta.6 zod@4.6.5
+npm install --save-dev @mimlet/zod@0.1.0-beta.7 zod@4.6.5
 ```
 
 ```ts
