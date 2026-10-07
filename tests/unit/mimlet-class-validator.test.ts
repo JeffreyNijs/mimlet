@@ -399,7 +399,7 @@ describe('keys the payload does not have', () => {
           fromClassValidator,
           fromClassValidatorAsync,
           withClassValidatorDefaults,
-        } from '${classValidatorSource}';
+        } from ${JSON.stringify(classValidatorSource)};
         class Pagination { limit?: number; offset?: number }
         class ViewLeadIndexQuery {
           sort?: never;
