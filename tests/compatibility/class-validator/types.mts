@@ -5,6 +5,8 @@ import {
   fluent,
   type AsyncSchemaBuilder,
   type InstanceInput,
+  type KnownFieldsConstraint,
+  type KnownNestedFieldsFactory,
   type SchemaBuilder,
   type SchemaFields,
 } from '@mimlet/core';
@@ -19,6 +21,7 @@ import {
   type ClassValidatorFieldNames,
   type ClassValidatorWithDefaults,
   type DtoClass,
+  type DtoFactory,
   type DtoInput,
 } from '@mimlet/class-validator';
 
@@ -174,6 +177,44 @@ expectExact<typeof asyncViewed, AsyncClassValidatorBuilder<CreateOrderCommand, t
 );
 // @ts-expect-error Bound builders check the factory's keys too.
 query.fromClassValidator(CreateOrderCommand, () => ({ title: 'Windows', titel: 'Doors' }));
+// Every payload field is optional here: a factory that returns only a field typed never (or
+// only unknown keys) passes the factory's constraint, so the message names the key.
+const sortOnly = () => ({ sort: 'name' });
+expectType<KnownFieldsConstraint<DtoInput<CreateOrderCommand>>>(sortOnly());
+// DtoFactory, for annotations, still rejects keys that are not payload fields.
+// @ts-expect-error sort is not a payload field.
+expectType<DtoFactory<CreateOrderCommand>>(sortOnly);
+expectExact<
+  KnownNestedFieldsFactory<typeof sortOnly, DtoInput<CreateOrderCommand>, CreateOrderCommand>,
+  () => { sort: 'sort is typed never in the class and cannot be set' }
+>(true);
+// @ts-expect-error "sort is typed never in the class and cannot be set"
+fromClassValidator(CreateOrderCommand, () => ({ sort: 'name' }));
+// @ts-expect-error The same in the async builder.
+fromClassValidatorAsync(CreateOrderCommand, async () => ({ sort: 'name' }));
+// @ts-expect-error The same in a bound builder.
+query.fromClassValidator(CreateOrderCommand, () => ({ sort: 'name' }));
+// @ts-expect-error The same in a bound async builder.
+query.fromClassValidatorAsync(CreateOrderCommand, () => ({ sort: 'name' }));
+// @ts-expect-error "titel is not a field of the class"
+fromClassValidator(CreateOrderCommand, () => ({ titel: 'Doors' }));
+// @ts-expect-error The same for createInstanceBuilder() and a class without required fields.
+createInstanceBuilder(CreateOrderCommand, () => ({ sort: 'name' }));
+
+// Path setters take the type at the path of the payload.
+const locatedOrders = fromClassValidator(CreateOrderCommand, () => ({
+  location: { side: null, floor: 1 },
+}));
+const floors = fluent(locatedOrders, {
+  withFloor: ['location', 'floor'],
+  withSide: ['location', 'side'],
+});
+expectExact<Parameters<typeof floors.withFloor>, [value: number | null]>(true);
+expectType<CreateOrderCommand>(floors.withFloor(2).withSide(Side.BACK).buildValidated());
+// @ts-expect-error The setter keeps the type at the path.
+floors.withFloor('2');
+// @ts-expect-error Each key of the path must exist.
+fluent(locatedOrders, { withFloor: ['location', 'flor'] });
 // @ts-expect-error async, name and defaultSession are per-builder options.
 withClassValidatorDefaults({ async: true });
 

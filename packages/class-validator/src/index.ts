@@ -6,6 +6,7 @@ import { createSchemaBuilder, schemaFields } from '@mimlet/core';
 import type {
   AsyncSchemaBuilder,
   DefaultSessionFor,
+  KnownFieldsConstraint,
   KnownNestedFieldsFactory,
   SchemaBuilderConfig,
   SchemaBuilderFor,
@@ -134,6 +135,15 @@ export type ClassValidatorSchema<T extends object, Output = T> = StandardSchemaV
 export type DtoFactory<T extends object> = (
   ...args: never[]
 ) => NoInfer<DtoInput<T>> | PromiseLike<NoInfer<DtoInput<T>>>;
+/** What the factory type parameter's constraint accepts; see `KnownFieldsConstraint`. */
+type DtoReturn<T> = NoInfer<KnownFieldsConstraint<DtoInput<T>>>;
+/**
+ * The constraint of the factory type parameter: a `DtoFactory`, or, when every payload field is
+ * optional, a factory of a record with other keys, so that `KnownDtoFactory` names those keys
+ * (`"sort is typed never in the class and cannot be set"`) instead of TypeScript rejecting the
+ * factory with a message that names none.
+ */
+type CheckedDtoFactory<T> = (...args: never[]) => DtoReturn<T> | PromiseLike<DtoReturn<T>>;
 /**
  * The check on a DTO factory without a return type annotation: a key that is not a payload
  * field, such as a misspelled field or a field typed `never`, is a compile error at any depth
@@ -153,14 +163,14 @@ type KnownDtoFactory<F extends (...args: never[]) => unknown, T> = KnownNestedFi
  */
 export type ClassValidatorBuilder<
   T extends object,
-  F extends (...args: never[]) => DtoInput<T> | PromiseLike<DtoInput<T>>,
+  F extends CheckedDtoFactory<T>,
   Output = T,
 > = SchemaBuilderFor<ClassValidatorSchema<T, Output>, F>;
 
 /** The builder `fromClassValidatorAsync(Dto, factory, options)` returns. */
 export type AsyncClassValidatorBuilder<
   T extends object,
-  F extends (...args: never[]) => DtoInput<T> | PromiseLike<DtoInput<T>>,
+  F extends CheckedDtoFactory<T>,
   Output = T,
 > = AsyncSchemaBuilder<DtoInput<T>, Output, Parameters<F>>;
 
@@ -394,19 +404,19 @@ function split<F extends (...args: never[]) => unknown>(
  * Validation is synchronous (`validateSync()`, which skips async constraints); see
  * `fromClassValidatorAsync()`.
  */
-export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F & KnownDtoFactory<F, T>,
   options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
 ): ClassValidatorBuilder<T, F, DtoInput<T>>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload
-export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F & KnownDtoFactory<F, T>,
   options?: ClassValidatorBuilderOptions<F>
 ): ClassValidatorBuilder<T, F>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
-export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F,
   options?: ClassValidatorBuilderOptions<F>
@@ -423,19 +433,19 @@ export function fromClassValidator<T extends object, F extends DtoFactory<T>>(
  * ValidationPipe, so async constraints (such as a uniqueness check) apply. Only the async
  * build methods are available. The factory is checked as in `fromClassValidator()`.
  */
-export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F & KnownDtoFactory<F, T>,
   options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
 ): AsyncClassValidatorBuilder<T, F, DtoInput<T>>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload
-export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F & KnownDtoFactory<F, T>,
   options?: ClassValidatorBuilderOptions<F>
 ): AsyncClassValidatorBuilder<T, F>;
 // eslint-disable-next-line no-redeclare -- TypeScript overload implementation
-export function fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+export function fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
   dto: DtoClass<T>,
   factory: F,
   options?: ClassValidatorBuilderOptions<F>
@@ -555,32 +565,32 @@ type DefaultOutput<D, T extends object> = D extends { readonly transform: false 
 export interface ClassValidatorWithDefaults<D extends ClassValidatorDefaults> {
   /** The bound defaults, frozen; spread them to derive other defaults. */
   readonly defaults: Readonly<D>;
-  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+  fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
   ): ClassValidatorBuilder<T, F, DtoInput<T>>;
-  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+  fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options: ClassValidatorBuilderOptions<F> & { readonly transform: true }
   ): ClassValidatorBuilder<T, F>;
-  fromClassValidator<T extends object, F extends DtoFactory<T>>(
+  fromClassValidator<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options?: ClassValidatorBuilderOptions<F>
   ): ClassValidatorBuilder<T, F, DefaultOutput<D, T>>;
-  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+  fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options: ClassValidatorBuilderOptions<F> & { readonly transform: false }
   ): AsyncClassValidatorBuilder<T, F, DtoInput<T>>;
-  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+  fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options: ClassValidatorBuilderOptions<F> & { readonly transform: true }
   ): AsyncClassValidatorBuilder<T, F>;
-  fromClassValidatorAsync<T extends object, F extends DtoFactory<T>>(
+  fromClassValidatorAsync<T extends object, F extends CheckedDtoFactory<T>>(
     dto: DtoClass<T>,
     factory: F & KnownDtoFactory<F, T>,
     options?: ClassValidatorBuilderOptions<F>
@@ -631,7 +641,7 @@ export function withClassValidatorDefaults<const D extends ClassValidatorDefault
     }
     return result;
   };
-  type Factory = DtoFactory<object>;
+  type Factory = CheckedDtoFactory<object>;
   return Object.freeze({
     defaults: bound,
     fromClassValidator: (dto: DtoClass, factory: Factory, options?: object) =>

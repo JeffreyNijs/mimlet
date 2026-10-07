@@ -102,6 +102,15 @@ setters: `fluent(fluent(builder, typeBoxFields(schema)), { withKey: 'id' })` kee
 setter of the inner call and adds the outer ones. Repeating an inner setter for the same
 field is allowed; an explicit name that the inner call uses for another field throws a
 `TypeError`, and a field list skips it.
+
+A tuple in an alias map is a path alias, a setter for a nested field:
+`fluent(builder, { withLimit: ['pagination', 'limit'] })`. `withLimit(5)` sets
+`pagination.limit` and keeps the other fields of `pagination`. Each key must exist in the
+input type, and the setter takes the type at the path (with `.with()`'s rules for optional
+keys). A path has 1 to 8 keys (field names, array indexes or symbols) and runs in call order
+with the other patches. The parent must exist when the setter runs: a missing `pagination`
+fails the build with a `BuilderPathError` that says to set `pagination` first or give it a
+default in the factory.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing,
 conflict rules and release availability. Generated ordinary-record facades already have
 these methods, and `fluent()` keeps them too; an explicit name that matches one replaces it.
@@ -151,7 +160,7 @@ users.withFirstName('Ada').build(); // a User; user.fullName is computed by the 
 - **Transforms after the mapping** receive the instance and must return an instance of the class (for example by changing it with `Object.assign`); a spread copy, which would silently be a plain object, throws. A later `map()` may change the type again.
 - **Everything else stays.** Factory arguments, default sessions (also with a required session parameter), builder names, list tuples, async factories and `fluent()` setters work as for any builder. `map()` on a `fluent()` builder keeps its setters, in the runtime and in the types.
 
-`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. For adapter authors, `KnownFieldsFactory<F, Shape, Class>` is the unknown-key check on the factory (a parameter typed `F & KnownFieldsFactory<F, Shape>`), and `KnownNestedFieldsFactory` also checks nested records and arrays; a factory declared to return exactly `Shape`, as in a generic helper, is not checked. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
+`intoClass(Class, options)` is the mapper itself, for `createBuilder(factory).map(intoClass(Class))`. `InstanceBuilder<typeof Class, Args>` names the builder type. For adapter authors, `KnownFieldsFactory<F, Shape, Class>` is the unknown-key check on the factory (a parameter typed `F & KnownFieldsFactory<F, Shape>`), and `KnownNestedFieldsFactory` also checks nested records and arrays; a factory declared to return exactly `Shape`, as in a generic helper, is not checked. Constrain the factory's type parameter with `KnownFieldsConstraint<Shape>` (`F extends () => NoInfer<KnownFieldsConstraint<Shape>>`), so that a factory returning only unknown keys for a shape whose fields are all optional reaches the check and gets the named message. See [entities and class instances](https://jeffreynijs.github.io/mimlet/guide/class-instances.html).
 
 ## Lists and limits
 
@@ -200,6 +209,8 @@ lost.build().summary.status; // 'lost': dependent nodes see the patched value
 ```
 
 A patcher receives `(value, dependencies, session)` and returns a value of the node's type. Patches run in order after the node's factory, override or trait; a later override or trait replaces the node and its patches.
+
+A failed node throws a `ScenarioError` (`SCENARIO_EXECUTION`) whose message names the node, the step that failed and the cause's message, on one line and cut at 200 characters, for example `Scenario node "deal" failed in patch 1: A patch of deal returned a plain object in place of a Deal instance; ...`. The original error stays in `cause`.
 
 For a class instance, such as an entity from `createInstanceBuilder()`, pass the changed fields instead: `crm.patch('deal', { status: 'sent' })`. The fields are type-checked against the node's data fields, so a misspelled key is a compile error. Each build copies the value with the same prototype and own properties and sets the fields the way `createInstanceBuilder()` sets a record's fields (setters run, a getter without a setter fails), so the node stays a `Deal` and the factory's value is never changed. No constructor runs for the copy, so `#private` fields do not exist on it. A patcher function that returns a plain object, such as a spread copy, for a class instance fails the node. See [correlated scenarios](https://jeffreynijs.github.io/mimlet/guide/correlated-scenarios.html#patch-fields-of-class-instances).
 

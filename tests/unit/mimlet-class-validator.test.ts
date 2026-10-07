@@ -1,5 +1,7 @@
 // class-transformer's @Type() reads decorator metadata through the reflect-metadata polyfill.
 import 'reflect-metadata';
+import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as transformer from 'class-transformer';
 import * as validator from 'class-validator';
@@ -30,6 +32,8 @@ import {
   formatValidationIssues,
   type AsyncSchemaBuilder,
   type GenerationSession,
+  type KnownFieldsConstraint,
+  type KnownNestedFieldsFactory,
   type SchemaBuilder,
   type SchemaFields,
   type StandardSchemaV1,
@@ -44,6 +48,7 @@ import {
   type ClassValidatorBuilder,
   type ClassValidatorFieldNames,
   type DtoClass,
+  type DtoFactory,
   type DtoInput,
   type Wire,
 } from '../../packages/class-validator/src/index.js';
@@ -163,6 +168,42 @@ const queryLike: Wire = {
     ),
   parse: (text) => JSON.parse(text) as unknown,
 };
+const classValidatorSource = fileURLToPath(
+  new URL('../../packages/class-validator/src/index.ts', import.meta.url)
+);
+/**
+ * The compiler's messages for `source`, compiled as a test file of the repository with the
+ * sources of both packages, so a test can assert the exact text a user sees.
+ */
+function diagnose(source: string): string[] {
+  const file = fileURLToPath(new URL('./class-validator-diagnostics.virtual.ts', import.meta.url));
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    exactOptionalPropertyTypes: true,
+    allowImportingTsExtensions: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [],
+    paths: {
+      '@mimlet/core': [fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url))],
+    },
+  };
+  const host = ts.createCompilerHost(options);
+  const getSourceFile = host.getSourceFile.bind(host);
+  const fileExists = host.fileExists.bind(host);
+  host.fileExists = (name) => name === file || fileExists(name);
+  host.getSourceFile = (name, language, ...rest) =>
+    name === file
+      ? ts.createSourceFile(name, source, language)
+      : getSourceFile(name, language, ...rest);
+  const program = ts.createProgram([file], options, host);
+  return ts
+    .getPreEmitDiagnostics(program, program.getSourceFile(file))
+    .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+}
 const failure = (run: () => unknown): BuilderValidationError => {
   try {
     run();
@@ -313,6 +354,76 @@ describe('keys the payload does not have', () => {
       doors ? { title: 'Doors', count: 1 } : { title: 'Windows' }
     );
   });
+
+  it('names a field typed never or an unknown key when no other returned key is a field', () => {
+    // Every payload field of ViewOrdersQuery is optional. TypeScript used to reject an object
+    // that shares no key with such a type before the check ran, naming no key.
+    const queries = withClassValidatorDefaults({ ...pipe, wire: queryLike });
+    // @ts-expect-error "sort is typed never in the class and cannot be set"
+    fromClassValidator(ViewOrdersQuery, () => ({ sort: 'name' }));
+    // @ts-expect-error The same in the async builder.
+    fromClassValidatorAsync(ViewOrdersQuery, () => ({ sort: 'name' }));
+    // @ts-expect-error The same in an async factory.
+    fromClassValidatorAsync(ViewOrdersQuery, async () => ({ sort: 'name' }));
+    // @ts-expect-error The same in a bound builder.
+    queries.fromClassValidator(ViewOrdersQuery, () => ({ sort: 'name' }));
+    // @ts-expect-error The same in a bound async builder.
+    queries.fromClassValidatorAsync(ViewOrdersQuery, () => ({ sort: 'name' }));
+    // @ts-expect-error "serach is not a field of the class"
+    fromClassValidator(ViewOrdersQuery, () => ({ serach: 'ramp' }));
+    // The factory passes the constraint; the check then types the key as the message.
+    type Sorted = () => { sort: string };
+    expectTypeOf<ReturnType<Sorted>>().toExtend<KnownFieldsConstraint<DtoInput<ViewOrdersQuery>>>();
+    expectTypeOf<
+      KnownNestedFieldsFactory<Sorted, DtoInput<ViewOrdersQuery>, ViewOrdersQuery>
+    >().toEqualTypeOf<() => { sort: 'sort is typed never in the class and cannot be set' }>();
+    type Misspelled = () => { serach: string };
+    expectTypeOf<
+      KnownNestedFieldsFactory<Misspelled, DtoInput<ViewOrdersQuery>, ViewOrdersQuery>
+    >().toEqualTypeOf<() => { serach: 'serach is not a field of the class' }>();
+    // A DTO with a required field still reports the missing field first.
+    expectTypeOf<ReturnType<Sorted>>().not.toExtend<KnownFieldsConstraint<DtoInput<InviteUser>>>();
+    // DtoFactory, for annotations, still rejects keys that are not payload fields.
+    expectTypeOf<Sorted>().not.toExtend<DtoFactory<ViewOrdersQuery>>();
+    // Factories of known fields, and the empty default, keep compiling.
+    expect(fromClassValidator(ViewOrdersQuery, () => ({})).build()).toEqual({});
+    expect(queries.fromClassValidator(ViewOrdersQuery, () => ({ search: 'ramp' })).build()).toEqual(
+      { search: 'ramp' }
+    );
+  });
+
+  it('reports the named message for fields typed never in every entry point', () => {
+    const messages = diagnose(`
+        import { createInstanceBuilder } from '@mimlet/core';
+        import {
+          fromClassValidator,
+          fromClassValidatorAsync,
+          withClassValidatorDefaults,
+        } from '${classValidatorSource}';
+        class Pagination { limit?: number; offset?: number }
+        class ViewLeadIndexQuery {
+          sort?: never;
+          search?: string;
+          statuses?: string[];
+          pagination?: Pagination;
+        }
+        const queryDto = withClassValidatorDefaults({ whitelist: true, transform: true });
+        fromClassValidator(ViewLeadIndexQuery, () => ({ sort: 'x' }));
+        fromClassValidatorAsync(ViewLeadIndexQuery, () => ({ sort: 'x' }));
+        queryDto.fromClassValidator(ViewLeadIndexQuery, () => ({ sort: 'x' }));
+        queryDto.fromClassValidatorAsync(ViewLeadIndexQuery, () => ({ sort: 'x' }));
+        createInstanceBuilder(ViewLeadIndexQuery, () => ({ sort: 'x' }));
+        fromClassValidator(ViewLeadIndexQuery, () => ({ nmae: 'x' }));
+      `);
+    const never = `Type 'string' is not assignable to type '"sort is typed never in the class and cannot be set"'.`;
+    expect(messages).toHaveLength(6);
+    for (const message of messages.slice(0, 5)) {
+      expect(message).toContain(never);
+    }
+    expect(messages[5]).toContain(
+      `Type 'string' is not assignable to type '"nmae is not a field of the class"'.`
+    );
+  }, 120_000);
 
   it('checks nested DTOs and arrays of them', () => {
     // @ts-expect-error A misspelled field of a nested DTO.
@@ -822,5 +933,62 @@ describe('classValidatorFields (experimental)', () => {
     }
     expect(() => classValidatorFields(NeedsArguments)).toThrow(/without arguments/);
     expect(() => classValidatorFields({} as never)).toThrow(/requires a DTO class/);
+  });
+});
+
+describe('path setters on DTO builders', () => {
+  const queries = withClassValidatorDefaults({ ...pipe, wire: queryLike });
+
+  it('sets nested query parameters and validates them the way the pipe does', async () => {
+    const viewOrders = fluent(
+      queries.fromClassValidator(ViewOrdersQuery, () => ({
+        pagination: { limit: 10, offset: 0 },
+      })),
+      { withLimit: ['pagination', 'limit'], withOffset: ['pagination', 'offset'] }
+    );
+    expectTypeOf(viewOrders.withLimit).parameter(0).toEqualTypeOf<number>();
+    const query = viewOrders.withLimit(5).withOffset(20);
+    expect(query.build()).toEqual({ pagination: { limit: 5, offset: 20 } });
+    const value = query.buildValidated();
+    expect(value).toBeInstanceOf(ViewOrdersQuery);
+    expect(value.pagination).toEqual(Object.assign(new Pagination(), { limit: 5, offset: 20 }));
+    expect(failure(() => viewOrders.withLimit(500).buildValidated()).message).toBe(
+      'Schema validation failed: 1 issue at pagination.limit'
+    );
+    // Combined with a schema field list, and on async builders.
+    const listed = fluent(
+      fluent(
+        fromClassValidator(ViewOrdersQuery, () => ({ pagination: { limit: 10, offset: 0 } }), pipe),
+        classValidatorFields(ViewOrdersQuery, { exclude: ['sort'] })
+      ),
+      { withLimit: ['pagination', 'limit'] }
+    );
+    expect(listed.withSearch('ramp').withLimit(3).buildValidated().pagination?.limit).toBe(3);
+    const later = fluent(
+      fromClassValidatorAsync(ViewOrdersQuery, async () => ({
+        pagination: { limit: 10, offset: 0 },
+      })),
+      { withOffset: ['pagination', 'offset'] }
+    );
+    expect((await later.withOffset(4).buildValidatedAsync()).pagination?.offset).toBe(4);
+  });
+
+  it('explains a query default without the parent and works once the parent is set', () => {
+    // The trial's query DTOs default to {} and their pagination is optional.
+    const viewOrders = fluent(
+      queries.fromClassValidator(ViewOrdersQuery, () => ({})),
+      { withPagination: 'pagination', withLimit: ['pagination', 'limit'] }
+    );
+    expect(() => viewOrders.withLimit(5).build()).toThrow(
+      'withLimit() cannot set pagination.limit: pagination is missing; set pagination first (with .with() or its own setter) or give it a default in the factory'
+    );
+    expect(
+      viewOrders.withPagination({ limit: 10, offset: 0 }).withLimit(5).buildValidated().pagination
+    ).toEqual(Object.assign(new Pagination(), { limit: 5, offset: 0 }));
+    const empty = queries.fromClassValidator(ViewOrdersQuery, () => ({}));
+    // @ts-expect-error The path must exist in the payload type.
+    expect(() => fluent(empty, { withLimit: ['pagination', 'limti'] })).not.toThrow();
+    // @ts-expect-error A field typed never is not part of the payload, so no path starts there.
+    expect(() => fluent(empty, { withSort: ['sort', 'name'] })).not.toThrow();
   });
 });

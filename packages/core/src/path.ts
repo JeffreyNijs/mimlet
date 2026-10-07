@@ -1,4 +1,7 @@
+import { update } from './path-update.js';
 import type { OptionalKeys } from './types.js';
+
+export { BuilderPathError } from './path-update.js';
 
 type Union<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
 type Leaf =
@@ -52,88 +55,6 @@ export type OptionalPath<T, Depth extends readonly unknown[] = []> = Depth['leng
               : never)
         : never;
     }[Keys<T>];
-export class BuilderPathError extends TypeError {
-  readonly code = 'INVALID_BUILDER_PATH';
-  constructor() {
-    super('A path must traverse existing own data properties on plain records or arrays');
-    this.name = 'BuilderPathError';
-  }
-}
-function container(value: unknown): value is Record<PropertyKey, unknown> {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return Array.isArray(value) || prototype === Object.prototype || prototype === null;
-}
-function update(
-  value: unknown,
-  path: readonly PropertyKey[],
-  replacement: unknown,
-  omit: boolean
-): unknown {
-  if (
-    !Array.isArray(path) ||
-    path.length > 8 ||
-    path.some((key) => !['string', 'number', 'symbol'].includes(typeof key))
-  ) {
-    throw new BuilderPathError();
-  }
-  const visit = (current: unknown, offset: number): unknown => {
-    if (offset === path.length) {
-      return replacement;
-    }
-    if (!container(current)) {
-      throw new BuilderPathError();
-    }
-    const key = path[offset] as PropertyKey;
-    const array = Array.isArray(current);
-    if (
-      array &&
-      (typeof key !== 'number' || !Number.isSafeInteger(key) || key < 0 || key >= current.length)
-    ) {
-      throw new BuilderPathError();
-    }
-    const property = Object.getOwnPropertyDescriptor(current, key);
-    if ((property && !('value' in property)) || (!property && offset + 1 !== path.length)) {
-      throw new BuilderPathError();
-    }
-    const copy: Record<PropertyKey, unknown> = array
-      ? []
-      : Object.create(Object.getPrototypeOf(current));
-    for (const name of Reflect.ownKeys(current)) {
-      if (array && name === 'length') {
-        continue;
-      }
-      const descriptor = Object.getOwnPropertyDescriptor(current, name);
-      if (!descriptor || !('value' in descriptor)) {
-        throw new BuilderPathError();
-      }
-      Object.defineProperty(copy, name, { ...descriptor, configurable: true, writable: true });
-    }
-    if (array) {
-      copy.length = current.length;
-    }
-    if (omit && offset + 1 === path.length) {
-      if (array) {
-        throw new BuilderPathError();
-      }
-      delete copy[key];
-    } else {
-      Object.defineProperty(copy, key, {
-        value: visit(property?.value, offset + 1),
-        enumerable: property?.enumerable ?? true,
-        configurable: true,
-        writable: true,
-      });
-    }
-    return copy;
-  };
-  if (omit && path.length === 0) {
-    throw new BuilderPathError();
-  }
-  return visit(value, 0);
-}
 type CheckedPath<
   T,
   P extends readonly PropertyKey[],

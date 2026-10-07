@@ -132,6 +132,20 @@ type Check<F extends AnyFactory, Shape, Declared, Nested extends boolean> =
             : (...args: Parameters<F>) => KnownFieldsReturn<ReturnType<F>, Shape, Declared, Nested>;
 
 /**
+ * The return type to constrain a checked factory with, for a factory parameter typed
+ * `F & KnownFieldsFactory<F, Shape>`:
+ * `F extends () => NoInfer<KnownFieldsConstraint<Shape>> | PromiseLike<...>`. It is `Shape`,
+ * plus, when every field of `Shape` is optional, a record with other keys. TypeScript rejects
+ * an object that shares no key with such a shape (for example `{ sort: 'x' }` for a DTO whose
+ * `sort` is typed `never` and whose other fields are optional) at the constraint, with an
+ * error that names no key; letting it through means the check names the key instead. A shape
+ * with a required field gets nothing extra, so a missing field is reported as before.
+ */
+export type KnownFieldsConstraint<Shape> =
+  | Shape
+  | (Record<never, never> extends Shape ? Shape & { readonly [key: string]: unknown } : never);
+
+/**
  * The check `createInstanceBuilder()` applies to its factory, for a factory parameter typed
  * `F & KnownFieldsFactory<F, Shape>`. It is `unknown` when every key the factory returns is a
  * key of `Shape` (or the return type is `any`, or exactly `Shape`), and otherwise a signature

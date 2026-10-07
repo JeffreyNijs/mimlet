@@ -14,6 +14,7 @@ import {
   type GenerationSession,
   type InstanceBuilder,
   type InstanceInput,
+  type KnownFieldsConstraint,
   type KnownFieldsFactory,
   type KnownNestedFieldsFactory,
   type StandardSchemaV1,
@@ -209,6 +210,34 @@ export function genericCheck<T>(later: () => Promise<T>): void {
   const accepted: KnownNestedFieldsFactory<() => Promise<T>, T> = later;
   void accepted;
 }
+
+// When every field of the record is optional, a factory that returns only a field typed never
+// or only unknown keys passes the constraint, so the check names the key: before, TypeScript
+// rejected it with a message that named no key.
+class Filter {
+  sort?: never;
+  search?: string;
+}
+// @ts-expect-error "sort is typed never in the class and cannot be set"
+createInstanceBuilder(Filter, () => ({ sort: 'name' }));
+// @ts-expect-error "serach is not a field of the class"
+createInstanceBuilder(Filter, () => ({ serach: 'x' }));
+// @ts-expect-error The same with a default session.
+createInstanceBuilder(Filter, (_session: GenerationSession) => ({ sort: 'name' }), {
+  defaultSession: () => createSession({ fingerprint: 'f', provider: 'p@1', seed: 1 }),
+});
+expectType<Filter>(createInstanceBuilder(Filter, () => ({})).build());
+type SortOnly = () => { sort: string };
+expectExact<
+  KnownFieldsFactory<SortOnly, InstanceInput<Filter>, Filter>,
+  () => { sort: 'sort is typed never in the class and cannot be set' }
+>(true);
+// The constraint accepts other keys only for a shape without required fields.
+expectExact<
+  KnownFieldsConstraint<InstanceInput<Filter>>,
+  { search?: string } | ({ search?: string } & { readonly [key: string]: unknown })
+>(true);
+expectExact<KnownFieldsConstraint<InstanceInput<Query>>, InstanceInput<Query>>(true);
 
 // Getters, optional and readonly fields are fields the factory may set, without `as const`.
 expectType<Query>(createInstanceBuilder(Query, () => ({ limit: 10, tag: 'recent' })).build());

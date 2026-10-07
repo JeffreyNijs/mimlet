@@ -59,7 +59,10 @@ conditional returns a typed record and the other the same record plus a key, Typ
 the two types and the extra key is not reported; give that factory a return type
 (`(): InstanceInput<User> => ...`) if it matters. Adapters reuse the check through the exported
 `KnownFieldsFactory` type; `@mimlet/class-validator` uses `KnownNestedFieldsFactory`, which
-also checks nested records and arrays.
+also checks nested records and arrays. The message names the key also when the factory returns
+only that key and every field of the record is optional (`() => ({ sort: 'x' })` for a class
+whose other fields are optional): adapters constrain the factory with `KnownFieldsConstraint`,
+which lets such a factory reach the check instead of failing with a message that names no key.
 
 The check is compile-time only. At runtime, every own enumerable key of the record is copied,
 and Mimlet does not compare the keys with the class. A new instance has no own property for a
