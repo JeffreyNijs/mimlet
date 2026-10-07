@@ -111,6 +111,15 @@ keys). A path has 1 to 8 keys (field names, array indexes or symbols) and runs i
 with the other patches. The parent must exist when the setter runs: a missing `pagination`
 fails the build with a `BuilderPathError` that says to set `pagination` first or give it a
 default in the factory.
+
+A field list takes an alias map as a third argument, so one path alias does not need an
+alias for every other field:
+`fluent(builder, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'key'] })`.
+The list is a literal tuple or a schema field list, and the call gives the setters of
+`fluent(fluent(builder, fields), aliases)`; a schema field list skips the names the alias
+map uses. A field or path that is not in the input is a compile error that names it, and
+the only error for the call: `"serach is not a field of the builder input"` or
+`"pagination.kye is not a path of plain records and arrays in the builder input"`.
 See [named setters](https://jeffreynijs.github.io/mimlet/guide/fluent-builders.html) for input/output typing,
 conflict rules and release availability. Generated ordinary-record facades already have
 these methods, and `fluent()` keeps them too; an explicit name that matches one replaces it.

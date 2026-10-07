@@ -35,6 +35,30 @@ explicit aliases allow a 1,024-character field and a 128-character method name.
 Duplicate fields, colliding names, getters and sparse arrays are rejected before
 factory execution.
 
+### Mistakes are compile errors that name the field
+
+A field or path that is not in the builder's input is a compile error on that entry,
+and it is the only error for the call:
+
+| In the selection                                         | TypeScript reports                                                                     |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `['serach']` or `{ withTerm: 'serach' }`                 | `"serach is not a field of the builder input"`                                         |
+| `{ withKey: ['pagination', 'kye'] }`                     | `"pagination.kye is not a path of plain records and arrays in the builder input"`      |
+| `{ withFactory: 'factory' }`                             | `"withFactory is a builder method: choose another setter name"`                        |
+| `['factory']`                                            | `"factory would get withFactory(), a builder method: name its setter in an alias map"` |
+| `['filter']` with `{ withFilter: ['filter', 'status'] }` | `"withFilter already sets filter in the field list: choose another setter name"`       |
+
+For example, `fluent(builder, { withKey: ['pagination', 'kye'] })` reports
+`Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'`.
+Before `0.1.0-beta.8`, the first error for such a typo was about schema field lists
+(`'withKey' does not exist in type 'SchemaFields<string>'`), and a mistyped field
+name in a tuple or as an alias target reported a parameter of type `never` instead of
+naming the field.
+
+Editors complete field names in a tuple and in alias targets. While a name is still
+the start of one or more fields, such as `'pag'`, its expected type is those fields
+(`Type '"pag"' is not assignable to type '"pagination"'`).
+
 ## Setters for nested fields
 
 In an alias map, a tuple in place of a field name is a path alias. Its setter changes
@@ -83,12 +107,17 @@ the schema's input), generated and hand-written class facades,
 same operations as other setters, including async transitions and `map()`. Nesting
 keeps them like any other setter: repeating a kept path setter for the same path adds
 nothing, and reusing its name for another field or path throws. Schema field lists
-stay top level, so add path aliases in an outer call:
+stay top level, so pass path aliases in an alias map after the list (see the next
+section), or in an outer call:
 
 ```ts
-const rows = fluent(fromZod(ViewOrdersQuery), zodFields(ViewOrdersQuery));
-const paged = fluent(rows, { withLimit: ['pagination', 'limit'] });
+const paged = fluent(fromZod(ViewOrdersQuery), zodFields(ViewOrdersQuery), {
+  withLimit: ['pagination', 'limit'],
+});
 paged.withSearch('ramp').withLimit(5);
+
+const rows = fluent(fromZod(ViewOrdersQuery), zodFields(ViewOrdersQuery));
+const pagedRows = fluent(rows, { withLimit: ['pagination', 'limit'] }); // the same setters
 ```
 
 Path aliases need `0.1.0-beta.7` or newer. A builder from an older `@mimlet/core` copy
@@ -96,6 +125,43 @@ or from another library has no path operation, and `fluent()` rejects a path ali
 it with a `TypeError`. For a change computed from the built value, use
 [`setPath` inside `.transform()`](generated-facades-and-paths.md#typed-nested-changes),
 which runs after every patch.
+
+## A field list and aliases in one call
+
+A field list can take an alias map as a third argument. One path alias then needs no
+alias for every other field, and no second `fluent()` call:
+
+```ts
+const listOrders = fluent(
+  fromClassValidator(ListOrdersQuery, () => ({ pagination: { key: 'a', limit: 10 } })),
+  ['filter', 'pagination'],
+  { withPaginationKey: ['pagination', 'key'] }
+);
+listOrders.withFilter({ status: 'open' }).withPaginationKey('b');
+```
+
+The field list is a literal tuple or a schema field list such as
+`classValidatorFields(ListOrdersQuery)`; the alias map names more setters, for a field
+or for a path. The call gives the setters of
+`fluent(fluent(builder, fields), aliases)`, in the types and at runtime, with the
+same rules:
+
+- A tuple's names are explicit. The alias map may repeat one for the same field
+  (`['search']` with `{ withSearch: 'search' }`) or give a field another name
+  (`{ withTerm: 'search' }`), but reusing a tuple name for another field or path is a
+  compile error (`"withFilter already sets filter in the field list: choose another setter name"`)
+  and throws a `TypeError`.
+- A schema field list skips the names the alias map uses, as it skips builder
+  methods: with `classValidatorFields(Dto)` and `{ withKey: ['pagination', 'key'] }`,
+  `withKey()` sets `pagination.key` even when the DTO also has a top-level `key`.
+- Within the alias map, each field or path has one setter and each name sets one
+  target, as in a map passed alone.
+
+The result type is `FluentBuilder<FluentBuilder<B, S>, A>` for a tuple and
+`FluentBuilder<FluentFieldsBuilder<B, K>, A>` for a schema field list, where `A` is the
+type of the alias map. An alias map, like a tuple, needs a concrete input type, so in
+a generic helper pass only the schema field list and add the alias map where the
+helper is called. The third argument needs `0.1.0-beta.8` or newer.
 
 ## A setter for every schema field
 
@@ -144,7 +210,9 @@ it could not add without guessing, and TypeScript leaves them out too:
   `withFactory()` as the builder method;
 - a field name longer than 64 characters gets no setter.
 
-Set those fields with `.with()`, or give them an alias in an explicit map. A list
+Set those fields with `.with()`, or give them an alias in an alias map after the list,
+such as `fluent(builder, typeBoxFields(schema), { withFirstName: 'first_name' })` (see
+[a field list and aliases in one call](#a-field-list-and-aliases-in-one-call)). A list
 holds 1 to 1,000 fields, so an empty object schema is rejected.
 
 Inputs that cannot be patched one field at a time get no setters, as with tuples:

@@ -215,6 +215,26 @@ expectType<CreateOrderCommand>(floors.withFloor(2).withSide(Side.BACK).buildVali
 floors.withFloor('2');
 // @ts-expect-error Each key of the path must exist.
 fluent(locatedOrders, { withFloor: ['location', 'flor'] });
+// A field list and path aliases in one call: a tuple or a schema field list, then an alias map.
+const titled = fluent(locatedOrders, ['title', 'location'], { withFloor: ['location', 'floor'] });
+expectExact<Parameters<typeof titled.withFloor>, [value: number | null]>(true);
+expectType<CreateOrderCommand>(titled.withTitle('t').withFloor(2).buildValidated());
+const locatedRows = fluent(
+  locatedOrders,
+  classValidatorFields(CreateOrderCommand, { exclude: ['sort'] }),
+  { withFloor: ['location', 'floor'] }
+);
+expectType<CreateOrderCommand>(locatedRows.withTags(['a']).withFloor(3).buildValidated());
+const locatedLater = fluent(
+  fromClassValidatorAsync(CreateOrderCommand, () => ({ location: { side: null, floor: 1 } })),
+  ['title'],
+  { withSide: ['location', 'side'] }
+);
+expectType<Promise<CreateOrderCommand>>(locatedLater.withSide(Side.BACK).buildValidatedAsync());
+// @ts-expect-error "location.flor is not a path of plain records and arrays in the builder input"
+fluent(locatedOrders, ['title'], { withFloor: ['location', 'flor'] });
+// @ts-expect-error "titel is not a field of the builder input"
+fluent(locatedOrders, ['location'], { withName: 'titel' });
 // @ts-expect-error async, name and defaultSession are per-builder options.
 withClassValidatorDefaults({ async: true });
 

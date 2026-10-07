@@ -1,7 +1,6 @@
 // class-transformer's @Type() reads decorator metadata through the reflect-metadata polyfill.
 import 'reflect-metadata';
 import { fileURLToPath } from 'node:url';
-import * as ts from 'typescript';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as transformer from 'class-transformer';
 import * as validator from 'class-validator';
@@ -26,6 +25,7 @@ import {
 import { Transform, Type } from 'class-transformer';
 import {
   BuilderValidationError,
+  createInstanceBuilder,
   createSchemaBuilder,
   createSession,
   fluent,
@@ -52,6 +52,7 @@ import {
   type DtoInput,
   type Wire,
 } from '../../packages/class-validator/src/index.js';
+import { diagnose } from './diagnostics.js';
 
 /** Applies property decorators the way TypeScript's legacy decorators do (bottom up). */
 function decorate(
@@ -171,43 +172,8 @@ const queryLike: Wire = {
 const classValidatorSource = fileURLToPath(
   new URL('../../packages/class-validator/src/index.ts', import.meta.url)
 );
-/**
- * The compiler's messages for `source`, compiled as a test file of the repository with the
- * sources of both packages, so a test can assert the exact text a user sees.
- */
-function diagnose(source: string): string[] {
-  // The compiler names files with forward slashes on every platform, also on Windows.
-  const file = fileURLToPath(
-    new URL('./class-validator-diagnostics.virtual.ts', import.meta.url)
-  ).replaceAll('\\', '/');
-  const isFile = (name: string) => name.replaceAll('\\', '/') === file;
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    exactOptionalPropertyTypes: true,
-    allowImportingTsExtensions: true,
-    noEmit: true,
-    skipLibCheck: true,
-    types: [],
-    paths: {
-      '@mimlet/core': [fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url))],
-    },
-  };
-  const host = ts.createCompilerHost(options);
-  const getSourceFile = host.getSourceFile.bind(host);
-  const fileExists = host.fileExists.bind(host);
-  host.fileExists = (name) => isFile(name) || fileExists(name);
-  host.getSourceFile = (name, language, ...rest) =>
-    isFile(name)
-      ? ts.createSourceFile(name, source, language)
-      : getSourceFile(name, language, ...rest);
-  const program = ts.createProgram([file], options, host);
-  return ts
-    .getPreEmitDiagnostics(program, program.getSourceFile(file))
-    .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
-}
+/** The compiler's messages for `source`, compiled with the sources of the packages. */
+const messagesOf = (source: string): string[] => diagnose(source).map(({ message }) => message);
 const failure = (run: () => unknown): BuilderValidationError => {
   try {
     run();
@@ -397,7 +363,7 @@ describe('keys the payload does not have', () => {
   });
 
   it('reports the named message for fields typed never in every entry point', () => {
-    const messages = diagnose(`
+    const messages = messagesOf(`
         import { createInstanceBuilder } from '@mimlet/core';
         import {
           fromClassValidator,
@@ -995,4 +961,110 @@ describe('path setters on DTO builders', () => {
     // @ts-expect-error A field typed never is not part of the payload, so no path starts there.
     expect(() => fluent(empty, { withSort: ['sort', 'name'] })).not.toThrow();
   });
+
+  it('takes a field list and path aliases in one call', async () => {
+    const viewOrders = fluent(
+      queries.fromClassValidator(ViewOrdersQuery, () => ({})),
+      ['search', 'statuses', 'pagination'],
+      { withLimit: ['pagination', 'limit'], withOffset: ['pagination', 'offset'] }
+    );
+    expectTypeOf(viewOrders.withLimit).parameter(0).toEqualTypeOf<number>();
+    const query = viewOrders
+      .withSearch('ramp')
+      .withPagination({ limit: 10, offset: 0 })
+      .withLimit(5)
+      .withStatuses([Side.FRONT]);
+    expect(query.build()).toEqual({
+      search: 'ramp',
+      pagination: { limit: 5, offset: 0 },
+      statuses: [Side.FRONT],
+    });
+    const value = query.buildValidated();
+    expect(value).toBeInstanceOf(ViewOrdersQuery);
+    expect(value.pagination).toEqual(Object.assign(new Pagination(), { limit: 5, offset: 0 }));
+    expectTypeOf(value).toEqualTypeOf<ViewOrdersQuery>();
+    // A schema field list, which skips the names the alias map uses.
+    const listed = fluent(
+      fromClassValidator(ViewOrdersQuery, () => ({ pagination: { limit: 10, offset: 0 } }), pipe),
+      classValidatorFields(ViewOrdersQuery, { exclude: ['sort'] }),
+      { withLimit: ['pagination', 'limit'] }
+    );
+    expect(listed.withSearch('ramp').withLimit(3).buildValidated().pagination?.limit).toBe(3);
+    // Async builders, and DTO instances from createInstanceBuilder().
+    const later = fluent(
+      fromClassValidatorAsync(ViewOrdersQuery, async () => ({
+        pagination: { limit: 10, offset: 0 },
+      })),
+      ['search'],
+      { withOffset: ['pagination', 'offset'] }
+    );
+    expect((await later.withOffset(4).withSearch('x').buildValidatedAsync()).pagination).toEqual(
+      Object.assign(new Pagination(), { limit: 10, offset: 4 })
+    );
+    const instances = fluent(
+      createInstanceBuilder(ViewOrdersQuery, () => ({ pagination: { limit: 1, offset: 0 } })),
+      ['search'],
+      { withLimit: ['pagination', 'limit'] }
+    );
+    const instance = instances.withLimit(2).withSearch('s').build();
+    expect(instance).toBeInstanceOf(ViewOrdersQuery);
+    expect(instance.pagination).toEqual({ limit: 2, offset: 0 });
+  });
+
+  it('reports one named message for a wrong field or path in the setters of DTO builders', () => {
+    // The query builders of a NestJS backend trial, each with a path alias for a nested key.
+    const header = `
+      import { createInstanceBuilder, fluent } from '@mimlet/core';
+      import {
+        classValidatorFields,
+        fromClassValidator,
+        fromClassValidatorAsync,
+        withClassValidatorDefaults,
+      } from '@mimlet/class-validator';
+      class Pagination { key?: string; limit?: number }
+      class Filter { status?: string }
+      class ListOrdersQuery { filter?: Filter; pagination?: Pagination; sort?: never }
+      const query = withClassValidatorDefaults({ whitelist: true, transform: true });
+      const orders = query.fromClassValidator(ListOrdersQuery, () => ({}));`;
+    const cases: [code: string, message?: string][] = [
+      [`fluent(orders, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'key'] });`],
+      [
+        `fluent(orders, { withFilter: 'filter', withPaginationKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(orders, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(fromClassValidator(ListOrdersQuery, () => ({})), classValidatorFields(ListOrdersQuery), { withPaginationKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(fromClassValidatorAsync(ListOrdersQuery, () => ({})), ['filter'], { withPaginationKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(createInstanceBuilder(ListOrdersQuery, () => ({})), ['filter'], { withKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(fluent(orders, ['filter']), { withPaginationKey: ['pagination', 'kye'] });`,
+        `Type 'string[]' is not assignable to type '"pagination.kye is not a path of plain records and arrays in the builder input"'.`,
+      ],
+      [
+        `fluent(orders, ['filter', 'pagination'], { withPage: 'pagnation' });`,
+        `Type '"pagnation"' is not assignable to type '"pagnation is not a field of the builder input"'.`,
+      ],
+      [
+        `fluent(orders, ['filter', 'sort']);`,
+        `Type '"sort"' is not assignable to type '"sort is not a field of the builder input"'.`,
+      ],
+    ];
+    const found = diagnose([header, ...cases.map(([code]) => code)].join('\n'));
+    const first = header.split('\n').length + 1;
+    expect(found.map(({ line, message }) => [line - first, message])).toEqual(
+      cases.flatMap(([, message], index) => (message ? [[index, message]] : []))
+    );
+  }, 180_000);
 });

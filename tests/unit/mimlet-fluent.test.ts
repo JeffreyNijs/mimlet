@@ -33,6 +33,7 @@ import * as v from 'valibot';
 import * as S from 'effect/Schema';
 import Type, { type TObject } from 'typebox';
 import { Type as Legacy, type TObject as LegacyObject } from '@sinclair/typebox';
+import { diagnose } from './diagnostics.js';
 
 it('adds input-typed setters to native Zod and ArkType builders', async () => {
   const zod = fluent(
@@ -216,3 +217,116 @@ it('adds path setters on top of schema field lists of every adapter', () => {
     page: { size: 5 },
   });
 });
+
+it('takes a schema field list and path aliases in one call for every adapter', () => {
+  const zodQuery = z.object({
+    search: z.string().optional(),
+    pagination: z.object({ limit: z.coerce.number().max(100), offset: z.number() }).optional(),
+  });
+  const zodRows = fluent(
+    fromZodFactory(zodQuery, () => ({ pagination: { limit: 10, offset: 0 } })),
+    zodFields(zodQuery),
+    { withLimit: ['pagination', 'limit'] }
+  );
+  expectTypeOf(zodRows.withLimit).parameter(0).toEqualTypeOf<unknown>();
+  expect(zodRows.withSearch('ramp').withLimit('5').buildValidated()).toEqual({
+    search: 'ramp',
+    pagination: { limit: 5, offset: 0 },
+  });
+  const boxQuery = Type.Object({
+    search: Type.String(),
+    pagination: Type.Object({ limit: Type.Number(), offset: Type.Number() }),
+  });
+  const boxRows = fluent(fromTypeBox(boxQuery), typeBoxFields(boxQuery), {
+    withOffset: ['pagination', 'offset'],
+  });
+  expectTypeOf(boxRows.withOffset).parameter(0).toEqualTypeOf<number>();
+  expect(boxRows.withOffset(7).withSearch('s').buildValidated().pagination.offset).toBe(7);
+  const valibotQuery = v.object({ page: v.object({ size: v.number() }), term: v.string() });
+  const valibotRows = fluent(fromValibot(valibotQuery), valibotFields(valibotQuery), {
+    withSize: ['page', 'size'],
+  });
+  expect(valibotRows.withPage({ size: 4 }).withSize(5).withTerm('t').buildValidated()).toEqual({
+    page: { size: 5 },
+    term: 't',
+  });
+});
+
+it('reports one named error for a wrong field or path in a selection', () => {
+  const header = `
+    import { createBuilder, createSchemaBuilder, fluent, schemaFields } from '@mimlet/core';
+    import type { StandardSchemaV1 } from '@mimlet/core';
+    import { fromZod, zodFields } from '@mimlet/zod';
+    import { z } from 'zod';
+    interface Query {
+      search?: string;
+      filter: { status?: string };
+      pagination: { key: string; limit?: number };
+    }
+    const views = createBuilder((): Query => ({ filter: {}, pagination: { key: 'a' } }));
+    const fields = schemaFields(['search', 'filter', 'pagination'] as const);
+    const schema = {} as StandardSchemaV1<Query, Query>;
+    const ZodQuery = z.object({ search: z.string(), pagination: z.object({ key: z.string() }) });`;
+  const notAPath = (path: string) =>
+    `Type 'string[]' is not assignable to type '"${path} is not a path of plain records and arrays in the builder input"'.`;
+  const notAField = (field: string) =>
+    `Type '"${field}"' is not assignable to type '"${field} is not a field of the builder input"'.`;
+  const cases: [code: string, message?: string][] = [
+    [`fluent(views, { withPaginationKey: ['pagination', 'key'], withTerm: 'search' });`],
+    [`fluent(views, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'key'] });`],
+    [`fluent(views, fields, { withKey: ['pagination', 'key'], withPagination: 'filter' });`],
+    // A mistyped path, plain alias target or tuple field.
+    [`fluent(views, { withPaginationKey: ['pagination', 'kye'] });`, notAPath('pagination.kye')],
+    [`fluent(views, { withTerm: 'serach', withKey: ['pagination', 'key'] });`, notAField('serach')],
+    [`fluent(views, ['filter', 'paginaton']);`, notAField('paginaton')],
+    // The same in an alias map that follows a field list.
+    [
+      `fluent(views, ['filter', 'pagination'], { withPaginationKey: ['pagination', 'kye'] });`,
+      notAPath('pagination.kye'),
+    ],
+    [`fluent(views, ['filter'], { withTerm: 'serach' });`, notAField('serach')],
+    [`fluent(views, ['filtr'], { withKey: ['pagination', 'key'] });`, notAField('filtr')],
+    [`fluent(views, fields, { withKey: ['pagination', 'kye'] });`, notAPath('pagination.kye')],
+    [
+      `fluent(fromZod(ZodQuery), zodFields(ZodQuery), { withKey: ['pagination', 'kye'] });`,
+      notAPath('pagination.kye'),
+    ],
+    // Nested calls, async builders and schema builders.
+    [
+      `fluent(fluent(views, ['search']), { withKey: ['pagination', 'kye'] });`,
+      notAPath('pagination.kye'),
+    ],
+    [
+      `fluent(createBuilder(async (): Promise<Query> => ({ filter: {}, pagination: { key: 'a' } })), ['filter'], { withKey: ['pagination', 'kye'] });`,
+      notAPath('pagination.kye'),
+    ],
+    [
+      `fluent(createSchemaBuilder(schema, () => ({ filter: {}, pagination: { key: 'a' } })), ['search'], { withLimit: ['pagination', 'limt'] });`,
+      notAPath('pagination.limt'),
+    ],
+    // Names that a call cannot use.
+    [
+      `fluent(views, ['filter', 'pagination'], { withFilter: ['filter', 'status'] });`,
+      `Type 'string[]' is not assignable to type '"withFilter already sets filter in the field list: choose another setter name"'.`,
+    ],
+    [
+      `fluent(views, ['filter'], { withFactory: 'search' });`,
+      `Type '"search"' is not assignable to type '"withFactory is a builder method: choose another setter name"'.`,
+    ],
+    [
+      `fluent(views, { withTerm: 'search' }, { withKey: ['pagination', 'key'] });`,
+      `Argument of type '{ withTerm: string; }' is not assignable to parameter of type '"fluent() takes a field tuple or a schema field list before the alias map"'.`,
+    ],
+    [
+      `fluent(views, ['filter'], {});`,
+      `Argument of type '{}' is not assignable to parameter of type '"fluent() needs at least one setter"'.`,
+    ],
+    // A start of field names stands for those fields, which editors then complete.
+    [`fluent(views, ['pag']);`, `Type '"pag"' is not assignable to type '"pagination"'.`],
+  ];
+  const found = diagnose([header, ...cases.map(([code]) => code)].join('\n'));
+  const first = header.split('\n').length + 1;
+  expect(found.map(({ line, message }) => [line - first, message])).toEqual(
+    cases.flatMap(([, message], index) => (message ? [[index, message]] : []))
+  );
+}, 180_000);

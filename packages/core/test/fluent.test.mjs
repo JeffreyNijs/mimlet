@@ -958,3 +958,265 @@ describe('path aliases', () => {
     );
   });
 });
+
+describe('a field list and an alias map in one call', () => {
+  const setters = (builder) =>
+    Object.getOwnPropertyNames(Object.getPrototypeOf(builder))
+      .filter((name) => /^with[A-Z0-9]/.test(name) && name !== 'withFactory')
+      .sort();
+  const query = () =>
+    createBuilder((search = 'ramp') => ({
+      search,
+      filter: { status: 'open' },
+      pagination: { key: 'a', limit: 10 },
+    }));
+
+  it('adds the setters of the list and of the map, like a nested call', () => {
+    let calls = 0;
+    const source = createBuilder((search = 'ramp') => {
+      calls++;
+      return { search, filter: { status: 'open' }, pagination: { key: 'a', limit: 10 } };
+    });
+    const views = fluent(source, ['filter', 'pagination'], {
+      withPaginationKey: ['pagination', 'key'],
+      withTerm: 'search',
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(setters(views), [
+      'withFilter',
+      'withPagination',
+      'withPaginationKey',
+      'withTerm',
+    ]);
+    const changed = views
+      .withPagination({ key: 'b', limit: 5 })
+      .withPaginationKey('c')
+      .withFilter({ status: 'closed' })
+      .withTerm('t');
+    assert.deepEqual(changed.build(), {
+      search: 't',
+      filter: { status: 'closed' },
+      pagination: { key: 'c', limit: 5 },
+    });
+    assert.deepEqual(changed.describe().operations, [
+      'factory',
+      'merge',
+      'mergePath',
+      'merge',
+      'merge',
+    ]);
+    // The same setters as fluent(fluent(builder, fields), aliases), with the same results.
+    const nested = fluent(fluent(source, ['filter', 'pagination']), {
+      withPaginationKey: ['pagination', 'key'],
+      withTerm: 'search',
+    });
+    assert.deepEqual(setters(nested), setters(views));
+    assert.deepEqual(
+      nested
+        .withPagination({ key: 'b', limit: 5 })
+        .withPaginationKey('c')
+        .withFilter({ status: 'closed' })
+        .withTerm('t')
+        .build(),
+      changed.build()
+    );
+    // Every branch is a new builder, and an alias map of undefined is no alias map.
+    assert.deepEqual(views.build('x').pagination, { key: 'a', limit: 10 });
+    assert.deepEqual(setters(fluent(source, ['search'], undefined)), ['withSearch']);
+    assert.throws(() => views.withPaginationKey.call({}, 'x'), /receiver/);
+  });
+
+  it('skips the names of the map in a schema field list and checks a tuple like nesting', () => {
+    const fields = schemaFields(['search', 'filter', 'pagination', 'key']);
+    const source = createBuilder(() => ({
+      search: 'ramp',
+      filter: { status: 'open' },
+      pagination: { key: 'a', limit: 10 },
+      key: 'top',
+    }));
+    // A schema field list skips the names the alias map uses, as it skips builder methods.
+    const listed = fluent(source, fields, { withKey: ['pagination', 'key'], withQuery: 'search' });
+    assert.deepEqual(setters(listed), [
+      'withFilter',
+      'withKey',
+      'withPagination',
+      'withQuery',
+      'withSearch',
+    ]);
+    assert.deepEqual(listed.withKey('b').withQuery('q').build(), {
+      search: 'q',
+      filter: { status: 'open' },
+      pagination: { key: 'b', limit: 10 },
+      key: 'top',
+    });
+    // A name that the list skips for two fields can go to one of them in the alias map.
+    const names = createBuilder(() => ({ 'first-name': '', first_name: '', id: 0 }));
+    const named = fluent(names, schemaFields(['first-name', 'first_name', 'id']), {
+      withFirstName: 'first_name',
+    });
+    assert.deepEqual(setters(named), ['withFirstName', 'withId']);
+    assert.deepEqual(named.withFirstName('Ada').withId(1).build(), {
+      'first-name': '',
+      first_name: 'Ada',
+      id: 1,
+    });
+    // A tuple's names are explicit: the map may repeat one for the same field, add another name
+    // for a field, or name a new path, but not reuse a tuple name for another field or path.
+    const tupled = fluent(source, ['filter', 'pagination'], {
+      withFilter: 'filter',
+      withState: ['filter', 'status'],
+      withPage: 'pagination',
+    });
+    assert.deepEqual(setters(tupled), ['withFilter', 'withPage', 'withPagination', 'withState']);
+    assert.equal(tupled.withState('closed').build().filter.status, 'closed');
+    assert.equal(tupled.withPage({ key: 'p', limit: 1 }).build().pagination.key, 'p');
+    for (const aliases of [
+      { withFilter: ['filter', 'status'] },
+      { withPagination: 'search' },
+      { withKey: ['pagination', 'key'], withOther: ['pagination', 'key'] },
+      { withFactory: 'search' },
+      { build: 'search' },
+    ]) {
+      assert.throws(
+        () => fluent(source, ['filter', 'pagination'], aliases),
+        /unique and cannot replace builder capabilities/
+      );
+    }
+    // Wrapping a fluent() builder keeps its setters, with the same rules for the alias map.
+    const inner = fluent(source, { withTerm: 'search' });
+    const outer = fluent(inner, ['filter'], { withKey: ['pagination', 'key'], withTerm: 'search' });
+    assert.deepEqual(setters(outer), ['withFilter', 'withKey', 'withTerm']);
+    assert.equal(outer.withTerm('t').withKey('k').build().pagination.key, 'k');
+    assert.throws(() => fluent(inner, ['filter'], { withTerm: 'filter' }), /unique/);
+    const outerListed = fluent(inner, fields, { withKey: ['pagination', 'key'] });
+    assert.deepEqual(setters(outerListed), [
+      'withFilter',
+      'withKey',
+      'withPagination',
+      'withSearch',
+      'withTerm',
+    ]);
+  });
+
+  it('works with async, schema, instance and class builders', async () => {
+    const asynchronous = fluent(
+      createBuilder(async () => ({ filter: {}, pagination: { key: 'a', limit: 1 } })),
+      ['filter'],
+      { withKey: ['pagination', 'key'] }
+    );
+    assert.deepEqual(await asynchronous.withKey('b').withFilter({ status: 'x' }).buildAsync(), {
+      filter: { status: 'x' },
+      pagination: { key: 'b', limit: 1 },
+    });
+    const transformed = fluent(query(), ['search'], { withKey: ['pagination', 'key'] })
+      .withKey('t')
+      .transformAsync(async (value) => value)
+      .withSearch('s');
+    assert.deepEqual(await transformed.buildAsync(), {
+      search: 's',
+      filter: { status: 'open' },
+      pagination: { key: 't', limit: 10 },
+    });
+    assert.throws(() => transformed.build(), /buildAsync/);
+    const schema = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: (value) =>
+          value.pagination.key === ''
+            ? { issues: [{ message: 'empty key', path: ['pagination', 'key'] }] }
+            : { value: { ...value, valid: true } },
+      },
+    };
+    const validated = fluent(
+      createSchemaBuilder(schema, () => ({ search: '', pagination: { key: 'a', limit: 1 } })),
+      schemaFields(['search', 'pagination']),
+      { withKey: ['pagination', 'key'] }
+    );
+    assert.deepEqual(validated.withKey('b').withSearch('s').buildValidated(), {
+      search: 's',
+      pagination: { key: 'b', limit: 1 },
+      valid: true,
+    });
+    assert.throws(() => validated.withKey('').buildValidated(), BuilderValidationError);
+    class Query {
+      search = '';
+      pagination = undefined;
+      get key() {
+        return this.pagination?.key;
+      }
+    }
+    const instances = fluent(
+      createInstanceBuilder(Query, () => ({ pagination: { key: 'a', limit: 1 } })),
+      ['search'],
+      { withKey: ['pagination', 'key'] }
+    );
+    const built = instances.withKey('i').withSearch('s').build();
+    assert.ok(built instanceof Query);
+    assert.equal(built.key, 'i');
+    assert.equal(built.search, 's');
+    // A name of a class method is replaced by the alias map's setter, as in a nested call.
+    class Users extends createBuilderClass(() => ({
+      id: 0,
+      profile: { name: 'Ada' },
+      vip: false,
+    })) {
+      withName(name) {
+        return this.with({ profile: { name: `${name}!` } });
+      }
+      vip() {
+        return this.with({ vip: true });
+      }
+    }
+    const users = fluent(new Users(), ['id'], { withName: ['profile', 'name'] });
+    assert.deepEqual(users.vip().withName('Grace').withId(2).build(), {
+      id: 2,
+      profile: { name: 'Grace' },
+      vip: true,
+    });
+  });
+
+  it('validates the alias map as data before running a factory', () => {
+    let calls = 0;
+    const source = createBuilder(() => {
+      calls++;
+      return { search: '', pagination: { key: 'a' } };
+    });
+    const accessors = {};
+    Object.defineProperty(accessors, 'withKey', {
+      enumerable: true,
+      get() {
+        calls++;
+        return ['pagination', 'key'];
+      },
+    });
+    for (const [selection, aliases] of [
+      [{ withSearch: 'search' }, { withKey: ['pagination', 'key'] }],
+      [['search'], ['pagination']],
+      [['search'], [['pagination', 'key']]],
+      ['search', { withKey: 'search' }],
+      [['search'], null],
+      [['search'], 'withKey'],
+      [['search'], {}],
+      [['search'], accessors],
+      [['search'], new (class Aliases {})()],
+      [['search'], { 'not valid': 'search' }],
+      [['search'], { withKey: ['pagination', -1] }],
+    ]) {
+      assert.throws(() => fluent(source, selection, aliases), TypeError);
+    }
+    assert.equal(calls, 0);
+    // A builder without path setters, such as one from an older core, is rejected for paths.
+    const custom = {
+      with: () => custom,
+      build: () => ({}),
+      buildAsync: async () => ({}),
+      describe: () => source.describe(),
+    };
+    assert.throws(
+      () => fluent(custom, ['search'], { withKey: ['pagination', 'key'] }),
+      /path setters/
+    );
+    assert.deepEqual(fluent(custom, ['search'], { withKey: 'key' }).withKey(1).build(), {});
+  });
+});

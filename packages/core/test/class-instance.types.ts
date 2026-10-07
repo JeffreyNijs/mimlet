@@ -406,6 +406,31 @@ expectType<Promise<string>>(
 );
 // @ts-expect-error After a facade's transformAsync(), map() is not typed: map first.
 named.transformAsync(async (user) => user).map((user) => user);
+// A field list and an alias map in one call patch the record, nested records included.
+class Preferences {
+  owner!: string;
+  theme!: { mode: 'dark' | 'light'; size?: number };
+}
+const preferences = createInstanceBuilder(Preferences, () => ({
+  owner: 'a',
+  theme: { mode: 'dark' },
+}));
+const settings = fluent(preferences, ['owner'], {
+  withMode: ['theme', 'mode'],
+  withSize: ['theme', 'size'],
+});
+expectType<Preferences>(settings.withMode('light').withSize(2).withOwner('b').build());
+expectExact<Parameters<typeof settings.withSize>, [value: number]>(true);
+expectType<string>(
+  settings
+    .map((value) => value.theme.mode)
+    .withMode('light')
+    .build()
+);
+// @ts-expect-error An optional key does not take undefined under exactOptionalPropertyTypes.
+settings.withSize(undefined);
+// @ts-expect-error "theme.mod is not a path of plain records and arrays in the builder input"
+fluent(preferences, ['owner'], { withMode: ['theme', 'mod'] });
 
 // Generated classes map to the plain facade type.
 const UserClass = createBuilderClass(record);
