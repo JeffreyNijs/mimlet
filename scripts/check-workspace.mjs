@@ -153,6 +153,38 @@ export async function readVendorMatrix(root) {
   return matrix;
 }
 
+/** Whether an exact version satisfies a caret range, as npm reads `^x.y.z` (0.x: the same minor). */
+export function satisfiesCaretRange(version, range) {
+  const match = /^\^(\S+)$/.exec(range);
+  if (!match) fail(`unsupported peer range ${JSON.stringify(range)}`);
+  const [major, minor] = parseExact(match[1]);
+  const [candidateMajor, candidateMinor] = parseExact(version);
+  if (compareVersions(version, match[1]) < 0) return false;
+  if (major > 0) return candidateMajor === major;
+  if (minor > 0) return candidateMajor === 0 && candidateMinor === minor;
+  return compareVersions(version, match[1]) === 0;
+}
+
+/**
+ * `hey-api-builders` has no group in `tests/vendor-versions.json`, so its caret peer ranges are
+ * checked against the versions it is developed and tested with. A dependency update past a range,
+ * such as `@hey-api/openapi-ts` 0.100.0 against `^0.99.0`, fails here instead of publishing a
+ * range that makes npm reject the tested release.
+ */
+function checkPinnedPeers(packages) {
+  for (const { manifest: pkg } of packages) {
+    if (pkg.name.startsWith('@mimlet/')) continue;
+    for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+      const pinned = pkg.devDependencies?.[name];
+      if (internalName(name) || pinned === undefined) continue;
+      if (!satisfiesCaretRange(pinned, range))
+        fail(
+          `${pkg.name}: devDependencies.${name} ${pinned} is outside peerDependencies.${name} ${range}; widen the peer range once the tests pass with ${pinned}`
+        );
+    }
+  }
+}
+
 /**
  * Every native peer of a scoped adapter has a group in `tests/vendor-versions.json`. The adapter
  * publishes the supported range as its peer and the tested range as `mimlet.testedPeers`, so
@@ -296,6 +328,7 @@ export async function readWorkspace(root = resolve(dirname(fileURLToPath(import.
     }
   }
   checkNativePeers(packages, await readVendorMatrix(root));
+  checkPinnedPeers(packages);
   const core = names.get('@mimlet/core').manifest;
   if (
     Object.keys(core.dependencies ?? {}).length ||

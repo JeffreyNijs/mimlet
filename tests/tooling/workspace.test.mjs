@@ -9,6 +9,7 @@ import {
   readVendorMatrix,
   readWorkspace,
   releaseDistTag,
+  satisfiesCaretRange,
   satisfiesPeerRange,
   supportedPeerRange,
   testedPeerRange,
@@ -275,6 +276,30 @@ it('derives supported peer ranges up to the next breaking release and tested ran
   assert.equal(satisfiesPeerRange('0.15.9', '>=0.14.1 <0.16'), true);
   assert.equal(satisfiesPeerRange('0.16.0', '>=0.14.1 <0.16'), false);
   assert.throws(() => supportedPeerRange('1.0.0', ['1.0', '1.1']), /0\.x libraries only/);
+});
+it('keeps the Hey API integration pins inside its caret peer ranges', async () => {
+  for (const [version, range, expected] of [
+    ['0.99.0', '^0.99.0', true],
+    ['0.99.4', '^0.99.0', true],
+    ['0.100.0', '^0.99.0', false],
+    ['0.98.2', '^0.99.0', false],
+    ['10.5.0', '^10.0.0', true],
+    ['11.0.0', '^10.0.0', false],
+    ['6.0.3', '^6.0.0', true],
+    ['0.0.3', '^0.0.3', true],
+    ['0.0.4', '^0.0.3', false],
+  ])
+    assert.equal(satisfiesCaretRange(version, range), expected, `${version} ${range}`);
+  assert.throws(() => satisfiesCaretRange('4.0.0', '>=4.0.0 <5'), /unsupported peer range/);
+  await fixture(async ({ root, change }) => {
+    await change('packages/hey-api-builders/package.json', (pkg) => {
+      pkg.devDependencies['@hey-api/openapi-ts'] = '0.100.0';
+    });
+    await assert.rejects(
+      readWorkspace(root),
+      /hey-api-builders: devDependencies\.@hey-api\/openapi-ts 0\.100\.0 is outside peerDependencies\.@hey-api\/openapi-ts \^0\.99\.0/
+    );
+  });
 });
 it('publishes every native peer as its supported range and the matrix range as tested', async () => {
   const matrix = await readVendorMatrix(baseline.root);
