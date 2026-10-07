@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.1.0-beta.7
+
+### Minor Changes
+
+- d1d3fd6: `fluent()` alias maps accept a path in place of a field name, for a setter of a nested field:
+
+  ```ts
+  const viewOrders = fluent(builder, {
+    withLimit: ['pagination', 'limit'],
+    withOffset: ['pagination', 'offset'],
+  });
+  viewOrders.withLimit(5).build(); // pagination.limit is 5, pagination.offset is kept
+  ```
+
+  Each key must exist in the builder's input type, and the setter takes the type at the path,
+  with the same rules as `.with()` for optional keys under `exactOptionalPropertyTypes`. A wrong
+  key is a compile error that names the path
+  (`"pagination.limti is not a path of plain records and arrays in the builder input"`). A path
+  has 1 to 8 keys: field names, array indexes or symbols. The setter runs in call order with
+  `.with()`, `.withFactory()` and the other patches, and copies each record and array on the
+  path, so the factory's value never changes.
+
+  The parent must exist when the setter runs. With a query default of `{}`, `withLimit(5)` fails
+  the build with a `BuilderPathError` (`INVALID_BUILDER_PATH`):
+  `withLimit() cannot set pagination.limit: pagination is missing; set pagination first (with .with() or its own setter) or give it a default in the factory`.
+  Path setters work with async builders, schema builders, class facades,
+  `createInstanceBuilder()` (they patch the record) and the `@mimlet/class-validator` builders,
+  and nested `fluent()` calls keep them like other setters. Schema field lists stay top level.
+  `describe()` lists a path setter's step as `'mergePath'`. `BuilderPathError` takes an optional
+  message.
+
+### Patch Changes
+
+- d1d3fd6: A factory that returns only a field typed `never` (or only unknown keys) now gets the named
+  error message when every field of the payload is optional, as in most query DTOs.
+  `fromClassValidator(ViewLeadIndexQuery, () => ({ sort: 'x' }))` for a DTO with `sort?: never`
+  used to fail with a message that named no key:
+  `Type '{ sort: string; }' is not assignable to type 'NoInfer<{ search?: ...; pagination?: ... }> | PromiseLike<...>'`.
+  It now fails with
+  `Type 'string' is not assignable to type '"sort is typed never in the class and cannot be set"'`,
+  and `() => ({ nmae: 'x' })` with `"nmae is not a field of the class"`. This applies to
+  `fromClassValidator()`, `fromClassValidatorAsync()`, the builders of
+  `withClassValidatorDefaults()` and `createInstanceBuilder()`. A DTO or class with a required
+  field still reports the missing field.
+
+  The factory's type parameter now accepts such a factory so that the check can name the key;
+  `ClassValidatorBuilder<T, F>` and `AsyncClassValidatorBuilder<T, F>` accept the same factory
+  types. `DtoFactory<T>`, for annotating a factory, is unchanged. `@mimlet/core` exports the
+  constraint as `KnownFieldsConstraint<Shape>` for adapters that use `KnownFieldsFactory`.
+
+- d1d3fd6: A failed scenario node now explains itself in the error message instead of only in `cause`.
+  The message names the node, the step that failed and the cause's message, on one line and cut
+  at 200 characters. Before, every failure read `ScenarioError: Scenario node failed`. Now, for
+  example:
+
+  ```text
+  Scenario node "deal" failed in patch 1: A patch of deal returned a plain object in place of a Deal instance; pass the changed fields, as in patch('deal', { ... }), to keep the class, or return a Deal
+  ```
+
+  The step is the node's factory (no step in the message), `in its override`,
+  `in trait "name"` or `in patch 2`. A failed dependency is named as the failed node, because
+  the nodes after it never run. `code` (`SCENARIO_EXECUTION`), `node` and `cause` are unchanged.
+  The message repeats the cause's message, so an error that your own factory or patcher throws
+  now appears in it as written; Mimlet's own errors keep fixture values out of their messages.
+  Definition and conflict errors now end with the node's name, as in
+  `Scenario dependency or replacement names an unknown node: "custmer"` and
+  `Trait conflicts with an existing node patch: "deal"`. Tests that compare a scenario error
+  message with `'Scenario node failed'` need updating; check `code` and `node` instead.
+
 ## 0.1.0-beta.6
 
 ### Minor Changes
