@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.1.0-beta.6
+
+### Minor Changes
+
+- feada79: `scenario.patch(name, fields)` sets fields of a node's value: `crm.patch('deal', { status: 'sent' })`.
+  The fields are checked against the node's data fields, so `{ stauts: 'sent' }` is a compile
+  error. Each build copies the value with the same prototype and own properties and sets the
+  fields the way `createInstanceBuilder()` sets a record's fields (a setter on the class runs, a
+  getter without a setter fails the node), so a class instance stays an instance of its class and
+  the factory's value is never changed. No constructor runs for the copy, so `#private` fields do
+  not exist on it. The form works for plain records too and keeps a synchronous scenario
+  synchronous.
+
+  A patcher function that returns a plain object for a class instance, such as
+  `(deal) => ({ ...deal, status })`, now fails the node with
+  `A patch of deal returned a plain object in place of a Deal instance`. TypeScript accepts that
+  spread for a class without methods, and the node silently stopped being a `Deal`. Changing the
+  instance or returning another instance of the class still works.
+
+### Patch Changes
+
+- feada79: `fromClassValidator(Dto, factory)` and `fromClassValidatorAsync(Dto, factory)` now report a key
+  that is not a payload field as a compile error in a factory without a return type annotation:
+  `fromClassValidator(CreateRoleCommand, () => ({ name: 'Admin', nmae: 'x' }))` fails with
+  `Type 'string' is not assignable to type '"nmae is not a field of the class"'`. Before, the
+  key compiled, `build()` sent it, and only the pipe's `forbidNonWhitelisted` rejected it. The
+  check covers fields typed `never` (`"search is typed never in the class and cannot be set"`),
+  methods, nested DTOs and arrays of them, async factories, factories with arguments or a session,
+  and the builders of `withClassValidatorDefaults()`. Literal fields still need no `as const`. A
+  nested type without known keys (`object`, `Record<string, unknown>`) accepts any key.
+
+  The check comes from `@mimlet/core`, which now exports it as `KnownFieldsFactory` (the check
+  `createInstanceBuilder()` uses) and `KnownNestedFieldsFactory` (which also checks nested records
+  and arrays). `createInstanceBuilder()` now names a method
+  (`"isBlocked is a method of the class, not a field"`) and a field typed `never` in its
+  messages. A factory declared to return exactly the record type (or a promise of it) is not
+  checked, so generic helpers such as
+  `<T extends object>(dto: DtoClass<T>, make: () => DtoInput<T>) => fromClassValidator(dto, make)`
+  keep compiling: the check cannot decide keys that depend on a type parameter.
+
 ## 0.1.0-beta.5
 
 ### Minor Changes

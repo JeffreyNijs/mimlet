@@ -1,6 +1,6 @@
 {
   "name": "@mimlet/consumers",
-  "version": "0.1.0-beta.5",
+  "version": "0.1.0-beta.6",
   "private": false,
   "description": "Explicit fixture loaders, Fetch mock responses and transactional batch handoff.",
   "type": "module",
@@ -52,6 +52,6 @@
     "standard-schema"
   ],
   "dependencies": {
-    "@mimlet/core": "0.1.0-beta.5"
+    "@mimlet/core": "0.1.0-beta.6"
   }
 }
