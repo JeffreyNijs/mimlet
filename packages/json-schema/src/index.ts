@@ -2,6 +2,7 @@ import { Ajv, MissingRefError, type ErrorObject } from 'ajv';
 import { Ajv2019 } from 'ajv/dist/2019.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
+import standaloneModule from 'ajv/dist/standalone/index.js';
 import { generateSync, type JsonSchema as ProviderSchema } from 'json-schema-faker';
 import { createSchemaBuilder, createSession, schemaFields, SessionBudgetError } from '@mimlet/core';
 import type {
@@ -18,7 +19,12 @@ import type {
 } from '@mimlet/core';
 import { exactJson, generatorStore } from './shared.js';
 export { clearGeneratorCache, configureGeneratorCache } from './shared.js';
-export type { GeneratorCacheOptions, GeneratorCacheState } from './shared.js';
+export type {
+  GeneratorCacheOptions,
+  GeneratorCacheState,
+  GeneratorDiskCacheOptions,
+  GeneratorDiskCacheState,
+} from './shared.js';
 import {
   clipUri,
   copyJson,
@@ -131,6 +137,33 @@ function issues(errors: ErrorObject[] | null | undefined): JsonSchemaIssue[] {
 }
 type Validator = InstanceType<typeof Ajv>;
 type CompiledValidator = ReturnType<Validator['compile']>;
+// CommonJS that is its own default export: the function either way.
+const standaloneCode = standaloneModule as unknown as (
+  instance: Validator,
+  validate: CompiledValidator
+) => string;
+/** Every validator is compiled with these options; `code.source` is added for the disk cache. */
+const validatorOptions = {
+  allErrors: true,
+  strict: true,
+  strictSchema: false,
+  strictTypes: false,
+  strictRequired: false,
+  strictTuples: false,
+  allowUnionTypes: true,
+  allowMatchingProperties: true,
+  ownProperties: true,
+  coerceTypes: false,
+  useDefaults: false,
+  removeAdditional: false,
+  validateFormats: true,
+  logger: false,
+  // Ajv's optimization pass only tidies the generated code: the validator accepts and
+  // reports exactly the same. It took about a third of compiling a schema, and a
+  // generator runs its validator only a few times per build.
+  code: { optimize: false },
+} as const;
+const validatorOptionsText = JSON.stringify(validatorOptions);
 /** A validator and the supplied references it resolves, for one dialect and set of extensions. */
 interface ValidatorContext {
   readonly validator: Validator;
@@ -162,31 +195,17 @@ function createValidatorContext(
   annotations: ReadonlyArray<string>,
   customFormats: NonNullable<JsonSchemaOptions['formats']>,
   references: Readonly<Record<string, JsonSchema>>,
-  shared: boolean
+  shared: boolean,
+  keepSource: boolean
 ): ValidatorContext {
   const validator = new (selected === 'draft-07'
     ? Ajv
     : selected === 'draft-2019-09'
       ? Ajv2019
       : Ajv2020)({
-    allErrors: true,
-    strict: true,
-    strictSchema: false,
-    strictTypes: false,
-    strictRequired: false,
-    strictTuples: false,
-    allowUnionTypes: true,
-    allowMatchingProperties: true,
-    ownProperties: true,
-    coerceTypes: false,
-    useDefaults: false,
-    removeAdditional: false,
-    validateFormats: true,
-    logger: false,
-    // Ajv's optimization pass only tidies the generated code: the validator accepts and
-    // reports exactly the same. It took about a third of compiling a schema, and a
-    // generator runs its validator only a few times per build.
-    code: { optimize: false },
+    ...validatorOptions,
+    // Keeps the generated code on each validator, which standalone code is built from.
+    code: { ...validatorOptions.code, source: keepSource },
   }) as Validator;
   // ajv-formats is CommonJS; NodeNext represents its default through the module type.
   const addFormats = formatsModule as unknown as (instance: Ajv) => void;
@@ -396,15 +415,16 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
   const store = generatorStore();
   const sourceText = exactJson(source);
   const referencesText = exactJson(references);
-  const shareable =
-    store.prepared.limit > 0 &&
+  // Validators without callbacks can be shared in memory and kept on disk.
+  const cacheable =
     Object.keys(keywords).length === 0 &&
     Object.keys(customFormats).length === 0 &&
     sourceText !== undefined &&
     referencesText !== undefined;
-  const contextKey = shareable
+  const contextText = cacheable
     ? `${JSON.stringify([selected, maximum, annotations])}\n${referencesText}`
     : undefined;
+  const contextKey = store.prepared.limit > 0 ? contextText : undefined;
   const preparedKey =
     contextKey === undefined
       ? undefined
@@ -414,13 +434,47 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
           options.formatsIdentity ?? '',
           options.extensionIdentity ?? '',
         ])}\n${contextKey}\n${sourceText}`;
-  const prepareGeneration = (): Prepared => {
-    // A schema that declares an `$id` would register it in a shared validator.
-    const sharedValidator =
-      contextKey !== undefined && sourceText !== undefined && !sourceText.includes('"$id"');
-    let context = sharedValidator
-      ? (store.validators.get(contextKey) as ValidatorContext | undefined)
-      : undefined;
+  /**
+   * The compiled validator and what preparation derives from the validator instance: from the
+   * disk cache when it holds this validator, otherwise compiled (and then stored there).
+   */
+  const prepareValidator = () => {
+    const disk = contextText === undefined ? undefined : store.disk.cache;
+    // Everything that changes the compiled code or the derived data; disk.ts adds versions.
+    const diskKey = disk?.digest(
+      `${validatorOptionsText}\n${JSON.stringify([
+        options.formatsIdentity ?? '',
+        options.extensionIdentity ?? '',
+      ])}\n${contextText}\n${sourceText}`
+    );
+    const stored = disk && diskKey !== undefined ? disk.read(diskKey) : undefined;
+    if (stored && stored.references.every((uri) => Object.hasOwn(references, uri))) {
+      // The entry was written after this same preparation succeeded, so the steps that need a
+      // validator instance (extension names, meta-schema checks) passed for this input.
+      const knownFormats = new Set(stored.formats);
+      const extensions = new Set(annotations);
+      return {
+        compiled: stored.validate as CompiledValidator,
+        sampling: prepare(source, selected, maximum, knownFormats, extensions),
+        normalizedReferences: new Map(
+          stored.references.map((uri) => [
+            uri,
+            prepare(references[uri] as JsonSchema, selected, maximum, knownFormats, extensions),
+          ])
+        ),
+      };
+    }
+    const keepSource = diskKey !== undefined;
+    // A schema that declares an `$id` would register it in a shared validator. Validators that
+    // keep their source for the disk cache are shared apart from those that do not.
+    const validatorKey =
+      contextKey !== undefined && sourceText !== undefined && !sourceText.includes('"$id"')
+        ? `${keepSource ? 'source\n' : ''}${contextKey}`
+        : undefined;
+    let context =
+      validatorKey === undefined
+        ? undefined
+        : (store.validators.get(validatorKey) as ValidatorContext | undefined);
     if (!context) {
       context = createValidatorContext(
         selected,
@@ -429,10 +483,11 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
         annotations,
         customFormats,
         references,
-        sharedValidator
+        validatorKey !== undefined,
+        keepSource
       );
-      if (sharedValidator) {
-        store.validators.set(contextKey, context);
+      if (validatorKey !== undefined) {
+        store.validators.set(validatorKey, context);
       }
     }
     const sampling = prepare(source, selected, maximum, context.knownFormats, context.extensions);
@@ -443,13 +498,23 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
       // Ajv keeps every schema it compiled, even after removeSchema(), and each compiled
       // function keeps its validator alive. Retiring a shared validator after a fixed number
       // of schemas bounds what one cached generator can keep alive.
-      if (sharedValidator && ++context.compiled >= schemasPerValidator) {
-        store.validators.delete(contextKey);
+      if (validatorKey !== undefined && ++context.compiled >= schemasPerValidator) {
+        store.validators.delete(validatorKey);
       }
     }
+    if (disk && diskKey !== undefined) {
+      const instance = context.validator;
+      disk.write(diskKey, [...context.knownFormats], [...context.normalizedReferences.keys()], () =>
+        standaloneCode(instance, compiled)
+      );
+    }
+    return { compiled, sampling, normalizedReferences: context.normalizedReferences };
+  };
+  const prepareGeneration = (): Prepared => {
+    const { compiled, sampling, normalizedReferences } = prepareValidator();
     const realistic =
       profile === 'realistic' && !provider
-        ? realisticHints(sampling, context.normalizedReferences, maximum)
+        ? realisticHints(sampling, normalizedReferences, maximum)
         : undefined;
     const usesDateTime = `${sourceText ?? JSON.stringify(source)}\n${
       referencesText ?? JSON.stringify(references)
@@ -476,7 +541,7 @@ export function jsonSchemaAdapter(schema: JsonSchema, options: JsonSchemaOptions
     });
     return Object.freeze({
       sampling,
-      normalizedReferences: context.normalizedReferences,
+      normalizedReferences,
       compiled,
       realistic,
       identity,

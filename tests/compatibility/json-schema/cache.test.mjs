@@ -77,7 +77,7 @@ console.log(JSON.stringify(configureGeneratorCache()));`;
     });
     assert.throws(
       () => child(read, { MIMLET_GENERATOR_CACHE: 'many' }),
-      /MIMLET_GENERATOR_CACHE must be off or a number of prepared generators/
+      /MIMLET_GENERATOR_CACHE must be off, disk or a number of prepared generators/
     );
   });
 

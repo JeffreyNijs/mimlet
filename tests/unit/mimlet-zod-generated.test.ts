@@ -1,23 +1,32 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, expectTypeOf, it } from 'vitest';
 import type * as z from 'zod/v4/core';
 import * as api from './fixtures/zod-crm.gen.js';
-import { fromZod, fromZodAsync, zodAdapter } from '../../packages/zod/src/index.js';
+import {
+  clearGeneratorCache,
+  configureGeneratorCache,
+  fromZod,
+  fromZodAsync,
+  zodAdapter,
+} from '../../packages/zod/src/index.js';
 import type { ZodOptions } from '../../packages/zod/src/index.js';
 
 const all = Object.entries(api) as [string, z.$ZodType][];
-const representable = all.filter(([, schema]) => schema._zod.def.type !== 'void');
-// Hey API exports one constant per operation, often an alias of a component schema.
-const distinct = representable.filter(
-  ([, schema], index) => representable.findIndex(([, other]) => other === schema) === index
-);
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 
-// Recorded before generation became lazy and shared between builders: the generator
-// identity of each schema and a digest of the values its builders produce. Neither may
-// change when the expensive preparation moves.
-it('generates the same values and identities for a generated API', async () => {
+/** The generator identity of each schema and a digest of the values its builders produce. */
+async function digests(module: typeof api): Promise<Record<string, string>> {
+  const representable = (Object.entries(module) as [string, z.$ZodType][]).filter(
+    ([, schema]) => schema._zod.def.type !== 'void'
+  );
+  // Hey API exports one constant per operation, often an alias of a component schema.
+  const distinct = representable.filter(
+    ([, schema], index) => representable.findIndex(([, other]) => other === schema) === index
+  );
   const values: Record<string, string> = {};
   for (const [name, schema] of distinct) {
     const builder = fromZod(schema);
@@ -41,7 +50,7 @@ it('generates the same values and identities for a generated API', async () => {
     'zValidationErrorResponse',
     'zCreateLeadRequest',
   ] as const) {
-    const schema = api[name];
+    const schema = module[name];
     for (const [label, options] of variants) {
       const generation = zodAdapter(schema, options).generation();
       const { fingerprint, configuration } = generation.identity;
@@ -52,8 +61,47 @@ it('generates the same values and identities for a generated API', async () => {
       ])}`;
     }
   }
-  expect(values).toMatchSnapshot();
+  return values;
+}
+
+// Recorded before generation became lazy and shared between builders. Neither the values nor
+// the identities may change when the expensive preparation moves.
+it('generates the same values and identities for a generated API', async () => {
+  expect(await digests(api)).toMatchSnapshot();
 });
+
+it(
+  'generates the same values and identities with the generator disk cache, cold and warm',
+  { timeout: 120_000 },
+  async () => {
+    const expected = await digests(api);
+    const directory = mkdtempSync(join(tmpdir(), 'mimlet-zod-disk-'));
+    // The module evaluated again: new schema objects with equal content, as in a new worker.
+    const fresh = (copy: string) =>
+      import(/* @vite-ignore */ `./fixtures/zod-crm.gen.js?${copy}`) as Promise<typeof api>;
+    try {
+      configureGeneratorCache({ disk: { directory } });
+      clearGeneratorCache();
+      expect(await digests(await fresh('cold'))).toEqual(expected);
+      // Every distinct validator was compiled and written once; the other profiles of a schema
+      // loaded it.
+      const cold = configureGeneratorCache().disk!;
+      const written = readdirSync(directory).filter((name) => name.endsWith('.entry')).length;
+      expect(cold.misses).toBe(written);
+      clearGeneratorCache();
+      expect(await digests(await fresh('warm'))).toEqual(expected);
+      const lookups = cold.hits + cold.misses;
+      expect(configureGeneratorCache().disk).toMatchObject({
+        hits: cold.hits + lookups,
+        misses: written,
+      });
+    } finally {
+      configureGeneratorCache({ disk: false });
+      clearGeneratorCache();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+);
 
 it('builds the empty responses and shares generators between operation aliases', () => {
   const empty = all.filter(([, schema]) => schema._zod.def.type === 'void');

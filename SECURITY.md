@@ -60,6 +60,16 @@ file, not an entire-directory transaction. Generation requires exclusive access
 to its output directory; hostile filesystem races and concurrent writers are not
 supported. Never edit the ownership manifest as a workaround for failed checks.
 
+The JSON Schema engine's generator disk cache is off unless `MIMLET_GENERATOR_CACHE=disk`,
+`MIMLET_GENERATOR_CACHE_DIR` or `configureGeneratorCache({ disk })` turns it on, and it
+is never used in browsers. A cache hit runs validator code read from that directory. Only
+entries signed with the HMAC key in the directory's own `key` file (mode 600, checked on
+Linux and macOS) are run, and they can load only Ajv's runtime helpers. Anyone who can
+write files there as you, or read that key, can still run code in your test process, as
+with `node_modules`. Keep the directory inside the project or in a private directory, and
+do not share it between users. See the
+[disk cache](packages/json-schema/README.md#disk-cache-for-compiled-validators).
+
 ## Dependencies and releases
 
 CI records and audits the production dependency graph, checks changed dependencies,

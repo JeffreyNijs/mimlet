@@ -313,14 +313,26 @@ identities and errors are unchanged; see
 [preparation cost](../json-schema/README.md#preparation-cost).
 In a Vitest project with 14 spec files that each import a module of 80 Hey API Zod
 schemas and validate 10 builds of 5 of them, this cut the summed test time from
-1.9 s to 1.2 s and the run from 0.76 s to 0.66 s (0.44 s without Mimlet). Compiled
-validators are not cached on disk, so every worker still compiles the schemas it
-builds.
+1.9 s to 1.2 s and the run from 0.76 s to 0.66 s (0.44 s without Mimlet).
+
+An opt-in disk cache skips the compile step in later runs: set
+`MIMLET_GENERATOR_CACHE=disk` for the test run, or call
+`configureGeneratorCache({ disk: true })` (exported by `@mimlet/zod` too) in a setup
+file. Each worker then loads the validators that an earlier run compiled from
+`node_modules/.cache/mimlet`. Zod's conversion, the first generation and Zod's own
+parse still run in every worker, so the gain is modest: in a project like the one
+above, a warm cache cut the summed test time by about a third (0.76 s to 0.50 s) but
+the wall time by only 5% (0.62 s to 0.59 s; 0.45 s without Mimlet). Values, replay
+identities and errors are the same with the cache on or off. Loading a cached
+validator runs code from that directory; see the
+[disk cache](../json-schema/README.md#disk-cache-for-compiled-validators) for its key,
+bounds, integrity checks and trust model.
 
 With `isolate: false`, Vitest keeps modules between the files that run in one
 worker, so their builders and generators are reused; use it only where your tests do
 not depend on fresh module state. `node scripts/benchmark-zod.ts` in the repository
-measures both cases.
+measures both cases, and `node scripts/benchmark-zod-vitest.ts` runs a Vitest project
+with and without the disk cache.
 
 ## Generated Hey API schemas
 

@@ -180,10 +180,13 @@ process keeps prepared generators and reuses one for equal content:
   child process, browser frame or `vm` context has its own `globalThis` and starts
   empty; Vitest's default isolation runs each spec file in a new worker.
 - **Off switch.** `MIMLET_GENERATOR_CACHE=off` (or `0`) turns sharing off, and a number
-  sets the limit; the variable is read when the store is first used.
+  sets the limit; the variable is read when the store is first used. `disk` keeps the
+  default limit and also turns on the
+  [disk cache](#disk-cache-for-compiled-validators).
   `configureGeneratorCache({ maxEntries })` does the same at runtime, also in a
-  browser, and returns `{ maxEntries, entries }`; `clearGeneratorCache()` drops
-  everything kept. With sharing off, every adapter prepares its own validator.
+  browser, and returns `{ maxEntries, entries }`, plus `disk` while the disk cache is
+  on; `clearGeneratorCache()` drops everything kept in memory. With sharing off, every
+  adapter prepares its own validator.
 
 Generated values, sessions, replay identities and validation issues are the same with
 sharing on or off.
@@ -209,10 +212,76 @@ uses again. Two steps keep that short without changing any result:
 For five generated API response schemas in a new process, the first validated builds
 went from about 62 ms to 42 ms on an Apple M5.
 
-Compiled validators are not cached on disk. Such a cache could skip most of the
-remaining compile time in a new worker, but it would run code read back from the
-file system, and it needs a safe location, invalidation by content and version,
-concurrent writers and a way to stay out of browsers. That is not done for now.
+## Disk cache for compiled validators
+
+Off by default, Node only. With the disk cache on, a new process or Vitest worker
+loads a validator that an earlier run compiled instead of compiling it again:
+
+```sh
+# node_modules/.cache/mimlet in the project
+MIMLET_GENERATOR_CACHE=disk vitest run
+# or a directory you choose (relative to the working directory)
+MIMLET_GENERATOR_CACHE_DIR=.cache/mimlet vitest run
+```
+
+`configureGeneratorCache({ disk: true })` does the same in code, for example in a Vitest
+setup file, and `{ disk: { directory, maxEntries, maxBytes } }` sets the directory and
+bounds; `{ disk: false }` turns it off. `configureGeneratorCache().disk` then reports
+the directory, the bounds, and how many validators this process loaded (`hits`) or
+compiled (`misses`). It is absent while the cache is off or cannot be used.
+
+- **What is stored.** Ajv's standalone code for each compiled validator, plus the
+  format names and supplied references it was prepared with. Everything else still
+  runs in every process: converting a Zod or other schema to JSON Schema, copying and
+  checking the schema, the replay identity and the generator's first run.
+- **Key.** The SHA-256 of the exact JSON text of the schema and the `references` map,
+  the dialect, the limits, `annotations`, `formatsIdentity`, `extensionIdentity`, Ajv's
+  options, and the versions of this package, Ajv, ajv-formats and the Node major
+  version. A new version of any of them writes new entries. Profiles share an entry.
+  Adapters with custom `keywords` or `formats`, and schemas with a negative zero, are
+  never stored.
+- **Location.** `node_modules/.cache/mimlet` in the working directory, or in the
+  nearest directory above it, that has a `package.json`. Without one, the cache is not
+  used and Node prints a warning; it never picks a directory outside the project. An
+  explicit directory is used as given.
+- **Integrity.** Each entry is signed with an HMAC (SHA-256) under a random key in the
+  directory's `key` file, created with mode 600. Only signed entries are run, and their
+  code may load only Ajv's runtime helpers and ajv-formats' formats. A missing, partial,
+  corrupt or unsigned entry counts as a miss: the validator is compiled as without the
+  cache and the entry is written again. On Linux and macOS, a key file that is not a
+  regular file of the current user, or that others can read, turns the cache off for
+  the process with a warning.
+- **Concurrent workers.** Entries are written to a temporary file and renamed into
+  place, so a reader sees a whole entry or none. Workers that miss at the same time
+  write the same entry; any file system error falls back to compiling in memory.
+- **Bounds.** At most 2000 entries and 128 MiB by default. After a process writes
+  its first entry, and after every 64 more, the least recently used entries (by
+  modification time, which a hit updates) are removed until both bounds hold, and so
+  are temporary files left by a stopped writer. Only files the cache names are removed.
+- **Not in browsers.** Node's `fs` is reached through `process.getBuiltinModule()` when
+  the cache is turned on, so browser bundles never load it, and there it stays off.
+  Nothing is fetched from the network.
+
+Generated values, sessions, replay identities and validation issues are the same with
+the cache on or off, cold or warm.
+
+**Trust.** A hit runs code read from the cache directory, as Ajv runs the code it
+compiles. Anyone who can write files there as you, or read your `key` file, can make
+your test process run their code, which is the same trust you give `node_modules`.
+Keep the directory inside the project or in a private directory of your own; do not
+point it at a shared or world-writable location such as `/tmp`, or share it between
+users. On Windows the mode checks do not apply and the directory's access control
+decides who can write it. Delete the directory to clear the cache.
+
+**When it helps.** It skips the compile step only, so it helps suites that start many
+processes and build the same schemas in each, such as Vitest with its default
+isolation, run repeatedly on one machine. CI gains only on runs that restore the
+directory from an earlier run, and the first run pays for writing it. In a Vitest
+project with 14 spec files that each build five of 80 generated Zod schemas, on an
+Apple M5, a warm cache cut the summed test time by about a third (0.76 s to 0.50 s)
+but the wall time by only 5% (0.62 s to 0.59 s; 0.45 s without Mimlet). With 56 such
+spec files the wall time went from 2.02 s to 1.88 s (7%). See the
+[start-up cost of Zod builders](../zod/README.md#start-up-cost-in-test-runners).
 
 ## References and trust boundary
 

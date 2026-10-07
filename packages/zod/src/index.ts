@@ -21,6 +21,15 @@ import type {
 } from '@mimlet/core';
 import { jsonSchemaAdapter, SchemaPreparationError } from '@mimlet/json-schema';
 import type { JsonSchema, JsonSchemaOptions } from '@mimlet/json-schema';
+// The shared generator cache of the JSON Schema engine, so a Zod suite can configure it (for
+// example the disk cache in a Vitest setup file) without installing that package itself.
+export { clearGeneratorCache, configureGeneratorCache } from '@mimlet/json-schema';
+export type {
+  GeneratorCacheOptions,
+  GeneratorCacheState,
+  GeneratorDiskCacheOptions,
+  GeneratorDiskCacheState,
+} from '@mimlet/json-schema';
 
 export interface ZodOptions extends JsonSchemaOptions {
   /** Native error customization, input reporting and JIT policy. */

@@ -73,6 +73,44 @@ assignable to type 'Status'`), because the Zod schemas use string literals. Use
 `enums: 'javascript'`, or type the transformer from the schema with
 `z.output<typeof zSchema>`. See [generated Hey API schemas](../packages/zod/README.md#generated-hey-api-schemas).
 
+## Speed up Vitest suites
+
+With Vitest's default isolation, every spec file runs in a new worker, and each worker
+converts and compiles the schemas its tests build. What you can do about that cost:
+
+- Create builders at module load freely, for example one per generated schema in a
+  shared support module. Only the schemas a file builds are converted and compiled.
+- Build fewer distinct schemas per spec file where a test does not need them.
+- For suites you run often on one machine, turn on the disk cache. Each worker then
+  loads the validators that an earlier run compiled instead of compiling them again:
+
+  ```ts
+  // vitest.config.ts
+  import { defineConfig } from 'vitest/config';
+
+  export default defineConfig({
+    test: { env: { MIMLET_GENERATOR_CACHE: 'disk' } },
+  });
+  ```
+
+  Entries go to `node_modules/.cache/mimlet`. `configureGeneratorCache({ disk: true })`
+  from `@mimlet/zod` does the same in a setup file.
+
+Expect a modest gain from the disk cache. It removes the compile step only; importing
+Mimlet, Zod's conversion, the first generation and Zod's parse still run in every worker.
+In a 14-file project that builds five of 80 generated Zod schemas per file, a warm cache
+cut the summed test time by about a third but the wall time by only 5% (7% with 56 such
+files).
+
+Use it for local runs and watch mode of larger suites, or on CI when you restore
+`node_modules/.cache/mimlet` between runs. Skip it for small suites, with
+`isolate: false` (workers then already reuse prepared generators), and on CI without a
+restored directory, where every run starts cold and only pays for writing. A cached
+validator is code that the test process runs, so keep the directory inside the project
+and never share it with other users. See the
+[disk cache](../packages/json-schema/README.md#disk-cache-for-compiled-validators) for the key,
+bounds and checks.
+
 ## ArkType: preserve morphs and scopes
 
 <!-- recipe:arktype -->

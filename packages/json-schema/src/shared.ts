@@ -14,6 +14,9 @@
  * preparations without callbacks (custom keywords or formats) are shared.
  */
 import { packageVersion } from './version.js';
+import { createDiskCache, type DiskCache, type GeneratorDiskCacheOptions } from './disk.js';
+import type { GeneratorDiskCacheState } from './disk.js';
+export type { GeneratorDiskCacheOptions, GeneratorDiskCacheState } from './disk.js';
 
 /** Bump when the registry's shape changes. Stores inside it are keyed by package version. */
 const registryKey = Symbol.for('mimlet.generators.v1');
@@ -23,6 +26,7 @@ export const defaultGeneratorCacheEntries = 256;
 /** Shared validator instances, one per dialect, limits, annotations and reference set. */
 const validatorContexts = 16;
 const environmentVariable = 'MIMLET_GENERATOR_CACHE';
+const directoryVariable = 'MIMLET_GENERATOR_CACHE_DIR';
 
 /** A bounded map that drops its least recently used entry first. */
 export class LeastRecentlyUsed<V> {
@@ -77,6 +81,8 @@ export class LeastRecentlyUsed<V> {
 export interface GeneratorStore {
   readonly prepared: LeastRecentlyUsed<object>;
   readonly validators: LeastRecentlyUsed<object>;
+  /** The configured disk cache, if any; see `disk.ts`. */
+  readonly disk: { cache: DiskCache | undefined };
 }
 
 export interface GeneratorCacheOptions {
@@ -86,10 +92,19 @@ export interface GeneratorCacheOptions {
    * validator, as before this cache existed.
    */
   readonly maxEntries?: number;
+  /**
+   * Keep compiled validators on disk, so a new process or test worker loads them instead of
+   * compiling them again. Off by default, and only in Node. `true` uses
+   * `node_modules/.cache/mimlet` in the nearest directory with a `package.json`; settings
+   * choose the directory and its bounds; `false` turns it off.
+   */
+  readonly disk?: boolean | GeneratorDiskCacheOptions;
 }
 export interface GeneratorCacheState {
   readonly maxEntries: number;
   readonly entries: number;
+  /** Present while a disk cache is configured and usable in this process. */
+  readonly disk?: GeneratorDiskCacheState;
 }
 
 /** A limit from the option (a number) or the environment variable (text, or `off`). */
@@ -98,39 +113,54 @@ function entryLimit(value: unknown, source: string): number {
   if (typeof value === 'string' && source === environmentVariable) {
     limit = /^\s*(?:off|false)\s*$/i.test(value)
       ? 0
-      : /^\s*\d{1,7}\s*$/.test(value)
-        ? Number(value)
-        : value;
+      : /^\s*disk\s*$/i.test(value)
+        ? defaultGeneratorCacheEntries
+        : /^\s*\d{1,7}\s*$/.test(value)
+          ? Number(value)
+          : value;
   }
   if (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < 0 || limit > 1_000_000) {
     throw new RangeError(
-      `${source} must be ${source === environmentVariable ? 'off or ' : ''}a number of prepared generators from 0 to 1000000`
+      `${source} must be ${source === environmentVariable ? 'off, disk or ' : ''}a number of prepared generators from 0 to 1000000`
     );
   }
   return limit;
 }
 
-/** The variable is read when the store is created; browsers have no `process` and use the default. */
-function configuredLimit(): number {
+/**
+ * The variables are read when the store is created; browsers have no `process` and use the
+ * defaults. `MIMLET_GENERATOR_CACHE=disk` turns the disk cache on in its default directory,
+ * and `MIMLET_GENERATOR_CACHE_DIR` turns it on in that directory.
+ */
+function createStore(): GeneratorStore {
   const environment = (
     globalThis as { readonly process?: { readonly env?: Record<string, string | undefined> } }
   ).process?.env;
   const value = environment?.[environmentVariable];
-  return value === undefined || value === ''
-    ? defaultGeneratorCacheEntries
-    : entryLimit(value, environmentVariable);
-}
-
-function createStore(): GeneratorStore {
+  const limit =
+    value === undefined || value === ''
+      ? defaultGeneratorCacheEntries
+      : entryLimit(value, environmentVariable);
+  const directory = environment?.[directoryVariable];
+  const disk =
+    directory !== undefined && directory.trim() !== ''
+      ? { directory }
+      : value !== undefined && /^\s*disk\s*$/i.test(value);
   return Object.freeze({
-    prepared: new LeastRecentlyUsed<object>(configuredLimit()),
+    prepared: new LeastRecentlyUsed<object>(limit),
     validators: new LeastRecentlyUsed<object>(validatorContexts),
+    disk: { cache: createDiskCache(disk) },
   });
 }
 
 function isStore(value: unknown): value is GeneratorStore {
   const store = value as Partial<GeneratorStore> | null | undefined;
-  return typeof store?.prepared?.get === 'function' && typeof store?.validators?.get === 'function';
+  return (
+    typeof store?.prepared?.get === 'function' &&
+    typeof store?.validators?.get === 'function' &&
+    typeof store?.disk === 'object' &&
+    store.disk !== null
+  );
 }
 
 let local: GeneratorStore | undefined;
@@ -169,23 +199,37 @@ export function generatorStore(): GeneratorStore {
 }
 
 /**
- * Read or change how many prepared generators this process keeps. The setting applies to every
- * copy of this package version in the same realm. The `MIMLET_GENERATOR_CACHE` environment
- * variable sets the starting value: `off` or `0` turns sharing off, a number sets the limit.
+ * Read or change how many prepared generators this process keeps, and whether compiled
+ * validators are kept on disk. The settings apply to every copy of this package version in the
+ * same realm. The `MIMLET_GENERATOR_CACHE` environment variable sets the starting value: `off`
+ * or `0` turns sharing off, a number sets the limit, and `disk` also turns the disk cache on.
+ * `MIMLET_GENERATOR_CACHE_DIR` turns the disk cache on in that directory.
  */
 export function configureGeneratorCache(options: GeneratorCacheOptions = {}): GeneratorCacheState {
   const store = generatorStore();
-  if (options.maxEntries !== undefined) {
-    const limit = entryLimit(options.maxEntries, 'maxEntries');
+  const limit =
+    options.maxEntries === undefined ? undefined : entryLimit(options.maxEntries, 'maxEntries');
+  if (options.disk !== undefined) {
+    store.disk.cache = createDiskCache(options.disk);
+  }
+  if (limit !== undefined) {
     store.prepared.limit = limit;
     if (limit === 0) {
       store.validators.clear();
     }
   }
-  return { maxEntries: store.prepared.limit, entries: store.prepared.size };
+  const disk = store.disk.cache;
+  return {
+    maxEntries: store.prepared.limit,
+    entries: store.prepared.size,
+    ...(disk?.usable ? { disk: disk.state() } : {}),
+  };
 }
 
-/** Drop every prepared generator and shared validator this package version keeps. */
+/**
+ * Drop every prepared generator and shared validator this package version keeps in memory.
+ * The disk cache keeps its entries; delete its directory to clear it.
+ */
 export function clearGeneratorCache(): void {
   const store = generatorStore();
   store.prepared.clear();

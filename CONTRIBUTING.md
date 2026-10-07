@@ -50,6 +50,10 @@ generated API in `tests/unit/fixtures/zod-crm.gen.ts`: import, a builder per sch
 at module load and a few first builds, each sample in a fresh process. It also imports
 the fixture again in the same process, as a runner that evaluates modules again in one
 realm does. Pass the path of another build of `@mimlet/zod` to compare two versions.
+`node scripts/benchmark-zod-vitest.ts [rounds] [spec files]` runs a temporary Vitest
+project over the same fixture with Vitest's default isolation, interleaving runs without
+Mimlet, with Mimlet, and with a cold and a warm generator disk cache, and reports median
+wall and summed test times. Run `pnpm build` first.
 
 TypeScript expected-error assertions are real tests: an unused expectation fails
 compilation. Test both inference and the absence of `any`/`never` degradation.
