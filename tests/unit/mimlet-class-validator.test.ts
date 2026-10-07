@@ -176,7 +176,11 @@ const classValidatorSource = fileURLToPath(
  * sources of both packages, so a test can assert the exact text a user sees.
  */
 function diagnose(source: string): string[] {
-  const file = fileURLToPath(new URL('./class-validator-diagnostics.virtual.ts', import.meta.url));
+  // The compiler names files with forward slashes on every platform, also on Windows.
+  const file = fileURLToPath(
+    new URL('./class-validator-diagnostics.virtual.ts', import.meta.url)
+  ).replaceAll('\\', '/');
+  const isFile = (name: string) => name.replaceAll('\\', '/') === file;
   const options: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
@@ -194,9 +198,9 @@ function diagnose(source: string): string[] {
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);
   const fileExists = host.fileExists.bind(host);
-  host.fileExists = (name) => name === file || fileExists(name);
+  host.fileExists = (name) => isFile(name) || fileExists(name);
   host.getSourceFile = (name, language, ...rest) =>
-    name === file
+    isFile(name)
       ? ts.createSourceFile(name, source, language)
       : getSourceFile(name, language, ...rest);
   const program = ts.createProgram([file], options, host);
@@ -416,7 +420,7 @@ describe('keys the payload does not have', () => {
         fromClassValidator(ViewLeadIndexQuery, () => ({ nmae: 'x' }));
       `);
     const never = `Type 'string' is not assignable to type '"sort is typed never in the class and cannot be set"'.`;
-    expect(messages).toHaveLength(6);
+    expect(messages, messages.join('\n')).toHaveLength(6);
     for (const message of messages.slice(0, 5)) {
       expect(message).toContain(never);
     }
