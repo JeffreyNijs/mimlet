@@ -66,6 +66,32 @@ the TypeScript 7 job, install `typescript@7.0.2` outside the workspace, point
 consumer files are checked with TypeScript 7. `node scripts/validate-package.mjs --typescript-7`
 runs the Hey API consumer with TypeScript 6 beside TypeScript 7.
 
+## Trying changes in a project
+
+Try fixes in a real project before releasing them, so one release carries a whole
+round of fixes:
+
+```sh
+pnpm trial:local ../my-api ../my-web
+pnpm trial:local --restore ../my-api ../my-web
+```
+
+The first command builds the workspace, packs every package into `.local-trial/` and
+installs the archives into each project. Run it again after each change; it keeps the
+last three packs. The archives are packed like `release:prepare` packs them, without its
+extra checks, so from the same source they are byte-identical to the published release.
+
+- pnpm projects get a marked `overrides` block in `pnpm-workspace.yaml` that points every
+  package at its archive, so dependencies between packages resolve locally too. Commit
+  or discard any `pnpm-lock.yaml` changes first: `--restore` removes the block and resets
+  `pnpm-lock.yaml` to the last commit.
+- npm projects get the archives with `npm install --no-save`, so `package.json` and
+  `package-lock.json` do not change. `--restore` runs `npm ci`.
+
+Do not commit a project while a local trial is installed. The local loop only covers
+Node on your machine: Windows, Bun, Deno, browsers and the TypeScript version matrix
+run in CI on the pull request.
+
 ## New adapters and providers
 
 Declare the original schema, standards handle, actual capabilities and limitations

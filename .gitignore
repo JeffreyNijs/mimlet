@@ -204,6 +204,7 @@ coverage-report.md
 test-results/
 release/
 .toolkit-release-*/
+.local-trial/
 
 # Workspace task cache
 .turbo/

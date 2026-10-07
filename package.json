@@ -86,6 +86,7 @@
     "validate": "pnpm check && pnpm test:package",
     "pack:check": "node scripts/pack-workspace.mjs --check",
     "release:prepare": "node scripts/pack-workspace.mjs",
+    "trial:local": "node scripts/local-trial.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-runtime-versions.mjs",
     "test:runtimes": "node scripts/test-runtimes.mjs",
