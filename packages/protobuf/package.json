@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@mimlet/core": "0.1.0-beta.8",
-    "protobufjs": "8.8.0"
+    "protobufjs": "8.8.1"
   },
   "engines": {
     "node": ">=22.18.0"
