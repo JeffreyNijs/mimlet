@@ -312,8 +312,8 @@ importers:
         specifier: 3.0.1
         version: 3.0.1(ajv@8.20.0)
       json-schema-faker:
-        specifier: 0.6.3
-        version: 0.6.3
+        specifier: 0.6.4
+        version: 0.6.4
 
   packages/playground:
     dependencies:
@@ -2148,8 +2148,8 @@ packages:
     resolution: {integrity: sha512-m+aqu+LwO1O6sIopafj8HUVl5aawITwZQe/yHpMCKjaWBaA/d07B/QdMb3529REftiU+RMMHL3Vlsw3hON7vWg==}
     hasBin: true
 
-  json-schema-faker@0.6.3:
-    resolution: {integrity: sha512-rsH48E/b5KFpgvKlcFjplB+zwOZk2FhYCQwcM6y09ApZkVl3D7PhcRIrDhpfR+w1AhNOrv0bumJElBz4X++KBA==}
+  json-schema-faker@0.6.4:
+    resolution: {integrity: sha512-wffgXi/0Fv9wfNRFMsS5pe6vnABDFPDe4w2Y2uoS0ldvPS8+uTWpIlJ1Unzm3uh3VpH17O5Jj7hvO0gXkhcV+Q==}
     hasBin: true
 
   json-schema-to-typescript@16.0.0:
@@ -4754,7 +4754,7 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
-  json-schema-faker@0.6.3: {}
+  json-schema-faker@0.6.4: {}
 
   json-schema-to-typescript@16.0.0:
     dependencies:

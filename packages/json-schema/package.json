@@ -37,7 +37,7 @@
     "@mimlet/core": "0.1.0-beta.8",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "json-schema-faker": "0.6.3"
+    "json-schema-faker": "0.6.4"
   },
   "engines": {
     "node": ">=22.18.0"
